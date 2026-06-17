@@ -1,92 +1,96 @@
 name: release
 
-# Dogfood (ADR-0009): on a version tag, ArtifactX builds, packages, and publishes
-# *itself* to a signed apt + yum repository hosted on GitHub Pages.
-#
-# Maintainer setup (once):
-#   - enable GitHub Pages (Settings → Pages → "GitHub Actions")
-#   - add secrets:  ARX_SIGNING_KEY  (armored private key, e.g. cat keys/private.asc)
-#                   ARX_KEY_PASSPHRASE  (if the key is encrypted; else leave empty)
-
 on:
-  push:
-    tags: ['v*']
+  push: { tags: ['v*'] }
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools clang
 
-      - name: Build arx (static)
-        run: cargo build --release --target x86_64-unknown-linux-musl -p artifactx
+      - name: Install zigbuild
+        run: cargo install cargo-zigbuild
 
-      - name: Stage binary + version from tag
+      - name: Build static binaries (all arches)
         run: |
-          mkdir -p build
-          cp target/x86_64-unknown-linux-musl/release/arx build/arx
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ -n "$VERSION" ] && sed -i "s/^version = .*/version = \"$VERSION\"/" packaging/arx.toml
+          cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
+          cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
+          cp target/x86_64-unknown-linux-musl/release/arx arx-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-arm64
+          ls -la arx-*
 
-      - name: Package arx (.deb + .rpm)
-        run: ./build/arx pack packaging/arx.toml --out dist
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: arx-amd64,arx-arm64
+          body: |
+            ## ArtifactX ${{ github.ref_name }}
+            **Build Once. Package Once. Publish Everywhere.**
+            ```bash
+            # Download + install
+            curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/${{ github.ref_name }}/arx-amd64
+            sudo install -m 755 arx-amd64 /usr/local/bin/arx
+            # 5-minute flow
+            arx init && arx pack ./Cargo.toml && arx publish && arx serve
+            ```
+            Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/artifactx-rs/arx:${{ github.ref_name }} serve`
+          generate_release_notes: true
 
-      - name: Build the signed repository
-        env:
-          ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
+      - name: GHCR login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: GHCR multi-arch image
         run: |
-          ARX=./build/arx
-          $ARX init public --no-key
-          printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/arx-key.asc
-          $ARX key import /tmp/arx-key.asc --root public
-          $ARX add dist/*.deb dist/*.rpm --root public
-          $ARX publish --root public
-          # publish the public key at a stable top-level path too
-          cp public/keys/public.asc public/public.asc
-          # a tiny landing page with install instructions
-          cat > public/index.html <<'HTML'
-          <!doctype html><meta charset=utf-8><title>ArtifactX repo</title>
-          <h1>Install arx</h1>
-          <h2>Debian / Ubuntu</h2>
-          <pre>sudo curl -fsSL THIS_URL/public.asc -o /etc/apt/keyrings/arx.asc
-          echo "deb [signed-by=/etc/apt/keyrings/arx.asc] THIS_URL/apt stable main" | sudo tee /etc/apt/sources.list.d/arx.list
-          sudo apt-get update &amp;&amp; sudo apt-get install arx</pre>
-          <h2>Fedora / RHEL / Rocky</h2>
-          <pre>sudo tee /etc/yum.repos.d/arx.repo &lt;&lt;EOF
-          [arx]
-          name=ArtifactX
-          baseurl=THIS_URL/yum/myrepo/\$basearch
-          enabled=1
-          gpgcheck=0
-          repo_gpgcheck=1
-          gpgkey=THIS_URL/public.asc
-          EOF
-          sudo dnf install arx</pre>
-          HTML
+          V="${{ github.ref_name }}"
+          for arch in amd64 arm64; do
+            mkdir -p /tmp/ghcr/$arch
+            cp arx-$arch /tmp/ghcr/$arch/arx
+            cat > /tmp/ghcr/$arch/Dockerfile <<DOCKERFILE
+          FROM scratch
+          COPY arx /arx
+          ENTRYPOINT ["/arx"]
+          DOCKERFILE
+          done
+          docker buildx create --use --name arx-builder 2>/dev/null || docker buildx use arx-builder
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/artifactx-rs/arx:$V \
+            -t ghcr.io/artifactx-rs/arx:latest \
+            --push /tmp/ghcr
+
+      # --- Dogfood: publish arx → GitHub Pages ---
+      - name: Package arx for dogfood
+        run: |
+          chmod +x arx-amd64
+          ./arx-amd64 pack packaging/arx.toml --out dist
+
+      - name: Build signed repo → Pages
+        run: |
+          ./arx-amd64 init public --no-key
+          if [ -n "${{ secrets.ARX_SIGNING_KEY }}" ]; then
+            printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/key.asc
+            ./arx-amd64 key import /tmp/key.asc --root public
+          fi
+          ./arx-amd64 add dist/*.deb dist/*.rpm --root public
+          ./arx-amd64 publish --root public
+          cp public/keys/public.asc public/public.asc 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-
+        with: { path: public }
       - id: deployment
         uses: actions/deploy-pages@v4
