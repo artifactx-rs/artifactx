@@ -187,6 +187,7 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             std::fs::write(cfg.private_key_path(root), &armored).context("writing private key")?;
             let public = signing::public_from_secret(&key, &passphrase)?;
             std::fs::write(cfg.public_key_path(root), public).context("writing public key")?;
+            cfg.signing.enabled = true;
             cfg.signing.encrypted = !passphrase.is_empty();
             cfg.save(root)?;
             println!("Imported key, wrote {}", cfg.public_key_path(root).display());

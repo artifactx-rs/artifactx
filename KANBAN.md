@@ -25,7 +25,9 @@
 | **`arx push` + REST API** | `POST/GET/DELETE /api/v1/packages`, `/api/v1/gc`, `/api/v1/health`; bearer-auth; `arx push` client; uploads store + sign + publish atomically |
 | **`arx pack`** | manifest → `.deb`/`.rpm` in the CLI; `--add` into the pool — Build·Package·Publish in one binary |
 | **atomic rollback (apt + yum)** | publish → immutable state dir + atomic symlink flip (shared `debrepo::statedir`); `arx rollback <target>`/`history`; `gc` pins files referenced by retained states ([ADR-0008](docs/adr/0008-atomic-rollback.md)) |
-| **docs + design-first** | `docs/DESIGN.md` + 8 ADRs; "design → review → build" in the charter |
+| **docs + design-first** | `docs/DESIGN.md` + 9 ADRs; "design → review → build" in the charter |
+| **Dogfood** | `arx` packs + publishes `arx` → signed apt+yum repo on GitHub Pages (`.github/workflows/release.yml`); verified locally incl. `apt-get install arx` from its own repo (ADR-0009) |
+| **CI** | `.github/workflows/ci.yml` — clippy + test on every push/PR |
 | Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page |
 | Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
@@ -40,7 +42,7 @@
 > Prioritized via the competitive teardown — see [`COMPETITORS.md`](COMPETITORS.md).
 
 ### P0 — credibility
-- **Dogfood** — build + package + publish `arx` itself with `arx` (GitHub Action). Charter principle 5; proves the wedge end-to-end.
+- _(done — see Done column: Dogfood)_
 
 ### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
 - **OIDC keyless auth for push** — mint a short-lived token from GitHub Actions `id-token` instead of a stored `ARX_SERVE_TOKEN` (steal Cloudsmith).

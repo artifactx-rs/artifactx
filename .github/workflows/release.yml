@@ -1,0 +1,92 @@
+name: release
+
+# Dogfood (ADR-0009): on a version tag, ArtifactX builds, packages, and publishes
+# *itself* to a signed apt + yum repository hosted on GitHub Pages.
+#
+# Maintainer setup (once):
+#   - enable GitHub Pages (Settings → Pages → "GitHub Actions")
+#   - add secrets:  ARX_SIGNING_KEY  (armored private key, e.g. cat keys/private.asc)
+#                   ARX_KEY_PASSPHRASE  (if the key is encrypted; else leave empty)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools clang
+
+      - name: Build arx (static)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p artifactx
+
+      - name: Stage binary + version from tag
+        run: |
+          mkdir -p build
+          cp target/x86_64-unknown-linux-musl/release/arx build/arx
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -n "$VERSION" ] && sed -i "s/^version = .*/version = \"$VERSION\"/" packaging/arx.toml
+
+      - name: Package arx (.deb + .rpm)
+        run: ./build/arx pack packaging/arx.toml --out dist
+
+      - name: Build the signed repository
+        env:
+          ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
+        run: |
+          ARX=./build/arx
+          $ARX init public --no-key
+          printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/arx-key.asc
+          $ARX key import /tmp/arx-key.asc --root public
+          $ARX add dist/*.deb dist/*.rpm --root public
+          $ARX publish --root public
+          # publish the public key at a stable top-level path too
+          cp public/keys/public.asc public/public.asc
+          # a tiny landing page with install instructions
+          cat > public/index.html <<'HTML'
+          <!doctype html><meta charset=utf-8><title>ArtifactX repo</title>
+          <h1>Install arx</h1>
+          <h2>Debian / Ubuntu</h2>
+          <pre>sudo curl -fsSL THIS_URL/public.asc -o /etc/apt/keyrings/arx.asc
+          echo "deb [signed-by=/etc/apt/keyrings/arx.asc] THIS_URL/apt stable main" | sudo tee /etc/apt/sources.list.d/arx.list
+          sudo apt-get update &amp;&amp; sudo apt-get install arx</pre>
+          <h2>Fedora / RHEL / Rocky</h2>
+          <pre>sudo tee /etc/yum.repos.d/arx.repo &lt;&lt;EOF
+          [arx]
+          name=ArtifactX
+          baseurl=THIS_URL/yum/myrepo/\$basearch
+          enabled=1
+          gpgcheck=0
+          repo_gpgcheck=1
+          gpgkey=THIS_URL/public.asc
+          EOF
+          sudo dnf install arx</pre>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

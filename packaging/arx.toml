@@ -1,0 +1,17 @@
+# Manifest for packaging the `arx` binary into a .deb and .rpm with `arx pack`.
+# The release workflow stages the built binary at `build/arx` and rewrites the
+# version from the git tag before running `arx pack packaging/arx.toml`.
+
+name = "arx"
+version = "0.1.0"
+arch = "amd64" # `arx pack` maps this to x86_64 for the .rpm automatically
+maintainer = "ArtifactX <arx@artifactx-rs.github.io>"
+description = """ArtifactX — cross-platform package repository manager.
+One static binary that packages software and publishes signed apt + yum repositories."""
+license = "GPL-2.0-or-later"
+section = "admin"
+
+[[files]]
+source = "build/arx"
+dest = "/usr/bin/arx"
+mode = "0755"
