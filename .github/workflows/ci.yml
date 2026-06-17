@@ -25,3 +25,10 @@ jobs:
         env:
           PACK_REQUIRE_REAL_TOOLS: "1"
         run: cargo test --workspace
+      - name: dogfood — arx pack from Cargo.toml
+        run: |
+          cargo build --release -p artifactx
+          ./target/release/arx pack crates/arx/Cargo.toml --deb --out dist
+          ls -la dist/
+          # Verify dpkg-deb accepts the package built from our own Cargo.toml.
+          dpkg-deb --info dist/artifactx_*.deb
