@@ -63,3 +63,4 @@ How we'd make this better later, and what would trigger that.
 | [0007](0007-retention-and-gc.md) | Pool retention & GC | Accepted |
 | [0008](0008-atomic-rollback.md) | Atomic rollback (pointer-flip) | Accepted (apt + yum) |
 | [0009](0009-dogfood-self-publish.md) | Dogfood — arx publishes arx (GitHub Pages) | Accepted |
+| [0010](0010-cargo-toml-driven-packaging.md) | Cargo.toml-driven packaging (`arx pack`) | Accepted |

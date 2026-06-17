@@ -56,6 +56,33 @@ mode   = "0755"            # octal, as a string so the leading zero survives
 # prerm    = "scripts/prerm.sh"
 ```
 
+## From a Cargo project (zero config)
+
+In a Rust crate, identity is derived from `Cargo.toml` and packaging details from
+`[package.metadata.arx]` — no separate manifest, no repeated name/version:
+
+```toml
+# Cargo.toml
+[package]
+name = "greeter"
+version = "0.3.0"
+description = "A friendly greeter"
+license = "MIT"
+authors = ["Jane Dev <jane@example.com>"]
+
+[package.metadata.arx]
+section = "utils"
+depends = ["libc6"]
+# files = [...]  # optional; default is target/release/<name> → /usr/bin/<name>
+```
+
+```bash
+cargo build --release
+arx pack            # reads ./Cargo.toml → greeter_0.3.0_amd64.deb + .rpm
+```
+
+`Manifest::from_cargo_toml(&str)` exposes the same mapping as a library call.
+
 ## Usage
 
 ```rust

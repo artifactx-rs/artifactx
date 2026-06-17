@@ -239,10 +239,29 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     Ok(())
 }
 
+fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
+    let path = match path {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let cargo = Path::new("Cargo.toml");
+            if !cargo.exists() {
+                bail!("no manifest given and no ./Cargo.toml here — pass a manifest path or run in a crate root");
+            }
+            cargo.to_path_buf()
+        }
+    };
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    if path.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
+        pack::Manifest::from_cargo_toml(&text)
+            .with_context(|| format!("from {}", path.display()))
+    } else {
+        pack::Manifest::from_toml_str(&text)
+    }
+}
+
 fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
-    let text = std::fs::read_to_string(&args.manifest)
-        .with_context(|| format!("reading manifest {}", args.manifest.display()))?;
-    let manifest = pack::Manifest::from_toml_str(&text)?;
+    let manifest = load_pack_manifest(args.manifest.as_deref())?;
 
     let do_deb = args.deb || !args.rpm;
     let do_rpm = args.rpm || !args.deb;

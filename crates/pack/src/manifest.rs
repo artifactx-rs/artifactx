@@ -2,7 +2,7 @@
 //! the files it installs. The same manifest drives both the `.deb` and `.rpm`
 //! builders, so packagers describe intent once and target both ecosystems.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
 /// A complete package description parsed from TOML.
@@ -95,6 +95,76 @@ impl Manifest {
         toml::from_str(s).context("parsing package manifest TOML")
     }
 
+    /// Derive a manifest from a `Cargo.toml`: identity from `[package]`, packaging
+    /// details from `[package.metadata.arx]`. With no `files`, the convention is
+    /// `target/release/<name>` → `/usr/bin/<name>` (so a built CLI just works).
+    pub fn from_cargo_toml(cargo_toml: &str) -> Result<Self> {
+        let doc: toml::Value = toml::from_str(cargo_toml).context("parsing Cargo.toml")?;
+        let pkg = doc
+            .get("package")
+            .and_then(|v| v.as_table())
+            .ok_or_else(|| anyhow!("Cargo.toml has no [package] (a workspace root has none — run `arx pack` in a crate)"))?;
+        let get = |k: &str| pkg.get(k).and_then(|v| v.as_str());
+
+        let name = get("name")
+            .ok_or_else(|| anyhow!("[package] has no literal name"))?
+            .to_string();
+        let version = get("version")
+            .ok_or_else(|| anyhow!(
+                "[package].version must be a literal string (workspace-inherited \
+                 versions aren't supported here yet — use a standalone manifest)"
+            ))?
+            .to_string();
+        let description = get("description").unwrap_or(&name).to_string();
+        let license = get("license").unwrap_or("").to_string();
+        let author = pkg
+            .get("authors")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let arx: ArxMeta = pkg
+            .get("metadata")
+            .and_then(|m| m.as_table())
+            .and_then(|t| t.get("arx"))
+            .cloned()
+            .map(|v| v.try_into())
+            .transpose()
+            .context("parsing [package.metadata.arx]")?
+            .unwrap_or_default();
+
+        let files = if arx.files.is_empty() {
+            vec![FileEntry {
+                source: format!("target/release/{name}"),
+                dest: format!("/usr/bin/{name}"),
+                mode: "0755".to_string(),
+            }]
+        } else {
+            arx.files
+        };
+
+        Ok(Manifest {
+            name,
+            version,
+            arch: arx.arch.unwrap_or_else(|| "amd64".to_string()),
+            maintainer: arx
+                .maintainer
+                .or(author)
+                .unwrap_or_else(|| "Unknown <unknown@localhost>".to_string()),
+            description,
+            license,
+            section: arx.section,
+            group: None,
+            depends: arx.depends,
+            conflicts: arx.conflicts,
+            provides: arx.provides,
+            replaces: arx.replaces,
+            files,
+            scripts: arx.scripts,
+        })
+    }
+
     /// The rpm `Group`, preferring an explicit [`group`](Self::group) and
     /// falling back to the deb [`section`](Self::section).
     pub fn rpm_group(&self) -> Option<&str> {
@@ -102,4 +172,20 @@ impl Manifest {
             .as_deref()
             .or(self.section.as_deref())
     }
+}
+
+/// The `[package.metadata.arx]` table in a `Cargo.toml`: packaging fields that
+/// aren't expressible in `[package]`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ArxMeta {
+    maintainer: Option<String>,
+    arch: Option<String>,
+    section: Option<String>,
+    depends: Vec<String>,
+    conflicts: Vec<String>,
+    provides: Vec<String>,
+    replaces: Vec<String>,
+    files: Vec<FileEntry>,
+    scripts: Scripts,
 }

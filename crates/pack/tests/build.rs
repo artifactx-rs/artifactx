@@ -37,6 +37,42 @@ fn sample_manifest(dir: &Path) -> Manifest {
 }
 
 #[test]
+fn cargo_toml_derives_manifest() {
+    let cargo = r#"
+        [package]
+        name = "greeter"
+        version = "0.3.0"
+        edition = "2021"
+        description = "A friendly greeter"
+        license = "MIT"
+        authors = ["Jane Dev <jane@example.com>"]
+
+        [package.metadata.arx]
+        section = "utils"
+        depends = ["libc6"]
+        provides = ["greet"]
+    "#;
+    let m = Manifest::from_cargo_toml(cargo).unwrap();
+    assert_eq!(m.name, "greeter");
+    assert_eq!(m.version, "0.3.0");
+    assert_eq!(m.maintainer, "Jane Dev <jane@example.com>"); // from authors
+    assert_eq!(m.section.as_deref(), Some("utils"));
+    assert_eq!(m.depends, vec!["libc6".to_string()]);
+    assert_eq!(m.provides, vec!["greet".to_string()]);
+    // Convention: with no [[files]], default to target/release/<name> → /usr/bin/<name>.
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(m.files[0].source, "target/release/greeter");
+    assert_eq!(m.files[0].dest, "/usr/bin/greeter");
+}
+
+#[test]
+fn cargo_toml_without_package_errors() {
+    // A workspace root has no [package].
+    let err = Manifest::from_cargo_toml("[workspace]\nmembers = []\n").unwrap_err();
+    assert!(err.to_string().contains("no [package]"));
+}
+
+#[test]
 fn manifest_round_trip() {
     let toml = r#"
         name = "demo"

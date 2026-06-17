@@ -128,8 +128,10 @@ pub struct PublishArgs {
 
 #[derive(Debug, Args)]
 pub struct PackArgs {
-    /// Path to the package manifest (TOML).
-    pub manifest: PathBuf,
+    /// Manifest path. A `Cargo.toml` is read via `[package]` +
+    /// `[package.metadata.arx]`; any other `.toml` is a standalone manifest.
+    /// Omit to read `./Cargo.toml`.
+    pub manifest: Option<PathBuf>,
     /// Output directory for built packages.
     #[arg(long, default_value = "dist")]
     pub out: PathBuf,
