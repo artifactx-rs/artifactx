@@ -7,12 +7,21 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
 
+/// Import parameters bundled to keep clippy's `too_many_arguments` happy.
+pub struct ImportOpts<'a> {
+    pub root: &'a Path,
+    pub cfg: &'a Config,
+    pub base_url: &'a str,
+    pub dist: &'a str,
+    pub component: &'a str,
+    pub arch: &'a str,
+    pub match_name: Option<&'a str>,
+    pub limit: Option<usize>,
+}
+
 /// Import packages from an upstream apt repository.
-pub fn import_apt(
-    root: &Path, cfg: &Config, base_url: &str,
-    dist: &str, component: &str, arch: &str,
-    match_name: Option<&str>, limit: Option<usize>,
-) -> Result<usize> {
+pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
+    let ImportOpts { root, cfg, base_url, dist, component, arch, match_name, limit } = *opts;
     let base = base_url.trim_end_matches('/');
     let packages_gz = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages.gz");
     let packages_plain = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages");

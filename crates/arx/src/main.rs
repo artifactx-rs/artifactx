@@ -335,8 +335,11 @@ fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
     if do_apt {
         let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
         let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
-        let n = import::import_apt(&args.root, &cfg, &args.url, dist, comp, &args.arch,
-            args.match_name.as_deref(), args.limit)?;
+        let n = import::import_apt(&import::ImportOpts {
+            root: &args.root, cfg: &cfg, base_url: &args.url,
+            dist, component: comp, arch: &args.arch,
+            match_name: args.match_name.as_deref(), limit: args.limit,
+        })?;
         total += n;
     }
     if do_yum {
