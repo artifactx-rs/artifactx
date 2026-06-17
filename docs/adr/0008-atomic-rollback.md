@@ -1,7 +1,16 @@
 # ADR-0008: Atomic rollback (pointer-flip)
 
-- Status: **Proposed** — awaiting review (this is a design doc, not yet built)
+- Status: **Accepted** (reviewed 2026-06-17) — implementation pending
 - Date: 2026-06-17
+
+## Review outcome
+
+- **Swap = symlink flip.** Verified empirically that `tower-http` `ServeDir`
+  follows a symlinked directory within the root (serves through `live → .states/v1`,
+  HTTP 200). The single-syscall flip is viable. (Verifying this also caught a
+  regression: `arx serve` had started requiring a signing key — now fixed.)
+- **Retention K = the existing `gc --keep`.** One knob, no new config.
+- **CLI-only first.** `arx rollback` / `arx history`; `POST /api/v1/rollback` later.
 
 ## Context
 

@@ -404,8 +404,15 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
     let handle = observability::init_metrics()?;
     // Optional bearer-token auth; unset means public reads, writes disabled.
     let token = std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty());
-    // Context for accepting & publishing pushes (key/passphrase for signing).
-    let key = load_key(&args.root, &cfg)?;
+    // Context for accepting & publishing pushes. A missing key must NOT stop
+    // read-only serving — only pushes need it (they'd then publish unsigned).
+    let key = match load_key(&args.root, &cfg) {
+        Ok(k) => k,
+        Err(_) => {
+            tracing::warn!("no signing key available; pushes would publish unsigned");
+            None
+        }
+    };
     let passphrase = resolve_passphrase(None)?.unwrap_or_default();
     let push = server::PushContext {
         cfg,
