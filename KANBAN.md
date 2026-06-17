@@ -58,10 +58,10 @@ _(empty)_
 
 | Item | Notes |
 |---|---|
-| ~~arx mirror~~ | ✅ Done |
-| ~~REST API~~ | ✅ Done |
-| ~~Nix flake~~ | ✅ Done |
-- More formats beyond deb/rpm/apk → `pack` crate extension point
+| **--component filter** | `--component main` on publish/list/gc/rm/mirror — per-component ops (parity with aptly) |
+| **arx search** | `arx search <query>` — search packages by name/description |
+| **Snapshot diff** | `arx history --diff 000001 000002` — what changed between published states |
+| **pool_dir end-to-end** | pool.rs (rm/gc/list) still hardcodes "apt/pool" — needs refactor for custom pool_dir |
 
 ### Reject (charter — see COMPETITORS.md)
 RBAC/identity platform · web UI/dashboard · mirroring-as-core · plugin platform + external DB · 20+ formats · format **conversion** · `.changes` ceremony · deltarpm · billing.
