@@ -187,6 +187,7 @@ dependencies = [
  "hex",
  "metrics",
  "metrics-exporter-prometheus",
+ "pack",
  "pgp 0.14.2",
  "rand 0.8.6",
  "reqwest",

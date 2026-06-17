@@ -32,6 +32,8 @@ pub enum Command {
     Add(AddArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
+    /// Build a `.deb`/`.rpm` from a manifest (the Package pillar).
+    Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
     Push(PushArgs),
     /// Remove a package from the pool (then run `publish`).
@@ -118,6 +120,33 @@ pub struct PublishArgs {
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
     pub passphrase_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct PackArgs {
+    /// Path to the package manifest (TOML).
+    pub manifest: PathBuf,
+    /// Output directory for built packages.
+    #[arg(long, default_value = "dist")]
+    pub out: PathBuf,
+    /// Build only the `.deb` (default: build both).
+    #[arg(long)]
+    pub deb: bool,
+    /// Build only the `.rpm` (default: build both).
+    #[arg(long)]
+    pub rpm: bool,
+    /// Also add the built packages into the repository pool.
+    #[arg(long)]
+    pub add: bool,
+    /// Repository root (used with `--add`).
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// apt component for `--add` (config default if unset).
+    #[arg(long)]
+    pub component: Option<String>,
+    /// yum repo for `--add` (config default if unset).
+    #[arg(long)]
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Args)]

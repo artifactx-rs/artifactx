@@ -12,8 +12,9 @@ name = "arx"
 path = "src/main.rs"
 
 [dependencies]
-# apt repo generation (in-house, permissively licensed sibling crate)
+# apt repo generation + packaging (in-house, permissively licensed sibling crates)
 debrepo = { path = "../debrepo" }
+pack = { path = "../pack" }
 
 # yum: reuse our own createrepo_rs library
 createrepo_rs = "0.1.9"

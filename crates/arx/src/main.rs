@@ -9,7 +9,7 @@ mod server;
 mod signing;
 mod yum;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
         Command::Init(args) => cmd_init(&args).await,
         Command::Key(args) => cmd_key(&args),
         Command::Add(args) => cmd_add(&args),
+        Command::Pack(args) => cmd_pack(&args),
         Command::Publish(args) => cmd_publish(&args).await,
         Command::Push(args) => cmd_push(&args).await,
         Command::Rm(args) => {
@@ -192,6 +193,29 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
     Ok(())
 }
 
+/// Copy one `.deb`/`.rpm` into the pool, returning its destination path.
+/// `.deb` goes to `apt/pool/<component>`; `.rpm` to `yum/<repo>/<arch>`.
+fn add_to_pool(root: &Path, pkg: &Path, component: &str, repo: &str) -> Result<PathBuf> {
+    let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let dest_dir = match ext {
+        "deb" => root.join("apt/pool").join(component),
+        "rpm" => {
+            let mut reader = createrepo_rs::rpm::RpmReader::open(pkg)
+                .with_context(|| format!("opening {}", pkg.display()))?;
+            let arch = reader
+                .read_package()
+                .with_context(|| format!("reading {}", pkg.display()))?
+                .arch;
+            root.join("yum").join(repo).join(arch)
+        }
+        other => bail!("{}: unsupported package type .{other}", pkg.display()),
+    };
+    std::fs::create_dir_all(&dest_dir)?;
+    let dest = dest_dir.join(pkg.file_name().unwrap());
+    std::fs::copy(pkg, &dest).with_context(|| format!("copying {}", pkg.display()))?;
+    Ok(dest)
+}
+
 fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     let root = &args.root;
     let cfg = Config::load(root).unwrap_or_default();
@@ -199,33 +223,40 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
 
     for pkg in &args.packages {
-        let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
-        match ext {
-            "deb" => {
-                let dest_dir = root.join("apt/pool").join(component);
-                std::fs::create_dir_all(&dest_dir)?;
-                let dest = dest_dir.join(pkg.file_name().unwrap());
-                std::fs::copy(pkg, &dest)
-                    .with_context(|| format!("copying {}", pkg.display()))?;
-                tracing::info!(file = %dest.display(), "added deb");
-                println!("Added {}", dest.display());
-            }
-            "rpm" => {
-                let mut reader = createrepo_rs::rpm::RpmReader::open(pkg)
-                    .with_context(|| format!("opening {}", pkg.display()))?;
-                let meta = reader
-                    .read_package()
-                    .with_context(|| format!("reading {}", pkg.display()))?;
-                let dest_dir = root.join("yum").join(repo).join(&meta.arch);
-                std::fs::create_dir_all(&dest_dir)?;
-                let dest = dest_dir.join(pkg.file_name().unwrap());
-                std::fs::copy(pkg, &dest)
-                    .with_context(|| format!("copying {}", pkg.display()))?;
-                tracing::info!(file = %dest.display(), arch = %meta.arch, "added rpm");
-                println!("Added {}", dest.display());
-            }
-            other => bail!("{}: unsupported package type .{other}", pkg.display()),
+        let dest = add_to_pool(root, pkg, component, repo)?;
+        tracing::info!(file = %dest.display(), "added");
+        println!("Added {}", dest.display());
+    }
+    Ok(())
+}
+
+fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
+    let text = std::fs::read_to_string(&args.manifest)
+        .with_context(|| format!("reading manifest {}", args.manifest.display()))?;
+    let manifest = pack::Manifest::from_toml_str(&text)?;
+
+    let do_deb = args.deb || !args.rpm;
+    let do_rpm = args.rpm || !args.deb;
+    let mut built = Vec::new();
+    if do_deb {
+        built.push(pack::build_deb(&manifest, &args.out).context("building .deb")?);
+    }
+    if do_rpm {
+        built.push(pack::build_rpm(&manifest, &args.out).context("building .rpm")?);
+    }
+    for p in &built {
+        println!("Built {}", p.display());
+    }
+
+    if args.add {
+        let cfg = Config::load(&args.root).unwrap_or_default();
+        let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
+        let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+        for p in &built {
+            let dest = add_to_pool(&args.root, p, component, repo)?;
+            println!("Added {}", dest.display());
         }
+        println!("\nRun `arx publish` to update repository metadata.");
     }
     Ok(())
 }
