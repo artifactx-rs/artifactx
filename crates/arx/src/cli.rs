@@ -32,6 +32,10 @@ pub enum Command {
     Add(AddArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
+    /// Roll an apt dist back to its previous published state.
+    Rollback(RollbackArgs),
+    /// List retained published states for an apt dist.
+    History(HistoryArgs),
     /// Build a `.deb`/`.rpm` from a manifest (the Package pillar).
     Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
@@ -203,6 +207,27 @@ pub struct GcArgs {
     /// Restrict to the yum pool.
     #[arg(long)]
     pub yum: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RollbackArgs {
+    /// apt dist to roll back (config default if unset).
+    pub dist: Option<String>,
+    /// Roll back to this specific state id (default: the previous state).
+    #[arg(long)]
+    pub to: Option<String>,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct HistoryArgs {
+    /// apt dist to inspect (config default if unset).
+    pub dist: Option<String>,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
 }
 
 #[derive(Debug, Args)]

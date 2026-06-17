@@ -164,6 +164,40 @@ fn empty_pool_yields_empty_build() {
 }
 
 #[test]
+fn states_and_rollback() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+
+    // Publish #1 (one package) → state 000001.
+    write_deb(&pool.join("foo_1_amd64.deb"), &control("foo", "1", "amd64"));
+    build_dist(&apt, "stable", &meta).unwrap();
+    // Publish #2 (two packages) → state 000002, now current.
+    write_deb(&pool.join("bar_1_amd64.deb"), &control("bar", "1", "amd64"));
+    build_dist(&apt, "stable", &meta).unwrap();
+
+    // dists/stable is a symlink; two states exist; the newest is current.
+    assert!(std::fs::symlink_metadata(apt.join("dists/stable")).unwrap().file_type().is_symlink());
+    let states = debrepo::list_states(&apt, "stable").unwrap();
+    assert_eq!(states.len(), 2);
+    assert_eq!(states.iter().filter(|s| s.current).count(), 1);
+    assert!(states.last().unwrap().current); // newest is current
+
+    // Current Release lists both packages.
+    let pkgs = std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
+    assert!(pkgs.contains("Package: foo") && pkgs.contains("Package: bar"));
+
+    // Roll back → previous state becomes current, Release loses bar.
+    let to = debrepo::rollback(&apt, "stable", None).unwrap();
+    assert_eq!(to, "000001");
+    let pkgs = std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
+    assert!(pkgs.contains("Package: foo") && !pkgs.contains("Package: bar"));
+    assert!(debrepo::list_states(&apt, "stable").unwrap().iter().find(|s| s.id == "000001").unwrap().current);
+}
+
+#[test]
 fn multiple_components_share_one_release() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");

@@ -270,34 +270,180 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
     })
 }
 
-/// Atomically swap a staged dist into place (after signatures are written).
-pub fn commit_dist(staged: &StagedDist) -> Result<()> {
-    let final_dir = &staged.final_dir;
-    let staging = &staged.staging_dir;
-    let backup = final_dir.with_extension("old");
+/// Default number of published dist states retained for rollback.
+pub const DEFAULT_KEEP_STATES: usize = 5;
 
-    if backup.exists() {
-        std::fs::remove_dir_all(&backup).ok();
-    }
-    if final_dir.exists() {
-        std::fs::rename(final_dir, &backup)
-            .with_context(|| format!("moving {} aside", final_dir.display()))?;
-    } else if let Some(parent) = final_dir.parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
-    match std::fs::rename(staging, final_dir) {
-        Ok(()) => {
-            std::fs::remove_dir_all(&backup).ok();
-            Ok(())
-        }
-        Err(e) => {
-            // Roll back: restore the previous dist.
-            if backup.exists() {
-                let _ = std::fs::rename(&backup, final_dir);
+/// Commit a staged dist: move it into an immutable, numbered **state** directory
+/// (`dists/.states/<dist>/<NNNNNN>`) and atomically point `dists/<dist>` at it via
+/// a symlink flip (a single rename). Old states beyond `keep` are pruned (the
+/// currently-linked state is always retained, e.g. after a rollback).
+pub fn commit_dist(staged: &StagedDist, keep: usize) -> Result<()> {
+    let link = &staged.final_dir; // dists/<dist>
+    let dists = link
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("dist path has no parent"))?;
+    let dist_name = link
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("dist path has no name"))?
+        .to_os_string();
+    let states = dists.join(".states").join(&dist_name);
+    std::fs::create_dir_all(&states)
+        .with_context(|| format!("creating {}", states.display()))?;
+
+    let id = next_state_id(&states)?;
+    let state_dir = states.join(&id);
+    std::fs::rename(&staged.staging_dir, &state_dir)
+        .with_context(|| format!("moving staging into {}", state_dir.display()))?;
+
+    // Symlink target is relative to dists/, so the repo stays relocatable.
+    let target = Path::new(".states").join(&dist_name).join(&id);
+    symlink_swap(link, &target)?;
+    prune_states(&states, link.as_path(), keep)?;
+    Ok(())
+}
+
+/// Next zero-padded state id (max existing + 1).
+fn next_state_id(states: &Path) -> Result<String> {
+    let mut max = 0u64;
+    if states.is_dir() {
+        for entry in std::fs::read_dir(states)? {
+            if let Ok(n) = entry?.file_name().to_string_lossy().parse::<u64>() {
+                max = max.max(n);
             }
-            Err(e).with_context(|| format!("committing {}", final_dir.display()))
         }
     }
+    Ok(format!("{:06}", max + 1))
+}
+
+/// Atomically repoint `link` (a symlink) at `target`, replacing whatever is there
+/// — including a pre-symlink real directory (migration).
+fn symlink_swap(link: &Path, target: &Path) -> Result<()> {
+    #[cfg(not(unix))]
+    {
+        let _ = (link, target);
+        anyhow::bail!("symlink-based publish currently requires a Unix platform");
+    }
+    #[cfg(unix)]
+    {
+        let parent = link.parent().unwrap();
+        let tmp = parent.join(format!(
+            ".{}.newlink",
+            link.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        std::os::unix::fs::symlink(target, &tmp)
+            .with_context(|| format!("creating symlink {}", tmp.display()))?;
+        // If the live path is a real dir/file (pre-symlink repo), remove it first;
+        // rename can replace a symlink but not a non-empty directory.
+        match std::fs::symlink_metadata(link) {
+            Ok(meta) if meta.file_type().is_symlink() => {}
+            Ok(meta) if meta.is_dir() => {
+                std::fs::remove_dir_all(link).ok();
+            }
+            Ok(_) => {
+                std::fs::remove_file(link).ok();
+            }
+            Err(_) => {}
+        }
+        std::fs::rename(&tmp, link)
+            .with_context(|| format!("swapping symlink {}", link.display()))?;
+        Ok(())
+    }
+}
+
+/// The state id `link` currently points at, if it is a symlink into `.states`.
+fn current_state_id(link: &Path) -> Option<String> {
+    let target = std::fs::read_link(link).ok()?;
+    target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+}
+
+/// Sorted (ascending) numeric state ids present under `states`.
+fn state_ids(states: &Path) -> Vec<String> {
+    let mut ids: Vec<(u64, String)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(states) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Ok(n) = name.parse::<u64>() {
+                ids.push((n, name));
+            }
+        }
+    }
+    ids.sort_unstable_by_key(|(n, _)| *n);
+    ids.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Keep the newest `keep` states plus the currently-linked one; remove the rest.
+fn prune_states(states: &Path, link: &Path, keep: usize) -> Result<()> {
+    let current = current_state_id(link);
+    let ids = state_ids(states);
+    if ids.len() <= keep {
+        return Ok(());
+    }
+    let keep_set: std::collections::HashSet<&String> =
+        ids.iter().rev().take(keep).chain(current.iter()).collect();
+    for id in &ids {
+        if !keep_set.contains(id) {
+            std::fs::remove_dir_all(states.join(id)).ok();
+        }
+    }
+    Ok(())
+}
+
+/// One retained published state.
+#[derive(Debug, Clone)]
+pub struct StateInfo {
+    pub id: String,
+    pub current: bool,
+}
+
+/// List retained states for `dist`, oldest first.
+pub fn list_states(apt_root: &Path, dist: &str) -> Result<Vec<StateInfo>> {
+    let link = apt_root.join("dists").join(dist);
+    let states = apt_root.join("dists").join(".states").join(dist);
+    let current = current_state_id(&link);
+    Ok(state_ids(&states)
+        .into_iter()
+        .map(|id| StateInfo {
+            current: Some(&id) == current.as_ref(),
+            id,
+        })
+        .collect())
+}
+
+/// Roll `dist` back to a previous state (or `to` if given). Returns the new
+/// current state id.
+pub fn rollback(apt_root: &Path, dist: &str, to: Option<&str>) -> Result<String> {
+    let link = apt_root.join("dists").join(dist);
+    let states_rel = Path::new(".states").join(dist);
+    let states = apt_root.join("dists").join(".states").join(dist);
+    let ids = state_ids(&states);
+    if ids.is_empty() {
+        anyhow::bail!("no published states for dist {dist}");
+    }
+    let current = current_state_id(&link);
+
+    let target = match to {
+        Some(id) => {
+            if !ids.iter().any(|x| x == id) {
+                anyhow::bail!("state {id} does not exist for dist {dist}");
+            }
+            id.to_string()
+        }
+        None => {
+            // The state immediately before the current one.
+            let cur_pos = current
+                .as_ref()
+                .and_then(|c| ids.iter().position(|x| x == c));
+            match cur_pos {
+                Some(0) | None => anyhow::bail!("no earlier state to roll back to"),
+                Some(p) => ids[p - 1].clone(),
+            }
+        }
+    };
+    symlink_swap(&link, &states_rel.join(&target))?;
+    Ok(target)
 }
 
 /// Convenience: stage and commit in one step (no signing). For tests / unsigned repos.
@@ -309,7 +455,7 @@ pub fn build_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Dis
         components: staged.components.clone(),
         architectures: staged.architectures.clone(),
     };
-    commit_dist(&staged)?;
+    commit_dist(&staged, DEFAULT_KEEP_STATES)?;
     Ok(out)
 }
 

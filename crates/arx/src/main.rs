@@ -42,6 +42,8 @@ async fn main() -> Result<()> {
         Command::Add(args) => cmd_add(&args),
         Command::Pack(args) => cmd_pack(&args),
         Command::Publish(args) => cmd_publish(&args).await,
+        Command::Rollback(args) => cmd_rollback(&args),
+        Command::History(args) => cmd_history(&args),
         Command::Push(args) => cmd_push(&args).await,
         Command::Rm(args) => {
             let removed =
@@ -368,8 +370,9 @@ fn publish_apt(
 
     let packages = staged.packages;
     let components = staged.components.len();
-    // Atomic swap into place — clients never see a half-written dist.
-    debrepo::commit_dist(&staged)?;
+    // Atomic symlink flip into place — clients never see a half-written dist,
+    // and the previous state is retained for rollback.
+    debrepo::commit_dist(&staged, debrepo::DEFAULT_KEEP_STATES)?;
 
     metrics::histogram!("arx_publish_apt_seconds").record(start.elapsed().as_secs_f64());
     Ok(format!("apt: indexed {packages} package(s) across {components} component(s)"))
@@ -420,6 +423,32 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
         passphrase,
     };
     server::serve(args.root.clone(), addr, handle, token, push).await
+}
+
+fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let dist = args.dist.clone().unwrap_or(cfg.apt.dist);
+    let apt_root = args.root.join("apt");
+    let state = debrepo::rollback(&apt_root, &dist, args.to.as_deref())?;
+    println!("Rolled back apt dist '{dist}' to state {state}.");
+    println!("(The next `arx publish` regenerates metadata from the current pool.)");
+    Ok(())
+}
+
+fn cmd_history(args: &cli::HistoryArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let dist = args.dist.clone().unwrap_or(cfg.apt.dist);
+    let apt_root = args.root.join("apt");
+    let states = debrepo::list_states(&apt_root, &dist)?;
+    if states.is_empty() {
+        println!("No published states for '{dist}'.");
+        return Ok(());
+    }
+    println!("States for apt dist '{dist}' (* = current):");
+    for s in &states {
+        println!("  {} {}", if s.current { "*" } else { " " }, s.id);
+    }
+    Ok(())
 }
 
 async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
