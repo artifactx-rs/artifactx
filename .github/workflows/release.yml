@@ -11,6 +11,7 @@ permissions:
   id-token: write
 
 jobs:
+  # --- Build + GitHub Release + GHCR ---
   release:
     runs-on: ubuntu-latest
     steps:
@@ -19,7 +20,6 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-
       - name: Install zigbuild
         run: cargo install cargo-zigbuild
 
@@ -39,10 +39,8 @@ jobs:
             ## ArtifactX ${{ github.ref_name }}
             **Build Once. Package Once. Publish Everywhere.**
             ```bash
-            # Download + install
             curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/${{ github.ref_name }}/arx-amd64
             sudo install -m 755 arx-amd64 /usr/local/bin/arx
-            # 5-minute flow
             arx init && arx pack ./Cargo.toml && arx publish && arx serve
             ```
             Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/artifactx-rs/arx:${{ github.ref_name }} serve`
@@ -61,11 +59,7 @@ jobs:
           for arch in amd64 arm64; do
             mkdir -p /tmp/ghcr/$arch
             cp arx-$arch /tmp/ghcr/$arch/arx
-            cat > /tmp/ghcr/$arch/Dockerfile <<DOCKERFILE
-          FROM scratch
-          COPY arx /arx
-          ENTRYPOINT ["/arx"]
-          DOCKERFILE
+            printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
           done
           docker buildx create --use --name arx-builder 2>/dev/null || docker buildx use arx-builder
           docker buildx build --platform linux/amd64,linux/arm64 \
@@ -73,22 +67,50 @@ jobs:
             -t ghcr.io/artifactx-rs/arx:latest \
             --push /tmp/ghcr
 
-      # --- Dogfood: publish arx → GitHub Pages ---
-      - name: Package arx for dogfood
-        run: |
-          chmod +x arx-amd64
-          ./arx-amd64 pack packaging/arx.toml --out dist
+      # Save arx for the pages job
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arx-bin
+          path: arx-amd64
+
+  # --- Dogfood: publish arx → GitHub Pages ---
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: arx-bin
+
+      - name: Stage arx binary
+        run: chmod +x arx-amd64 && mv arx-amd64 arx
+
+      - name: Package arx (.deb + .rpm)
+        run: ./arx pack packaging/arx.toml --out dist
 
       - name: Build signed repo → Pages
+        env:
+          ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
         run: |
-          ./arx-amd64 init public --no-key
+          ./arx init public --no-key
           if [ -n "${{ secrets.ARX_SIGNING_KEY }}" ]; then
             printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/key.asc
-            ./arx-amd64 key import /tmp/key.asc --root public
+            ./arx key import /tmp/key.asc --root public
           fi
-          ./arx-amd64 add dist/*.deb dist/*.rpm --root public
-          ./arx-amd64 publish --root public
+          ./arx add dist/*.deb dist/*.rpm --root public
+          ./arx publish --root public
           cp public/keys/public.asc public/public.asc 2>/dev/null || true
+          cat > public/index.html <<'HTML'
+          <!doctype html><meta charset=utf-8><title>ArifactX repo</title>
+          <h1>Install arx</h1>
+          <pre>curl -fsSL REPO_URL/public.asc | sudo tee /etc/apt/keyrings/arx.asc
+          echo "deb [signed-by=/etc/apt/keyrings/arx.asc] REPO_URL/apt stable main" | sudo tee /etc/apt/sources.list.d/arx.list
+          sudo apt-get update && sudo apt-get install arx</pre>
+          HTML
 
       - uses: actions/upload-pages-artifact@v3
         with: { path: public }
