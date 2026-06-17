@@ -20,20 +20,23 @@
 | **P0 — private key encryption + passphrase** | S2K-encrypted key via `ARX_KEY_PASSPHRASE`/`--passphrase-file`; default stays frictionless (5-min rule) + warns |
 | **`pack` PoC** (packaging moat) | `crates/pack`: manifest → `.deb`/`.rpm`, pure-Rust native-first, Docker fallback stub, build hygiene; 5 tests green |
 | **P0 — package delete / GC / retention** | `arx rm <name> [--version]` (yank) + `arx gc --keep N [--dry-run]` (retention); 3 integration tests |
+| **P0 — serve security** | optional bearer-token auth (`ARX_SERVE_TOKEN`); `ServeDir` blocks path traversal; TLS delegated to a reverse proxy by design |
+| **`pack` relationships** | manifest `depends`/`conflicts`/`provides`/`replaces` + maintainer scripts → deb control + rpm |
+| Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page |
 | Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| Competitor teardown (`scout` agent) | research | aptly/Nexus/Pulp/JFrog/Cloudsmith/nfpm + classics (FPM/alien/dak/mini-dinstall…) → `COMPETITORS.md` + org README positioning |
+| _(next: P1 wedge — `arx push` + OIDC, or `arx rollback`)_ | main | not started |
 
 ## 📋 Backlog
 
 > Prioritized via the competitive teardown — see [`COMPETITORS.md`](COMPETITORS.md).
 
-### P0 — production credibility
-- **serve security** — built-in TLS + token auth (or reverse-proxy/TLS templates); audit `/keys`·`/apt`·`/yum` path handling.
+### P0 — credibility
+- **Dogfood** — build + package + publish `arx` itself with `arx` (GitHub Action). Charter principle 5; proves the wedge end-to-end.
 
 ### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
 - **`arx push`** — one-line publish; auto-detect dist/component/arch from the package; `curl -T` fallback; **GitHub Actions OIDC** keyless auth (no stored secret).
