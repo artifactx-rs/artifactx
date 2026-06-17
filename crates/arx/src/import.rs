@@ -11,7 +11,7 @@ use crate::config::Config;
 pub fn import_apt(
     root: &Path, cfg: &Config, base_url: &str,
     dist: &str, component: &str, arch: &str,
-    limit: Option<usize>,
+    match_name: Option<&str>, limit: Option<usize>,
 ) -> Result<usize> {
     let base = base_url.trim_end_matches('/');
     let packages_gz = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages.gz");
@@ -31,16 +31,27 @@ pub fn import_apt(
             .text().context("reading Packages")?,
     };
 
-    let filenames: Vec<String> = text.lines()
-        .filter_map(|l| l.strip_prefix("Filename: "))
-        .map(|v| v.trim().to_string())
-        .collect();
-    if filenames.is_empty() { bail!("no packages found"); }
+    // Parse Package+Filename entries, filtering by --match if set.
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut current_pkg = String::new();
+    for line in text.lines() {
+        if let Some(p) = line.strip_prefix("Package: ") {
+            current_pkg = p.trim().to_string();
+        }
+        if let Some(f) = line.strip_prefix("Filename: ") {
+            let name = current_pkg.clone();
+            let file = f.trim().to_string();
+            if match_name.is_none_or(|m| name.starts_with(m)) {
+                entries.push((name, file));
+            }
+        }
+    }
+    if entries.is_empty() { bail!("no packages found"); }
 
     let dir = cfg.apt_pool_root(root).join(component);
     std::fs::create_dir_all(&dir)?;
     let mut imported = 0usize;
-    for file in &filenames {
+    for (_name, file) in &entries {
         if let Some(n) = limit { if imported >= n { break; } }
         let url = format!("{base}/{file}");
         let name = Path::new(file).file_name()

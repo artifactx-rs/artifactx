@@ -226,6 +226,9 @@ pub struct ImportArgs {
     /// Limit the number of packages to import (default: unlimited).
     #[arg(long)]
     pub limit: Option<usize>,
+    /// Only import packages matching this name prefix (e.g. "clickhouse").
+    #[arg(long)]
+    pub match_name: Option<String>,
     /// Import from an apt repo.
     #[arg(long)]
     pub apt: bool,
