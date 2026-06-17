@@ -132,12 +132,28 @@ fn warn_if_unencrypted(passphrase: &str) {
 
 async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
     let root = &args.path;
-    for dir in ["apt/pool", "apt/dists", "yum", "keys"] {
-        std::fs::create_dir_all(root.join(dir))
-            .with_context(|| format!("creating {}", root.join(dir).display()))?;
-    }
 
     let mut cfg = Config::default();
+    // Custom key dir: before key generation, update the config.
+    if let Some(ref kd) = args.key_dir {
+        cfg.signing.keys_dir = kd.clone();
+        cfg.signing.private_key = format!("{kd}/private.asc");
+        cfg.signing.public_key = format!("{kd}/public.asc");
+    }
+    // Custom pool dir.
+    if let Some(ref pd) = args.pool_dir {
+        cfg.apt.pool_dir = pd.clone();
+    }
+
+    // Create directory structure using config-driven paths.
+    let pool = cfg.apt_pool_root(root);
+    let keys = cfg.keys_dir(root);
+    let yum = cfg.yum_base(root);
+    for dir in [pool.as_path(), &root.join("apt/dists"), yum.as_path(), keys.as_path()] {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("creating {}", dir.display()))?;
+    }
+
     // New repos are secure-by-default: expire the apt Release 7 days out so a
     // stale-metadata (freeze/replay) attack has only a small window. Republishing
     // refreshes it. (Serde default stays 0 — existing repos are untouched.)
@@ -209,10 +225,10 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
 
 /// Copy one `.deb`/`.rpm` into the pool, returning its destination path.
 /// `.deb` goes to `apt/pool/<component>`; `.rpm` to `yum/<repo>/<arch>`.
-fn add_to_pool(root: &Path, pkg: &Path, component: &str, repo: &str) -> Result<PathBuf> {
+fn add_to_pool(root: &Path, cfg: &Config, pkg: &Path, component: &str, repo: &str) -> Result<PathBuf> {
     let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
     let dest_dir = match ext {
-        "deb" => root.join("apt/pool").join(component),
+        "deb" => cfg.apt_pool_root(root).join(component),
         "rpm" => {
             let mut reader = createrepo_rs::rpm::RpmReader::open(pkg)
                 .with_context(|| format!("opening {}", pkg.display()))?;
@@ -220,7 +236,7 @@ fn add_to_pool(root: &Path, pkg: &Path, component: &str, repo: &str) -> Result<P
                 .read_package()
                 .with_context(|| format!("reading {}", pkg.display()))?
                 .arch;
-            root.join("yum").join(repo).join(arch)
+            cfg.yum_base(root).join(repo).join(arch)
         }
         other => bail!("{}: unsupported package type .{other}", pkg.display()),
     };
@@ -237,7 +253,7 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
 
     for pkg in &args.packages {
-        let dest = add_to_pool(root, pkg, component, repo)?;
+        let dest = add_to_pool(root, &cfg, pkg, component, repo)?;
         tracing::info!(file = %dest.display(), "added");
         println!("Added {}", dest.display());
     }
@@ -289,7 +305,7 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
         let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
         for p in &built {
-            let dest = add_to_pool(&args.root, p, component, repo)?;
+            let dest = add_to_pool(&args.root, &cfg, p, component, repo)?;
             println!("Added {}", dest.display());
         }
         println!("\nRun `arx publish` to update repository metadata.");
@@ -366,7 +382,7 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
             lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict, incremental)?.summary);
         }
         if do_yum {
-            lines.push(publish_yum(&root, key.as_ref(), &passphrase, incremental)?);
+            lines.push(publish_yum(&root, &cfg, key.as_ref(), &passphrase, incremental)?);
         }
         Ok(lines.join("\n"))
     })
@@ -503,8 +519,8 @@ fn publish_apt(
     })
 }
 
-fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str, incremental: bool) -> Result<String> {
-    let yum_root = root.join("yum");
+fn publish_yum(root: &Path, cfg: &Config, key: Option<&SignedSecretKey>, passphrase: &str, incremental: bool) -> Result<String> {
+    let yum_root = cfg.yum_base(root);
     let mut total = 0usize;
     let mut repos = 0usize;
     if yum_root.is_dir() {

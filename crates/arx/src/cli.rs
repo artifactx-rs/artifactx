@@ -58,6 +58,12 @@ pub struct InitArgs {
     /// Skip generating a signing key.
     #[arg(long)]
     pub no_key: bool,
+    /// Custom directory for signing keys (default `"keys"`).
+    #[arg(long)]
+    pub key_dir: Option<String>,
+    /// Custom apt pool subdirectory name (default `"pool"`).
+    #[arg(long)]
+    pub pool_dir: Option<String>,
     /// Encrypt the signing key with the passphrase in this file (else
     /// `ARX_KEY_PASSPHRASE`; if neither, the key is stored unencrypted).
     #[arg(long)]

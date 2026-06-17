@@ -306,7 +306,7 @@ fn safe_filename(name: &str) -> Option<String> {
 fn publish_both(st: &AppState) -> Result<String> {
     let key = st.key.as_deref();
     let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict, true)?;
-    let yum = crate::publish_yum(&st.root, key, &st.passphrase, true)?;
+    let yum = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
     Ok(format!("{}; {yum}", apt.summary))
 }
 
@@ -328,7 +328,7 @@ fn ingest(
     match ext {
         "deb" => {
             let comp = component.unwrap_or_else(|| st.cfg.apt.component.clone());
-            let dir = st.root.join("apt/pool").join(&comp);
+            let dir = st.cfg.apt_pool_root(&st.root).join(&comp);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(dir.join(filename), &body).context("writing uploaded .deb")?;
             let published =
@@ -341,7 +341,7 @@ fn ingest(
         }
         "rpm" => {
             let repo = repo.unwrap_or_else(|| st.cfg.yum.repo.clone());
-            let yum = st.root.join("yum");
+            let yum = st.cfg.yum_base(&st.root);
             std::fs::create_dir_all(&yum).with_context(|| format!("creating {}", yum.display()))?;
             let tmp = yum.join(format!(".incoming-{filename}"));
             std::fs::write(&tmp, &body).context("writing uploaded .rpm")?;
@@ -353,7 +353,7 @@ fn ingest(
             let dir = yum.join(&repo).join(&arch);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::rename(&tmp, dir.join(filename)).context("moving uploaded .rpm")?;
-            let published = crate::publish_yum(&st.root, key, &st.passphrase, true)?;
+            let published = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
             Ok(PushResult {
                 stored: format!("yum/{repo}/{arch}/{filename}"),
                 published,

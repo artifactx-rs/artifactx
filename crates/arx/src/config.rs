@@ -84,6 +84,10 @@ pub struct Signing {
     /// Whether the private key is passphrase-encrypted at rest.
     #[serde(default)]
     pub encrypted: bool,
+    /// Directory for key storage, relative to the repo root. `arx init` creates
+    /// keys here; `private_key`/`public_key` default paths are inside this dir.
+    #[serde(default = "default_keys_dir")]
+    pub keys_dir: String,
     /// Armored private key path, relative to the repo root.
     pub private_key: String,
     /// Armored public key path, relative to the repo root.
@@ -92,11 +96,16 @@ pub struct Signing {
     pub user_id: String,
 }
 
+fn default_keys_dir() -> String {
+    "keys".into()
+}
+
 impl Default for Signing {
     fn default() -> Self {
         Self {
             enabled: true,
             encrypted: false,
+            keys_dir: "keys".into(),
             private_key: "keys/private.asc".into(),
             public_key: "keys/public.asc".into(),
             user_id: "ArtifactX <arx@localhost>".into(),
@@ -134,6 +143,13 @@ pub struct Apt {
     /// the CLI `--strict` flag also forces it on. Default `false` (forgiving).
     #[serde(default)]
     pub strict: bool,
+    /// Custom pool subdirectory under `apt/`. Default `"pool"`.
+    #[serde(default = "default_pool_dir")]
+    pub pool_dir: String,
+}
+
+fn default_pool_dir() -> String {
+    "pool".into()
 }
 
 impl Default for Apt {
@@ -143,6 +159,7 @@ impl Default for Apt {
             component: "main".into(),
             valid_days: 0,
             strict: false,
+            pool_dir: "pool".into(),
         }
     }
 }
@@ -151,12 +168,20 @@ impl Default for Apt {
 pub struct Yum {
     /// Default repo name for `arx add`.
     pub repo: String,
+    /// Base directory under repo root for yum packages. Default `"yum"`.
+    #[serde(default = "default_yum_base")]
+    pub base_dir: String,
+}
+
+fn default_yum_base() -> String {
+    "yum".into()
 }
 
 impl Default for Yum {
     fn default() -> Self {
         Self {
             repo: "myrepo".into(),
+            base_dir: "yum".into(),
         }
     }
 }
@@ -189,6 +214,21 @@ impl Config {
     /// Absolute path to the armored public key for a given repo root.
     pub fn public_key_path(&self, root: &Path) -> PathBuf {
         root.join(&self.signing.public_key)
+    }
+
+    /// Absolute path to the key storage directory.
+    pub fn keys_dir(&self, root: &Path) -> PathBuf {
+        root.join(&self.signing.keys_dir)
+    }
+
+    /// Absolute path to the apt pool root (`apt/<pool_dir>`).
+    pub fn apt_pool_root(&self, root: &Path) -> PathBuf {
+        root.join("apt").join(&self.apt.pool_dir)
+    }
+
+    /// Absolute path to the yum base directory.
+    pub fn yum_base(&self, root: &Path) -> PathBuf {
+        root.join(&self.yum.base_dir)
     }
 }
 
