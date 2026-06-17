@@ -71,11 +71,11 @@ jobs:
           dest = "/usr/bin/arx"
           mode = "0755"
           TOML
-            ./arx-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
-            ./arx-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
+            ./arx-${V}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
+            ./arx-${V}-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
           done
           # Also build native apk
-          ./arx-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
+          ./arx-${V}-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
           echo "=== self-packaged artifacts ==="
           ls -la dist/
 

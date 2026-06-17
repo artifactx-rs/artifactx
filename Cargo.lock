@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "artifactx"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "ar",
@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "debrepo"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "ar",
@@ -3250,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "pack"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "ar",
