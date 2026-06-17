@@ -47,31 +47,18 @@
 | **Pack .apk builder** | Pure-Rust Alpine Linux `.apk` assembler (tar.gz + .PKGINFO + payload). Native + Backend API. | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
 | **Object-storage ADR** | [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md) — deferred with architecture sketch | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
 | **Coverage** | 57 tests green (4 new: human_bytes, promote CLI, key rotate/revoke, apk). All 4 workspace crates covered. | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
-| Published to GitHub (public) | `artifactx-rs/artifactx` + [GitHub Project **Done=24 Todo=0**](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
+| **arx import** | Import packages from existing apt/yum repos (Ubuntu, ClickHouse, Docker CE verified). Packages.gz autodetect, --match-name, --limit. Heavyweight feature. | [`fc355b1`](https://github.com/artifactx-rs/artifactx/commit/fc355b1) |
+| Published to GitHub (public) | `artifactx-rs/artifactx` + [GitHub Project **Done=24 Todo=1**](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
-_(empty — all items complete)_
+_(empty)_
 
 ## 📋 Backlog
 
-> Prioritized via the competitive teardown — see [`COMPETITORS.md`](COMPETITORS.md).
-
-### P0 — credibility
-- _(done — see Done column: Dogfood)_
-
-### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
-- _(done — all wedge items complete: OIDC ADR-0014, rollback ADR-0008, incremental ADR-0013, retention: semver + keep-within + --grace + bytes-freed)_
-
-### P1 — correctness
-- _(done — key rotation, Contents-<arch>, dedupe all complete)_
-
-### Consider later
-- _(all done or deferred — see Done column)_
-
-### Deferred (tracked here for visibility)
-- Object-storage backend → [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md) (architecture sketched)
-- Proxy cache → separate ADR needed
+| Item | Notes |
+|---|---|
+| **arx mirror** | Full repository mirror — sync upstream apt/yum repo, incremental fetch, version diff, scheduled sync. Builds on import infrastructure. |
 - More formats beyond deb/rpm/apk → `pack` crate extension point
 
 ### Reject (charter — see COMPETITORS.md)
