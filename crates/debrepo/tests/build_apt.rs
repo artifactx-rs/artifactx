@@ -157,7 +157,7 @@ fn skips_unreadable_deb_and_indexes_the_rest() {
     std::fs::write(pool.join("broken_1.0_amd64.deb"), b"this is not a .deb").unwrap();
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "stable", &meta, false).unwrap();
+    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "the good package is still indexed");
     assert_eq!(staged.skipped.len(), 1, "the broken package is skipped");
@@ -180,7 +180,7 @@ fn identical_duplicate_is_indexed_once_not_skipped() {
     write_deb(&pool.join("dup-again_1.0_amd64.deb"), &ctl);
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "stable", &meta, false).unwrap();
+    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "identical duplicate collapses to one stanza");
     assert!(
@@ -206,7 +206,7 @@ fn same_identity_different_content_is_a_collision() {
     write_deb(&pool.join("clash-b_1.0_amd64.deb"), b);
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "stable", &meta, false).unwrap();
+    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "first by sorted path wins");
     assert_eq!(staged.skipped.len(), 1, "the colliding package is skipped");

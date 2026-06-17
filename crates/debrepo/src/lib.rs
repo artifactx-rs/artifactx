@@ -167,9 +167,9 @@ fn gzip(data: &[u8]) -> Result<Vec<u8>> {
     encoder.finish().context("gzip finish")
 }
 
-/// List component directories under `<apt_root>/pool/`.
-fn discover_components(apt_root: &Path) -> Result<Vec<String>> {
-    let pool = apt_root.join("pool");
+/// List component directories under `<apt_root>/<pool_subdir>/`.
+fn discover_components(apt_root: &Path, pool_subdir: &str) -> Result<Vec<String>> {
+    let pool = apt_root.join(pool_subdir);
     let mut components = Vec::new();
     if pool.is_dir() {
         for entry in std::fs::read_dir(&pool).with_context(|| format!("reading {}", pool.display()))? {
@@ -183,9 +183,9 @@ fn discover_components(apt_root: &Path) -> Result<Vec<String>> {
     Ok(components)
 }
 
-/// Collect `.deb` paths under `<apt_root>/pool/<component>`, sorted.
-fn debs_in(apt_root: &Path, component: &str) -> Vec<PathBuf> {
-    let pool = apt_root.join("pool").join(component);
+/// Collect `.deb` paths under `<apt_root>/<pool_subdir>/<component>`, sorted.
+fn debs_in(apt_root: &Path, pool_subdir: &str, component: &str) -> Vec<PathBuf> {
+    let pool = apt_root.join(pool_subdir).join(component);
     let mut debs = Vec::new();
     if pool.is_dir() {
         for entry in walkdir::WalkDir::new(&pool).into_iter().filter_map(|e| e.ok()) {
@@ -239,7 +239,7 @@ fn write_index(
 /// cached manifest (`.arx-manifest.toml` per pool component). A match reuses the
 /// cached `Packages` stanza + SHA256 without re-opening the file — O(changes).
 /// Set `incremental = false` (or pass `--full`) to rebuild everything from scratch.
-pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: bool) -> Result<StagedDist> {
+pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &ReleaseMeta, incremental: bool) -> Result<StagedDist> {
     let dists = apt_root.join("dists");
     let final_dir = dists.join(dist);
     let staging_dir = dists.join(format!(".{dist}.staging"));
@@ -252,7 +252,7 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
     std::fs::create_dir_all(&staging_dir)
         .with_context(|| format!("creating {}", staging_dir.display()))?;
 
-    let components = discover_components(apt_root)?;
+    let components = discover_components(apt_root, pool_subdir)?;
     let mut index_files: Vec<IndexFile> = Vec::new();
     let mut all_arches: BTreeSet<String> = BTreeSet::new();
     let mut total = 0usize;
@@ -278,7 +278,7 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
         // Track filenames actually on disk so we don't leave stale manifest entries.
         let mut on_disk: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        for deb_path in debs_in(apt_root, component) {
+        for deb_path in debs_in(apt_root, pool_subdir, component) {
             let fname = deb_path
                 .file_name()
                 .unwrap()
@@ -535,7 +535,7 @@ pub fn rollback(apt_root: &Path, dist: &str, to: Option<&str>) -> Result<String>
 
 /// Convenience: stage and commit in one step (no signing). For tests / unsigned repos.
 pub fn build_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<DistBuild> {
-    let staged = stage_dist(apt_root, dist, meta, false)?;
+    let staged = stage_dist(apt_root, "pool", dist, meta, false)?;
     let out = DistBuild {
         release_text: staged.release_text.clone(),
         packages: staged.packages,

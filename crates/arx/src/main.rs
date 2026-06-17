@@ -656,7 +656,7 @@ fn publish_apt(
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
-    let staged = debrepo::stage_dist(&apt_root, &cfg.apt.dist, &meta, incremental)?;
+    let staged = debrepo::stage_dist(&apt_root, &cfg.apt.pool_dir, &cfg.apt.dist, &meta, incremental)?;
 
     // A forgiving default must still be observable: never let a skipped package
     // pass silently behind an exit-0 publish. Under strict, refuse to commit.
