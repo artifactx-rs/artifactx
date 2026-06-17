@@ -38,13 +38,14 @@
 | **gc --keep-within** | Time-based retention window — `--keep-within 90d` protects recent files regardless of version count | [`751d5ae`](https://github.com/artifactx-rs/artifactx/commit/751d5ae) |
 | **Custom key dir + pool dir** | `arx init --key-dir --pool-dir`; config `[signing].keys_dir`, `[apt].pool_dir`, `[yum].base_dir` | [`06e55c2`](https://github.com/artifactx-rs/artifactx/commit/06e55c2) |
 | **CI dogfood** | `ci.yml` builds release + runs `arx pack crates/arx/Cargo.toml` + validates with dpkg-deb | [`421e3b6`](https://github.com/artifactx-rs/artifactx/commit/421e3b6) |
+| **Contents-<arch>** | `apt-file` support — extracts data.tar paths, writes Contents-<arch> + Contents-<arch>.gz with tab-separated `<path>\t<package>` format | [`dcc9737`](https://github.com/artifactx-rs/artifactx/commit/dcc9737) |
 | Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: `Contents-<arch>`, key rotation, `arx promote`)_ | main | not started |
+| _(next: key rotation, `arx promote`)_ | main | not started |
 
 ## 📋 Backlog
 
@@ -60,7 +61,7 @@
 - **Retention policy** — `gc --keep-within 90d`; `gc --grace` window + bytes-freed report. _(semver-aware ordering: done, ADR-0011.)_
 
 ### P1 — correctness
-- `Contents-<arch>` (`apt-file`); key rotation / revocation. _(Duplicate-`add` dedupe: done, ADR-0011.)_
+- key rotation / revocation. _(Duplicate-`add` dedupe: done, ADR-0011; `Contents-<arch>`: done.)_
 
 ### Consider later
 - `promote` (staging→prod move); `incoming/` drop-dir ingestion; `arx pack --from <staging>`; repo-level overrides; optional read-through proxy cache; apk/arch output.
