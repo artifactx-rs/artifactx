@@ -17,7 +17,11 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - name: install real-tool validators (dpkg-deb + rpm)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev rpm
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
+        env:
+          PACK_REQUIRE_REAL_TOOLS: "1"
         run: cargo test --workspace
