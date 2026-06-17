@@ -18,12 +18,14 @@
 | READMEs (×3) + logo | platform + arx + debrepo |
 | **P0 — multi-dist/component atomic publish** | single `Release` per dist; `by-hash`; staging→commit swap; publish lock |
 | **P0 — private key encryption + passphrase** | S2K-encrypted key via `ARX_KEY_PASSPHRASE`/`--passphrase-file`; default stays frictionless (5-min rule) + warns |
+| **`pack` PoC** (packaging moat) | `crates/pack`: manifest → `.deb`/`.rpm`, pure-Rust native-first, Docker fallback stub, build hygiene; 5 tests green |
+| Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| **P0 — `pack` PoC** (packaging moat) | parallel agent | new crate; manifest → `.deb`/`.rpm`; native-first, Docker fallback, build hygiene |
+| _(next: P0 — package delete / GC / retention)_ | main | not started |
 
 ## 📋 Backlog
 

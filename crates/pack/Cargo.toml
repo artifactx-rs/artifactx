@@ -1,0 +1,34 @@
+[package]
+name = "pack"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+description = "Pure-Rust packager: build .deb and .rpm from a single TOML manifest, no native toolchain required for the common case."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jamesarch/artifactx"
+keywords = ["packaging", "deb", "rpm", "debian", "rpm-build"]
+categories = ["development-tools::build-utils"]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Native .deb assembly: ar archive + gzip-compressed tarballs.
+ar = "0.9"
+tar = "0.4"
+flate2 = "1"
+md-5 = "0.10"
+
+# Native .rpm assembly: the same crate createrepo_rs uses.
+rpm = "0.14"
+
+# Deterministic staging directory.
+tempfile = "3"
+
+[dev-dependencies]
+# Tests re-parse the .deb inline (ar + tar + flate2) instead of depending on the
+# sibling `debrepo` crate, so this crate stays standalone.
+ar = "0.9"
+tar = "0.4"
+flate2 = "1"

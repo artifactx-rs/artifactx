@@ -78,6 +78,7 @@ A Cargo workspace with a clean library/binary split:
 artifactx/
 ├── crates/
 │   ├── debrepo/   # 📚 pure-Rust apt repo generator — signing-agnostic, MIT/Apache
+│   ├── pack/      # 📦 pure-Rust packager: manifest → .deb/.rpm, no toolchain, MIT/Apache
 │   └── arx/       # 🔧 the CLI: orchestrates debrepo + createrepo_rs, signing,
 │                  #    HTTP serving, config, observability (GPL-2.0)
 ```
@@ -90,29 +91,28 @@ artifactx/
 
 The tagline *is* the roadmap:
 
-- [x] **Publish — apt** · signed `Packages`/`Release`/`InRelease`
+- [x] **Publish — apt** · signed `Packages`/`Release`/`InRelease`; atomic
+      multi-component/dist publish with `by-hash`
 - [x] **Publish — yum** · signed `repodata`/`repomd.xml.asc`
+- [x] **Package — `pack` (PoC)** · build `.deb`/`.rpm` from a manifest, pure-Rust,
+      no native toolchain ([`crates/pack`](crates/pack))
 - [x] **Everywhere** · single static binary + `docker compose up`
-- [ ] **Publish — hardening** · multi-component/dist `Release`, `by-hash`,
-      `Contents-<arch>`, incremental updates, package GC/retention
-- [ ] **Package — nfpm-rs** · build `.deb`/`.rpm`/`.apk` from a manifest with no
-      native toolchain
-- [ ] **Everywhere — more** · APK/Arch repos, S3/object-store backends, mirroring
-- [ ] **Platform** · auth, TLS, multi-repo management, optional web UI
+- [ ] **Publish — hardening** · package delete/GC/retention, `Contents-<arch>`,
+      incremental updates, server TLS + auth
+- [ ] **Package — more** · Docker fallback backend, `.apk` (Alpine)
+- [ ] **Everywhere — more** · S3/object-store backends, mirroring, hosted mode
 
 ## ⚠️ Status
 
 Alpha. The core apt/yum generate→sign→serve→install loop is verified end-to-end
-against real `apt-get` and `dnf`, but ArtifactX is young. Known gaps before
-production use:
+against real `apt-get` and `dnf`; publishes are **atomic, multi-component, and
+signed** with `by-hash`. Remaining gaps before production use:
 
 - the built-in server has **no TLS/auth** (front it with a reverse proxy);
-- signing keys are stored **unencrypted** on disk (no passphrase/rotation yet);
-- a single `Release` currently covers **one component/dist** (republishing another
-  component overwrites it);
-- `publish` is **not atomic** and has no `by-hash`, so a client running
-  `apt-get update` mid-publish can see a brief `Hash Sum mismatch`;
-- there is **no package removal / GC / retention** yet (the pool only grows).
+- signing-key encryption is **opt-in** — set `ARX_KEY_PASSPHRASE` (or
+  `--passphrase-file`); without it the key is stored unencrypted;
+- there is **no package removal / GC / retention** yet (the pool only grows);
+- `pack` is a **PoC** (native `.deb`/`.rpm`; Docker fallback is a stub).
 
 Don't point it at the public internet unguarded yet. See the roadmap.
 
