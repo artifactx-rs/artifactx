@@ -283,12 +283,23 @@ fn extract_hrefs(xml: &str) -> Vec<String> {
     out
 }
 
-/// Keep the `keep` newest *versions* per package; prune older ones. Returns the
-/// pruned entries (deleted unless `dry_run`). Ordering is version-aware (dpkg
-/// for apt, rpm EVR for yum) so re-uploading an old file can't evict a newer
-/// version; mtime is only a per-pair tiebreaker when a version is unparseable.
-/// Files pinned by a retained rollback state are never pruned.
-pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Result<GcReport> {
+/// Keep the `keep` newest *versions* per package; prune older ones. Additionally,
+/// `keep_within_days` (when > 0) protects files younger than that many days from
+/// pruning regardless of version count — so `--keep 3 --keep-within 90d` means
+/// "keep at least 3 versions, and also keep anything from the last 90 days".
+/// Returns the pruned entries (deleted unless `dry_run`). Ordering is
+/// version-aware (dpkg for apt, rpm EVR for yum) so re-uploading an old file
+/// can't evict a newer version; mtime is only a per-pair tiebreaker when a
+/// version is unparseable. Files pinned by a retained rollback state are never
+/// pruned.
+pub fn gc(
+    root: &Path,
+    keep: usize,
+    keep_within_days: u32,
+    apt: bool,
+    yum: bool,
+    dry_run: bool,
+) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
     let referenced = referenced_apt_files(root);
@@ -300,10 +311,20 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
         groups.entry(e.group_key()).or_default().push(e);
     }
 
+    let keep_within_secs = (keep_within_days as u64).saturating_mul(86400);
+    let time_cutoff = if keep_within_days > 0 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs().saturating_sub(keep_within_secs))
+            .ok()
+    } else {
+        None
+    };
+
     let mut pruned = Vec::new();
     let mut retained_for_rollback = 0usize;
     for (_, mut versions) in groups {
-        if versions.len() <= keep {
+        if versions.len() <= keep && keep_within_days == 0 {
             continue;
         }
         // Newest version first; per-pair fall back to mtime when a version is
@@ -314,6 +335,17 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
                 .reverse()
         });
         for e in versions.into_iter().skip(keep) {
+            // Protect files younger than the time cutoff.
+            if let Some(cutoff) = time_cutoff {
+                let mtime_secs = e
+                    .mtime
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if mtime_secs >= cutoff {
+                    continue; // still within the keep-within window
+                }
+            }
             // Keep files a retained rollback state still points at.
             let pinned = match e.kind {
                 Kind::Apt => e

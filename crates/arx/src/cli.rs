@@ -207,9 +207,14 @@ pub struct RmArgs {
 
 #[derive(Debug, Args)]
 pub struct GcArgs {
-    /// Keep this many most-recently-added versions per package.
+    /// Keep this many newest versions per package.
     #[arg(long, default_value_t = 3)]
     pub keep: usize,
+    /// Additionally protect files newer than this many days from pruning.
+    /// e.g. `--keep-within 90d` keeps everything from the last 90 days
+    /// regardless of version count.
+    #[arg(long, default_value_t = 0)]
+    pub keep_within: u32,
     /// Show what would be pruned without deleting.
     #[arg(long)]
     pub dry_run: bool,

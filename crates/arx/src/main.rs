@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Gc(args) => {
-            let report = pool::gc(&args.root, args.keep, args.apt, args.yum, args.dry_run)?;
+            let report = pool::gc(&args.root, args.keep, args.keep_within, args.apt, args.yum, args.dry_run)?;
             for e in &report.pruned {
                 let tag = if report.dry_run { "[dry-run] would prune" } else { "Pruned" };
                 println!("{tag} {} {} ({})", e.name, e.version, e.path.display());
