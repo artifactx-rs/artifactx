@@ -139,10 +139,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: arx-bin }
-      - run: chmod +x arx-amd64 && mv arx-amd64 arx
+      - run: chmod +x arx-amd64 && mkdir -p build && cp arx-amd64 build/arx
 
       - name: Package arx for dogfood
-        run: ./arx pack packaging/arx.toml --out dist
+        run: ./build/arx pack packaging/arx.toml --out dist
 
       - name: Build signed repo → Pages
         env:
