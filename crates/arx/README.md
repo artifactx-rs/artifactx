@@ -87,8 +87,9 @@ sudo dnf install <package>
 ## Notes
 
 - Signing keys default to **RSA-2048** (fast `init`, verifiable everywhere).
-- The built-in server is plain HTTP with no auth/TLS — put it behind a reverse
-  proxy (nginx/Caddy) for anything public.
+- The built-in server is plain HTTP. Set **`ARX_SERVE_TOKEN`** to require an
+  `Authorization: Bearer <token>` on every request (unset = public, for the
+  zero-config quickstart). For TLS, front it with a reverse proxy (nginx/Caddy).
 
 ## License
 

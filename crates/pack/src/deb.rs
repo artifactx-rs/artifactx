@@ -119,6 +119,15 @@ fn render_control(manifest: &Manifest, arch: &str, installed_kib: u64) -> String
     if !manifest.depends.is_empty() {
         let _ = writeln!(out, "Depends: {}", manifest.depends.join(", "));
     }
+    if !manifest.conflicts.is_empty() {
+        let _ = writeln!(out, "Conflicts: {}", manifest.conflicts.join(", "));
+    }
+    if !manifest.provides.is_empty() {
+        let _ = writeln!(out, "Provides: {}", manifest.provides.join(", "));
+    }
+    if !manifest.replaces.is_empty() {
+        let _ = writeln!(out, "Replaces: {}", manifest.replaces.join(", "));
+    }
     let _ = writeln!(out, "Priority: optional");
     // Render the description: first line is the synopsis, subsequent lines are
     // folded with a leading space per Debian policy.

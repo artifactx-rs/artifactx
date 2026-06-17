@@ -112,7 +112,8 @@ Alpha. The core apt/yum generate→sign→serve→install loop is verified end-t
 against real `apt-get` and `dnf`; publishes are **atomic, multi-component, and
 signed** with `by-hash`. Remaining gaps before production use:
 
-- the built-in server has **no TLS/auth** (front it with a reverse proxy);
+- the built-in server is plain HTTP — optional bearer-token auth via
+  `ARX_SERVE_TOKEN`; TLS belongs at a reverse proxy;
 - signing-key encryption is **opt-in** — set `ARX_KEY_PASSPHRASE` (or
   `--passphrase-file`); without it the key is stored unencrypted;
 - there is **no package removal / GC / retention** yet (the pool only grows);

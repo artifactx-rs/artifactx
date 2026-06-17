@@ -34,6 +34,15 @@ pub struct Manifest {
     /// Runtime dependencies, in each format's native dependency syntax.
     #[serde(default)]
     pub depends: Vec<String>,
+    /// Packages this one conflicts with.
+    #[serde(default)]
+    pub conflicts: Vec<String>,
+    /// Virtual packages / capabilities this package provides.
+    #[serde(default)]
+    pub provides: Vec<String>,
+    /// Packages this one replaces (deb `Replaces`, rpm `Obsoletes`).
+    #[serde(default)]
+    pub replaces: Vec<String>,
 
     /// Files to install, with host source, install destination, and mode.
     #[serde(default)]

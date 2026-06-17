@@ -349,5 +349,7 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let addr = args.addr.clone().unwrap_or(cfg.server.addr);
     let handle = observability::init_metrics()?;
-    server::serve(args.root.clone(), addr, handle).await
+    // Optional bearer-token auth; unset means public (zero-config quickstart).
+    let token = std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty());
+    server::serve(args.root.clone(), addr, handle, token).await
 }

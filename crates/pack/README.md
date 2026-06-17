@@ -40,7 +40,10 @@ A longer paragraph describing the package."""
 license = "MIT"
 section = "utils"          # deb Section; reused as rpm Group if `group` unset
 # group = "Applications/System"
-depends = ["libc6"]
+depends   = ["libc6"]
+conflicts = ["hello-old"]  # deb Conflicts / rpm Conflicts
+provides  = ["greeter"]    # virtual package / capability
+replaces  = ["hello-old"]  # deb Replaces / rpm Obsoletes
 
 [[files]]
 source = "build/hello"     # path on the build host

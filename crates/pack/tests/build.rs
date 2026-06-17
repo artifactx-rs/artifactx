@@ -136,7 +136,65 @@ fn backend_docker_is_stubbed() {
     assert!(err.to_string().contains("not yet implemented"));
 }
 
+#[test]
+fn relationship_fields_and_scripts_in_deb() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello"), b"#!/bin/sh\n").unwrap();
+    let postinst = dir.path().join("postinst.sh");
+    std::fs::write(&postinst, b"#!/bin/sh\nset -e\n").unwrap();
+
+    let toml = format!(
+        r#"
+        name = "hello"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "greeter"
+        license = "MIT"
+        depends = ["libc6"]
+        conflicts = ["hello-old"]
+        provides = ["greeter"]
+        replaces = ["hello-old"]
+
+        [scripts]
+        postinst = "{postinst}"
+
+        [[files]]
+        source = "{payload}"
+        dest = "/usr/bin/hello"
+        mode = "0755"
+        "#,
+        postinst = postinst.display(),
+        payload = dir.path().join("hello").display(),
+    );
+    let manifest = Manifest::from_toml_str(&toml).unwrap();
+    let deb = pack::build_deb(&manifest, dir.path()).unwrap();
+
+    let control = read_deb_control(&deb);
+    assert!(control.contains("Conflicts: hello-old"), "{control}");
+    assert!(control.contains("Provides: greeter"), "{control}");
+    assert!(control.contains("Replaces: hello-old"), "{control}");
+
+    // The maintainer script must be embedded in control.tar.gz.
+    let names = read_control_tar_names(&deb);
+    assert!(
+        names.iter().any(|n| n.trim_start_matches("./") == "postinst"),
+        "control.tar missing postinst: {names:?}"
+    );
+}
+
 // --- inline .deb re-parsing helpers (ar + tar + flate2) ---
+
+/// Return the entry names inside a `.deb`'s `control.tar.gz`.
+fn read_control_tar_names(path: &Path) -> Vec<String> {
+    let tar_gz = read_ar_member(path, "control.tar.gz");
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tar_gz.as_slice()));
+    archive
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+        .collect()
+}
 
 /// Extract and return the `control` file text from a `.deb`.
 fn read_deb_control(path: &Path) -> String {

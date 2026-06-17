@@ -51,6 +51,16 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         builder = builder.requires(Dependency::any(dep.clone()));
     }
 
+    for c in &manifest.conflicts {
+        builder = builder.conflicts(Dependency::any(c.clone()));
+    }
+    for p in &manifest.provides {
+        builder = builder.provides(Dependency::any(p.clone()));
+    }
+    for r in &manifest.replaces {
+        builder = builder.obsoletes(Dependency::any(r.clone()));
+    }
+
     // Maintainer scripts, when present, are embedded as scriptlets.
     if let Some(path) = &manifest.scripts.preinst {
         builder = builder.pre_install_script(read_script(path)?);
