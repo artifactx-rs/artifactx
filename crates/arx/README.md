@@ -43,12 +43,12 @@ and run `docker compose up`.
 | `arx key {generate\|import <file>\|export}` | Manage the signing key |
 | `arx add <pkg…>` | Add `.deb`/`.rpm` into the pool (arch detected from metadata) |
 | `arx pack <manifest> [--add]` | Build `.deb`/`.rpm` from a manifest (optionally into the pool) |
-| `arx publish [--apt] [--yum]` | Generate and sign repository metadata |
+| `arx publish [--apt] [--yum] [--strict]` | Generate and sign repository metadata (`--strict` fails if any package is unreadable/colliding instead of skipping it) |
 | `arx rollback [dist] [--to <id>]` | Flip an apt dist back to a previous published state |
 | `arx history [dist]` | List retained published states for an apt dist |
 | `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |
 | `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
-| `arx gc --keep N [--dry-run]` | Prune old package versions from the pool, then `publish` |
+| `arx gc --keep N [--dry-run]` | Keep the N newest **versions** per package (dpkg/rpm version-aware), prune the rest, then `publish` |
 | `arx serve [--addr] [--root]` | Serve the repo over HTTP (+ `/metrics`) |
 | `arx compose [--addr]` | Generate `Dockerfile` + `docker-compose.yml` |
 
@@ -110,16 +110,39 @@ curl -fsSL -H "Authorization: Bearer $ARX_SERVE_TOKEN" \
 
 ## Configuration (`arx.toml`)
 
-`arx init` writes a commented `arx.toml` at the repo root: repository identity
+`arx init` writes `arx.toml` at the repo root: repository identity
 (`Origin`/`Label`), signing key paths, default apt `dist`/`component`, default yum
 `repo`, and the server listen address. CLI flags override config values.
+
+Two `[apt]` keys govern publishing behavior:
+
+```toml
+[apt]
+dist = "stable"
+component = "main"
+valid_days = 7    # Release `Valid-Until` window; 0 = no expiry. init writes 7.
+strict = false    # true = a skipped package fails publish (push returns 422)
+```
+
+- **`valid_days`** stamps `Valid-Until` into the apt `Release` so a stale-metadata
+  (freeze/replay) attack has only a small window; republishing refreshes it.
+  `arx init` sets `7` (secure-by-default); `0` omits the field. yum has no
+  server-side expiry in its spec.
+- **`strict`** is the source of truth for the `push`/server path; the CLI
+  `--strict` flag forces it on for one publish.
 
 ## Notes
 
 - Signing keys default to **RSA-2048** (fast `init`, verifiable everywhere).
+- Publishing is **resilient**: one unreadable or colliding package is skipped
+  (with a loud stderr summary + an `arx_publish_skipped_total` metric), not fatal
+  — unless `--strict`/`[apt].strict`. The live repo is never half-written
+  (staging → atomic symlink flip).
 - The built-in server is plain HTTP. Set **`ARX_SERVE_TOKEN`** to require an
   `Authorization: Bearer <token>` on every request (unset = public, for the
   zero-config quickstart). For TLS, front it with a reverse proxy (nginx/Caddy).
+- Backup/restore & rollback: see [`docs/OPERATIONS.md`](../../docs/OPERATIONS.md)
+  — metadata is derived, so protect the inputs and `arx publish` rebuilds the rest.
 
 ## License
 
