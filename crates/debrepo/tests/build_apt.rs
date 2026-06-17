@@ -146,6 +146,78 @@ fn valid_until_emitted_when_configured() {
 }
 
 #[test]
+fn skips_unreadable_deb_and_indexes_the_rest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    write_deb(&pool.join("good_1.0_amd64.deb"), &control("good", "1.0", "amd64"));
+    // Not a valid ar archive → unreadable; must be skipped, not fatal.
+    std::fs::write(pool.join("broken_1.0_amd64.deb"), b"this is not a .deb").unwrap();
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    let staged = debrepo::stage_dist(&apt, "stable", &meta).unwrap();
+
+    assert_eq!(staged.packages, 1, "the good package is still indexed");
+    assert_eq!(staged.skipped.len(), 1, "the broken package is skipped");
+    assert!(staged.skipped[0]
+        .path
+        .ends_with("broken_1.0_amd64.deb"));
+}
+
+#[test]
+fn identical_duplicate_is_indexed_once_not_skipped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    // Same Package/Version/Arch and identical bytes (control is deterministic):
+    // an accidental double-add. Indexed once, idempotent — not a skip.
+    let ctl = control("dup", "1.0", "amd64");
+    write_deb(&pool.join("dup_1.0_amd64.deb"), &ctl);
+    write_deb(&pool.join("dup-again_1.0_amd64.deb"), &ctl);
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    let staged = debrepo::stage_dist(&apt, "stable", &meta).unwrap();
+
+    assert_eq!(staged.packages, 1, "identical duplicate collapses to one stanza");
+    assert!(
+        staged.skipped.is_empty(),
+        "an identical re-add is idempotent, not a skip: {:?}",
+        staged.skipped
+    );
+}
+
+#[test]
+fn same_identity_different_content_is_a_collision() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    // Same (Package, Version, Architecture) but different bytes (Maintainer
+    // differs) → a real collision; the first by sorted path wins, the other is
+    // recorded as skipped rather than emitting a duplicate stanza.
+    let a = "Package: clash\nVersion: 1.0\nArchitecture: amd64\nMaintainer: A <a@x>\nDescription: one\n";
+    let b = "Package: clash\nVersion: 1.0\nArchitecture: amd64\nMaintainer: B <b@x>\nDescription: two\n";
+    write_deb(&pool.join("clash-a_1.0_amd64.deb"), a);
+    write_deb(&pool.join("clash-b_1.0_amd64.deb"), b);
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    let staged = debrepo::stage_dist(&apt, "stable", &meta).unwrap();
+
+    assert_eq!(staged.packages, 1, "first by sorted path wins");
+    assert_eq!(staged.skipped.len(), 1, "the colliding package is skipped");
+    assert!(
+        staged.skipped[0].reason.contains("collision"),
+        "reason should explain the collision: {}",
+        staged.skipped[0].reason
+    );
+}
+
+#[test]
 fn architecture_all_lands_in_each_concrete_arch() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");

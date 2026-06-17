@@ -350,12 +350,14 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     // both flags off means publish both.
     let do_apt = args.apt || !args.yum;
     let do_yum = args.yum || !args.apt;
+    // CLI flag OR config opt-in: any skipped package becomes a hard error.
+    let strict = args.strict || cfg.apt.strict;
 
     // CPU-bound generation runs on a blocking thread.
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
-            lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase)?);
+            lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict)?.summary);
         }
         if do_yum {
             lines.push(publish_yum(&root, key.as_ref(), &passphrase)?);
@@ -369,12 +371,50 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     Ok(())
 }
 
+/// Print a loud, human-visible summary of skipped packages to stderr so a
+/// forgiving publish can't silently drop a package behind a green exit code.
+fn report_skipped(skipped: &[debrepo::SkippedDeb]) {
+    eprintln!("WARNING: skipped {} package(s):", skipped.len());
+    for s in skipped {
+        eprintln!("  - {}: {}", s.path.display(), s.reason);
+    }
+    eprintln!("  (use --strict to fail instead of skipping)");
+}
+
+/// Outcome of an apt publish: the human summary plus the reasons any packages
+/// were left out (so the HTTP API can report them in its response body).
+pub(crate) struct AptPublish {
+    pub summary: String,
+    pub skipped: Vec<String>,
+}
+
+/// A publish refused under `--strict`/`[apt].strict` because packages were
+/// skipped. A typed error so the HTTP layer can map it to a 4xx (client's
+/// package was rejected) rather than a generic 500.
+#[derive(Debug)]
+pub(crate) struct StrictSkip {
+    pub reasons: Vec<String>,
+}
+
+impl std::fmt::Display for StrictSkip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "strict: refusing to publish — {} package(s) skipped (nothing committed): {}",
+            self.reasons.len(),
+            self.reasons.join("; ")
+        )
+    }
+}
+impl std::error::Error for StrictSkip {}
+
 fn publish_apt(
     root: &Path,
     cfg: &Config,
     key: Option<&SignedSecretKey>,
     passphrase: &str,
-) -> Result<String> {
+    strict: bool,
+) -> Result<AptPublish> {
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
 
@@ -389,6 +429,24 @@ fn publish_apt(
     // Stage the whole dist (all components/arches) into a fresh directory.
     let staged = debrepo::stage_dist(&apt_root, &cfg.apt.dist, &meta)?;
 
+    // A forgiving default must still be observable: never let a skipped package
+    // pass silently behind an exit-0 publish. Under strict, refuse to commit.
+    let skipped_reasons: Vec<String> = staged
+        .skipped
+        .iter()
+        .map(|s| format!("{}: {}", s.path.display(), s.reason))
+        .collect();
+    if !staged.skipped.is_empty() {
+        metrics::counter!("arx_publish_skipped_total").increment(staged.skipped.len() as u64);
+        report_skipped(&staged.skipped);
+        if strict {
+            return Err(StrictSkip {
+                reasons: skipped_reasons,
+            }
+            .into());
+        }
+    }
+
     // Sign into the staging dir so signatures are part of the atomic swap.
     if let Some(key) = key {
         let inrelease = signing::clearsign(key, passphrase, &staged.release_text)?;
@@ -401,12 +459,23 @@ fn publish_apt(
 
     let packages = staged.packages;
     let components = staged.components.len();
+    let skipped = staged.skipped.len();
     // Atomic symlink flip into place — clients never see a half-written dist,
     // and the previous state is retained for rollback.
     debrepo::commit_dist(&staged, debrepo::DEFAULT_KEEP_STATES)?;
 
     metrics::histogram!("arx_publish_apt_seconds").record(start.elapsed().as_secs_f64());
-    Ok(format!("apt: indexed {packages} package(s) across {components} component(s)"))
+    let tail = if skipped > 0 {
+        format!(", {skipped} skipped")
+    } else {
+        String::new()
+    };
+    Ok(AptPublish {
+        summary: format!(
+            "apt: indexed {packages} package(s) across {components} component(s){tail}"
+        ),
+        skipped: skipped_reasons,
+    })
 }
 
 fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str) -> Result<String> {

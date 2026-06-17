@@ -21,7 +21,7 @@ pub mod statedir;
 
 pub use statedir::StateInfo;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -83,6 +83,17 @@ pub struct StagedDist {
     pub packages: usize,
     pub components: Vec<String>,
     pub architectures: Vec<String>,
+    /// Packages left out of the index because they could not be read/parsed or
+    /// collided with an already-indexed package. Empty on a clean stage. The
+    /// caller decides whether to warn-and-proceed or fail (`--strict`).
+    pub skipped: Vec<SkippedDeb>,
+}
+
+/// A package omitted from the staged index, with a human-readable reason.
+#[derive(Debug, Clone)]
+pub struct SkippedDeb {
+    pub path: PathBuf,
+    pub reason: String,
 }
 
 /// Result of a committed [`build_dist`].
@@ -112,6 +123,18 @@ fn hex_sha1(data: &[u8]) -> String {
 }
 fn hex_sha256(data: &[u8]) -> String {
     hex::encode(Sha256::digest(data))
+}
+
+/// Read a `.deb`'s control + raw bytes, validating the fields the index needs
+/// (Package/Version/Architecture). Returns a human reason on any failure so the
+/// caller can skip-and-record instead of aborting the whole publish.
+fn read_deb(path: &Path) -> std::result::Result<(deb::Control, Vec<u8>), String> {
+    let control = deb::read_control(path).map_err(|e| format!("{e:#}"))?;
+    control.package().map_err(|e| e.to_string())?;
+    control.version().map_err(|e| e.to_string())?;
+    control.architecture().map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(path).map_err(|e| format!("reading file: {e}"))?;
+    Ok((control, bytes))
 }
 
 /// Build a single package's `Packages` stanza.
@@ -221,6 +244,12 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
     let mut index_files: Vec<IndexFile> = Vec::new();
     let mut all_arches: BTreeSet<String> = BTreeSet::new();
     let mut total = 0usize;
+    let mut skipped: Vec<SkippedDeb> = Vec::new();
+    // (Package, Version, Architecture) -> (sha256, source path) already indexed.
+    // Lets identical double-adds be idempotent and flags genuine collisions
+    // (same identity, different bytes). Keyed across the whole dist; iteration is
+    // `debs_in`'s sorted order (deb.rs sort) so "first wins" is deterministic.
+    let mut seen: HashMap<(String, String, String), (String, PathBuf)> = HashMap::new();
 
     for component in &components {
         // arch -> accumulated Packages text; plus Architecture: all stanzas.
@@ -228,11 +257,37 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
         let mut all_stanzas: Vec<String> = Vec::new();
 
         for deb_path in debs_in(apt_root, component) {
-            let control = deb::read_control(&deb_path)
-                .with_context(|| format!("inspecting {}", deb_path.display()))?;
-            let arch = control.architecture()?.to_string();
-            let deb_bytes = std::fs::read(&deb_path)
-                .with_context(|| format!("reading {}", deb_path.display()))?;
+            // A single unreadable/malformed .deb must not sink the whole publish.
+            // We record it (the caller surfaces/keeps the list) and carry on.
+            let (control, deb_bytes) = match read_deb(&deb_path) {
+                Ok(v) => v,
+                Err(reason) => {
+                    skipped.push(SkippedDeb { path: deb_path.clone(), reason });
+                    continue;
+                }
+            };
+            // Guaranteed present by read_deb.
+            let name = control.package().unwrap().to_string();
+            let version = control.version().unwrap().to_string();
+            let arch = control.architecture().unwrap().to_string();
+
+            let sha = hex_sha256(&deb_bytes);
+            let key = (name.clone(), version.clone(), arch.clone());
+            if let Some((prev_sha, prev_path)) = seen.get(&key) {
+                // Same identity + same bytes: an idempotent re-add → index once.
+                // Same identity, different bytes: a real collision → keep the
+                // first (sorted) and record the loser instead of duplicating it.
+                if prev_sha != &sha {
+                    let reason = format!(
+                        "collision: {name} {version} {arch} already indexed from {} with different contents",
+                        prev_path.display()
+                    );
+                    skipped.push(SkippedDeb { path: deb_path.clone(), reason });
+                }
+                continue;
+            }
+            seen.insert(key, (sha, deb_path.clone()));
+
             let rel_filename = format!(
                 "pool/{component}/{}",
                 deb_path.file_name().unwrap().to_string_lossy()
@@ -282,6 +337,7 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
         packages: total,
         components,
         architectures: arches,
+        skipped,
     })
 }
 

@@ -208,6 +208,11 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
 struct PushResult {
     stored: String,
     published: String,
+    /// Reasons any packages were left out of the index (empty on a clean push).
+    /// Non-empty here means the server is in forgiving mode (`[apt].strict` off);
+    /// under strict the request fails with 422 instead.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    skipped: Vec<String>,
 }
 
 /// `POST /api/v1/packages` — upload a `.deb`/`.rpm`, store it, republish.
@@ -245,6 +250,10 @@ where
 
 fn err_response(e: &anyhow::Error) -> Response {
     tracing::warn!(error = %e, "api error");
+    // A package rejected under strict mode is the client's fault, not ours.
+    if let Some(skip) = e.downcast_ref::<crate::StrictSkip>() {
+        return (StatusCode::UNPROCESSABLE_ENTITY, format!("{skip}\n")).into_response();
+    }
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}\n")).into_response()
 }
 
@@ -265,12 +274,13 @@ fn safe_filename(name: &str) -> Option<String> {
     Some(f.to_string())
 }
 
-/// Republish both formats (caller already holds the publish lock).
+/// Republish both formats (caller already holds the publish lock). Strict mode
+/// (a skipped package → error) is governed by the server's `[apt].strict`.
 fn publish_both(st: &AppState) -> Result<String> {
     let key = st.key.as_deref();
-    let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase)?;
+    let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict)?;
     let yum = crate::publish_yum(&st.root, key, &st.passphrase)?;
-    Ok(format!("{apt}; {yum}"))
+    Ok(format!("{}; {yum}", apt.summary))
 }
 
 /// Store an uploaded package in the pool and republish its format.
@@ -294,10 +304,12 @@ fn ingest(
             let dir = st.root.join("apt/pool").join(&comp);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(dir.join(filename), &body).context("writing uploaded .deb")?;
-            let published = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase)?;
+            let published =
+                crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict)?;
             Ok(PushResult {
                 stored: format!("apt/{comp}/{filename}"),
-                published,
+                published: published.summary,
+                skipped: published.skipped,
             })
         }
         "rpm" => {
@@ -318,6 +330,7 @@ fn ingest(
             Ok(PushResult {
                 stored: format!("yum/{repo}/{arch}/{filename}"),
                 published,
+                skipped: Vec::new(),
             })
         }
         other => bail!("unsupported package type .{other} (expected .deb or .rpm)"),

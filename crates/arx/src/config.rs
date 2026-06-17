@@ -98,6 +98,11 @@ pub struct Apt {
     /// and programmatic callers are never surprised by silent expiry.
     #[serde(default)]
     pub valid_days: u32,
+    /// Fail the publish if any package is skipped (unreadable/colliding) instead
+    /// of warning and proceeding. The source of truth for the `push`/server path;
+    /// the CLI `--strict` flag also forces it on. Default `false` (forgiving).
+    #[serde(default)]
+    pub strict: bool,
 }
 
 impl Default for Apt {
@@ -106,6 +111,7 @@ impl Default for Apt {
             dist: "stable".into(),
             component: "main".into(),
             valid_days: 0,
+            strict: false,
         }
     }
 }

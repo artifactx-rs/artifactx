@@ -120,6 +120,10 @@ pub struct PublishArgs {
     /// Only publish the yum repository.
     #[arg(long)]
     pub yum: bool,
+    /// Fail if any package is unreadable or collides, instead of skipping it and
+    /// publishing the rest. Also settable as `[apt].strict` in `arx.toml`.
+    #[arg(long)]
+    pub strict: bool,
     /// Passphrase file to unlock an encrypted signing key; falls back to
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
