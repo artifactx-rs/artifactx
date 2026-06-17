@@ -50,6 +50,8 @@ pub enum Command {
     Promote(PromoteArgs),
     /// Serve the repository over HTTP.
     Serve(ServeArgs),
+    /// Mirror an upstream apt/yum repository (sync + keep up-to-date).
+    Mirror(MirrorArgs),
     /// Watch a directory for new packages (auto-add + publish).
     Watch(WatchArgs),
     /// Generate docker-compose.yml + Dockerfile.
@@ -205,6 +207,36 @@ pub struct PushArgs {
     /// yum repo for `.rpm` uploads (server default if unset).
     #[arg(long)]
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct MirrorArgs {
+    /// Base URL of the upstream repository.
+    pub url: String,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// apt distribution (default: config default).
+    #[arg(long)]
+    pub dist: Option<String>,
+    /// apt component (default: config default).
+    #[arg(long)]
+    pub component: Option<String>,
+    /// Architecture filter (default: amd64).
+    #[arg(long, default_value = "amd64")]
+    pub arch: String,
+    /// Prune local packages no longer in upstream.
+    #[arg(long)]
+    pub prune: bool,
+    /// Auto-publish after sync.
+    #[arg(long)]
+    pub publish: bool,
+    /// Operate on apt pool.
+    #[arg(long)]
+    pub apt: bool,
+    /// Operate on yum pool.
+    #[arg(long)]
+    pub yum: bool,
 }
 
 #[derive(Debug, Args)]

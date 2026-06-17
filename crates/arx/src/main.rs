@@ -4,6 +4,7 @@ mod cli;
 mod compose;
 mod config;
 mod import;
+mod mirror;
 mod observability;
 mod oidc;
 mod pool;
@@ -63,6 +64,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Mirror(args) => cmd_mirror(&args),
         Command::Import(args) => cmd_import(&args),
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
@@ -324,6 +326,26 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
     } else {
         pack::Manifest::from_toml_str(&text)
     }
+}
+
+fn cmd_mirror(args: &cli::MirrorArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
+    let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
+
+    let (downloaded, removed, total) = mirror::mirror_apt(
+        &args.root, &cfg, &args.url, dist, comp, &args.arch, args.prune,
+    )?;
+
+    println!("Mirror sync complete: {downloaded} downloaded, {removed} pruned, {total} total upstream");
+    if args.publish {
+        let key = load_key(&args.root, &cfg)?;
+        let passphrase = resolve_passphrase(None)?.unwrap_or_default();
+        let _lock = PublishLock::acquire(&args.root)?;
+        let apt = publish_apt(&args.root, &cfg, key.as_ref(), &passphrase, false, true)?;
+        println!("Published: {}", apt.summary);
+    }
+    Ok(())
 }
 
 fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
