@@ -48,3 +48,31 @@ pub fn generate(_root: &Path, out_dir: &Path, addr: &str) -> Result<()> {
     std::fs::write(out_dir.join("docker-compose.yml"), yml).context("writing docker-compose.yml")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+
+    #[test]
+    fn generates_dockerfile_and_compose() {
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("output");
+        let _repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&_repo).unwrap();
+
+        generate(&_repo, &out, "0.0.0.0:8080").unwrap();
+
+        let dockerfile = out.join("Dockerfile");
+        let compose = out.join("docker-compose.yml");
+        assert!(dockerfile.exists(), "Dockerfile should exist");
+        assert!(compose.exists(), "docker-compose.yml should exist");
+
+        let df = std::fs::read_to_string(&dockerfile).unwrap();
+        assert!(df.contains("FROM"), "Dockerfile should have FROM");
+        assert!(df.contains("arx"), "Dockerfile should reference arx");
+
+        let cy = std::fs::read_to_string(&compose).unwrap();
+        assert!(cy.contains("8080"), "compose should reference port");
+    }
+}
