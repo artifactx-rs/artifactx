@@ -59,6 +59,7 @@ _(empty)_
 | Item | Notes |
 |---|---|
 | **arx mirror** | Full repository mirror — sync upstream apt/yum repo, incremental fetch, version diff, scheduled sync. Builds on import infrastructure. |
+| **REST API first-class parity** | API coverage lags CLI — missing endpoints: `POST /api/v1/publish`, `POST /api/v1/rollback/:target`, `GET /api/v1/history/:target`, `POST /api/v1/import`, `POST /api/v1/promote`. API must be equal to CLI. |
 | **Nix flake** | `flake.nix` — zero-install for Nix users: `nix run github:artifactx-rs/artifactx` builds + runs arx; `nix develop` drops into a dev shell with the Rust toolchain. |
 - More formats beyond deb/rpm/apk → `pack` crate extension point
 
