@@ -66,6 +66,7 @@ cargo build --release
 | `arx rollback` | Flip back to the previous published state (apt + yum) |
 | `arx history` | List retained published states |
 | `arx promote` | Move packages between components/repos (staging→prod) |
+| `arx import` | Migrate packages from an existing apt/yum repo |
 | `arx watch` | Poll a directory for new packages, auto-add + publish |
 | `arx key` | Generate / import / rotate / revoke signing keys |
 
