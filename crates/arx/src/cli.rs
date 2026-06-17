@@ -165,6 +165,9 @@ pub struct PackArgs {
     /// Build only the `.rpm` (default: build both).
     #[arg(long)]
     pub rpm: bool,
+    /// Build an Alpine Linux `.apk` package.
+    #[arg(long)]
+    pub apk: bool,
     /// Also add the built packages into the repository pool.
     #[arg(long)]
     pub add: bool,

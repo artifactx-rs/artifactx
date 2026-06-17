@@ -389,14 +389,20 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
 fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
     let manifest = load_pack_manifest(args.manifest.as_deref())?;
 
-    let do_deb = args.deb || !args.rpm;
-    let do_rpm = args.rpm || !args.deb;
+    // Default (no flags): build all three formats.
+    let all = !args.deb && !args.rpm && !args.apk;
+    let do_deb = args.deb || all;
+    let do_rpm = args.rpm || all;
+    let do_apk = args.apk || all;
     let mut built = Vec::new();
     if do_deb {
         built.push(pack::build_deb(&manifest, &args.out).context("building .deb")?);
     }
     if do_rpm {
         built.push(pack::build_rpm(&manifest, &args.out).context("building .rpm")?);
+    }
+    if do_apk {
+        built.push(pack::build_apk(&manifest, &args.out).context("building .apk")?);
     }
     for p in &built {
         println!("Built {}", p.display());
