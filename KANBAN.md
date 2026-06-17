@@ -33,13 +33,14 @@
 | **P0 — repo product-readiness (ADR-0011)** | apt `Release` `Valid-Until` (freeze protection); bad/duplicate package isolation (skip-and-warn, always visible; `--strict`; push→422); version-aware GC (dpkg/rpm EVR, not mtime). Verified e2e | [ADR](docs/adr/0011-repo-product-readiness.md) · [`785f9ba`](https://github.com/artifactx-rs/artifactx/commit/785f9ba) · [`5bd5126`](https://github.com/artifactx-rs/artifactx/commit/5bd5126) · [`bb3e31e`](https://github.com/artifactx-rs/artifactx/commit/bb3e31e) · [`6f8abe0`](https://github.com/artifactx-rs/artifactx/commit/6f8abe0) |
 | **yum e2e test + backup runbook** | yum repodata integration test (binary-driven, structure + signature) + [`docs/OPERATIONS.md`](docs/OPERATIONS.md) backup/restore (ADR-0011 bars #4/#5) | [`c286725`](https://github.com/artifactx-rs/artifactx/commit/c286725) |
 | **P0 — pack product-readiness (ADR-0012)** | reproduciblity (rpm source_date fix; all 3+4 timestamp sites clamped); fail-loud arch + file-type gate; Cargo workspace support ([[bin]].name, target-dir, inherited fields); real dpkg-deb/rpm validation (CI forced). Verified: deb+rpm byte-identical, all 49 tests green incl. 4 real-tool. | [ADR](docs/adr/0012-pack-product-readiness.md) · [`a8da659`](https://github.com/artifactx-rs/artifactx/commit/a8da659) · [`b9abe31`](https://github.com/artifactx-rs/artifactx/commit/b9abe31) · [`4c0af1b`](https://github.com/artifactx-rs/artifactx/commit/4c0af1b) · [`24016bf`](https://github.com/artifactx-rs/artifactx/commit/24016bf) |
+| **Incremental publish (ADR-0013)** | apt: file-manifest cache (mtime,size→sha256+stanza) — no-op publish skips .deb body reads; yum: manifest detects no-change → skips repodata rebuild | [ADR](docs/adr/0013-incremental-publish.md) · [`(commit)`](https://github.com/artifactx-rs/artifactx/commit/a82bfec) · [`9ac9081`](https://github.com/artifactx-rs/artifactx/commit/9ac9081) |
 | Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(repo + pack both product-ready; next: incremental publish, or `arx pack` dogfood in CI release)_ | main | not started |
+| _(next: OIDC keyless push, or `arx pack` dogfood in CI release, or `gc --keep-within`)_ | main | not started |
 
 ## 📋 Backlog
 
