@@ -183,6 +183,7 @@ dependencies = [
  "clap",
  "createrepo_rs",
  "debrepo",
+ "debversion",
  "flate2",
  "hex",
  "metrics",
@@ -191,6 +192,7 @@ dependencies = [
  "pgp 0.14.2",
  "rand 0.8.6",
  "reqwest",
+ "rpm-version",
  "serde",
  "sha2",
  "tar",
@@ -866,6 +868,17 @@ dependencies = [
  "walkdir",
  "xz2",
  "zstd",
+]
+
+[[package]]
+name = "debversion"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd0855110dc659601a99e89e04b8b51196161b3da5ff33848c47421bb6feeff8"
+dependencies = [
+ "chrono",
+ "lazy-regex",
+ "num-bigint",
 ]
 
 [[package]]
@@ -2706,6 +2719,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazy-regex"
+version = "3.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bae91019476d3ec7147de9aa291cadb6d870abf2f3015d2da73a90325ac1496"
+dependencies = [
+ "lazy-regex-proc_macros",
+ "once_cell",
+ "regex",
+]
+
+[[package]]
+name = "lazy-regex-proc_macros"
+version = "3.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4de9c1e1439d8b7b3061b2d209809f447ca33241733d9a3c01eabf2dc8d94358"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3797,6 +3833,12 @@ dependencies = [
  "xz2",
  "zstd",
 ]
+
+[[package]]
+name = "rpm-version"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56568fb1bf1d2c0a640aac216b3d84d65e210ca1997df922bf124f2bfaf9efd9"
 
 [[package]]
 name = "rsa"

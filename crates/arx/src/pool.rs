@@ -3,7 +3,9 @@
 //! caller's job. Operations touch the pool only — run `arx publish` (or push,
 //! which republishes) afterwards to regenerate metadata.
 
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -24,6 +26,11 @@ pub struct Entry {
     pub name: String,
     pub version: String,
     pub arch: String,
+    /// rpm epoch as a string (yum only; e.g. `"0"`/`"1"`). `None` for apt, where
+    /// the epoch is embedded in the Debian version string and parsed there.
+    pub epoch: Option<String>,
+    /// rpm release (yum only); empty for apt (embedded in `version`).
+    pub release: String,
     /// apt component or yum repo name — the grouping scope.
     pub scope: String,
     pub kind: Kind,
@@ -57,6 +64,36 @@ pub struct PackageInfo {
     pub kind: Kind,
 }
 
+/// Compare two same-group entries by package version, returned as an ascending
+/// `Ordering` (`Less` ⇒ `a` is the older/smaller version). Uses dpkg semantics
+/// for apt and rpm EVR semantics for yum — tested comparators, never a
+/// hand-roll, because deleting the wrong version is data loss (ADR-0011 #3).
+/// Returns `None` if either version is unparseable so the caller can fall back
+/// to mtime for *that* pair only.
+fn version_order(a: &Entry, b: &Entry) -> Option<Ordering> {
+    match a.kind {
+        Kind::Apt => {
+            let va = debversion::Version::from_str(&a.version).ok()?;
+            let vb = debversion::Version::from_str(&b.version).ok()?;
+            Some(va.cmp(&vb))
+        }
+        Kind::Yum => {
+            // rpm epoch is a string here; empty is treated as "0" by the crate.
+            let ea = rpm_version::Evr::new(
+                a.epoch.clone().unwrap_or_default(),
+                a.version.clone(),
+                a.release.clone(),
+            );
+            let eb = rpm_version::Evr::new(
+                b.epoch.clone().unwrap_or_default(),
+                b.version.clone(),
+                b.release.clone(),
+            );
+            Some(ea.cmp(&eb))
+        }
+    }
+}
+
 fn mtime_of(path: &Path) -> SystemTime {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -84,6 +121,8 @@ fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
                     name: control.package()?.to_string(),
                     version: control.version()?.to_string(),
                     arch: control.architecture()?.to_string(),
+                    epoch: None,
+                    release: String::new(),
                     scope: scope.clone(),
                     kind: Kind::Apt,
                     mtime: mtime_of(p),
@@ -119,6 +158,8 @@ fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
                     name: pkg.name,
                     version: pkg.version,
                     arch: pkg.arch,
+                    epoch: pkg.epoch,
+                    release: pkg.release,
                     scope: scope.clone(),
                     kind: Kind::Yum,
                     mtime: mtime_of(p),
@@ -242,10 +283,11 @@ fn extract_hrefs(xml: &str) -> Vec<String> {
     out
 }
 
-/// Keep the `keep` most recently added files per package; prune older ones.
-/// Returns the pruned entries (deleted unless `dry_run`). Retention is by
-/// recency (mtime); semver-aware ordering is a planned enhancement. Files pinned
-/// by a retained rollback state are never pruned.
+/// Keep the `keep` newest *versions* per package; prune older ones. Returns the
+/// pruned entries (deleted unless `dry_run`). Ordering is version-aware (dpkg
+/// for apt, rpm EVR for yum) so re-uploading an old file can't evict a newer
+/// version; mtime is only a per-pair tiebreaker when a version is unparseable.
+/// Files pinned by a retained rollback state are never pruned.
 pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
@@ -264,7 +306,13 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
         if versions.len() <= keep {
             continue;
         }
-        versions.sort_by_key(|e| std::cmp::Reverse(e.mtime));
+        // Newest version first; per-pair fall back to mtime when a version is
+        // unparseable. Then keep the first `keep`, prune the rest (the oldest).
+        versions.sort_by(|a, b| {
+            version_order(a, b)
+                .unwrap_or_else(|| a.mtime.cmp(&b.mtime))
+                .reverse()
+        });
         for e in versions.into_iter().skip(keep) {
             // Keep files a retained rollback state still points at.
             let pinned = match e.kind {
@@ -291,4 +339,97 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
         dry_run,
         retained_for_rollback,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn apt(v: &str) -> Entry {
+        Entry {
+            path: PathBuf::from(format!("/pool/{v}.deb")),
+            name: "pkg".into(),
+            version: v.into(),
+            arch: "amd64".into(),
+            epoch: None,
+            release: String::new(),
+            scope: "main".into(),
+            kind: Kind::Apt,
+            mtime: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    fn yum(v: &str, epoch: Option<&str>, release: &str) -> Entry {
+        Entry {
+            path: PathBuf::from(format!("/pool/{v}.rpm")),
+            name: "pkg".into(),
+            version: v.into(),
+            arch: "x86_64".into(),
+            epoch: epoch.map(str::to_string),
+            release: release.into(),
+            scope: "repo".into(),
+            kind: Kind::Yum,
+            mtime: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    // --- dpkg (apt) version semantics ---
+
+    #[test]
+    fn apt_epoch_dominates_upstream() {
+        // 2:1.0-1 is newer than 1:9.9-1 despite the smaller upstream version.
+        assert_eq!(
+            version_order(&apt("2:1.0-1"), &apt("1:9.9-1")),
+            Some(Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn apt_tilde_is_older_than_release() {
+        // The tilde sorts before everything: a pre-release precedes the release.
+        assert_eq!(
+            version_order(&apt("1.0~rc1"), &apt("1.0")),
+            Some(Ordering::Less)
+        );
+    }
+
+    #[test]
+    fn apt_revision_breaks_ties() {
+        assert_eq!(
+            version_order(&apt("1.0-2"), &apt("1.0-1")),
+            Some(Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn apt_unparseable_version_yields_none() {
+        // None => the caller falls back to mtime for this pair (no data loss).
+        assert_eq!(version_order(&apt(""), &apt("1.0")), None);
+    }
+
+    // --- rpm (yum) EVR semantics ---
+
+    #[test]
+    fn yum_epoch_dominates() {
+        assert_eq!(
+            version_order(&yum("1.0", Some("1"), "1"), &yum("9.9", Some("0"), "1")),
+            Some(Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn yum_tilde_is_prerelease() {
+        assert_eq!(
+            version_order(&yum("1.0~beta", None, "1"), &yum("1.0", None, "1")),
+            Some(Ordering::Less)
+        );
+    }
+
+    #[test]
+    fn yum_release_breaks_ties() {
+        assert_eq!(
+            version_order(&yum("1.0", None, "2"), &yum("1.0", None, "1")),
+            Some(Ordering::Greater)
+        );
+    }
 }

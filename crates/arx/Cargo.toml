@@ -19,6 +19,11 @@ pack = { path = "../pack" }
 # yum: reuse our own createrepo_rs library
 createrepo_rs = "0.1.9"
 
+# Tested version comparators for retention/GC ordering (data-loss-sensitive —
+# dpkg/rpm semantics, not hand-rolled; see ADR-0011). License-compatible.
+debversion = "0.5"
+rpm-version = "0.5"
+
 # async runtime + HTTP service
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "fs"] }
 axum = "0.7"
