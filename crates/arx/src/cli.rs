@@ -223,6 +223,9 @@ pub struct ImportArgs {
     /// Architecture filter for apt (default: amd64).
     #[arg(long, default_value = "amd64")]
     pub arch: String,
+    /// Limit the number of packages to import (default: unlimited).
+    #[arg(long)]
+    pub limit: Option<usize>,
     /// Import from an apt repo.
     #[arg(long)]
     pub apt: bool,
