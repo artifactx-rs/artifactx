@@ -1,16 +1,17 @@
-//! Pool maintenance: remove packages (`arx rm`) and prune old ones (`arx gc`).
-//!
-//! These operate on the **pool only** (the source of truth). After changing the
-//! pool, run `arx publish` to regenerate metadata — keeping the two steps
-//! explicit and predictable, the way `aptly` separates repo edits from publish.
+//! Pool inspection and maintenance, shared by the CLI (`arx rm`/`arx gc`) and
+//! the HTTP API. Functions here **return data**; printing/serialising is the
+//! caller's job. Operations touch the pool only — run `arx publish` (or push,
+//! which republishes) afterwards to regenerate metadata.
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 
 /// Which repository format a pool entry belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
     Apt,
     Yum,
@@ -30,10 +31,30 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// Retention grouping key: same package across versions.
     fn group_key(&self) -> (Kind, String, String, String) {
         (self.kind, self.scope.clone(), self.name.clone(), self.arch.clone())
     }
+
+    /// A serialisable, path-free view for the HTTP API.
+    pub fn info(&self) -> PackageInfo {
+        PackageInfo {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            arch: self.arch.clone(),
+            scope: self.scope.clone(),
+            kind: self.kind,
+        }
+    }
+}
+
+/// Public, serialisable description of a pooled package.
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageInfo {
+    pub name: String,
+    pub version: String,
+    pub arch: String,
+    pub scope: String,
+    pub kind: Kind,
 }
 
 fn mtime_of(path: &Path) -> SystemTime {
@@ -42,7 +63,6 @@ fn mtime_of(path: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// Scan `apt/pool/<component>/*.deb`.
 fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
     let pool = root.join("apt/pool");
@@ -75,7 +95,6 @@ fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
-/// Scan `yum/<repo>/<arch>/*.rpm`.
 fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
     let yum = root.join("yum");
@@ -111,8 +130,8 @@ fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
-/// Scan the pool(s) selected by `apt`/`yum` (both when neither is set).
-fn scan(root: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
+/// List packages in the pool(s) selected by `apt`/`yum` (both when neither set).
+pub fn list(root: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
     let do_apt = apt || !yum;
     let do_yum = yum || !apt;
     let mut entries = Vec::new();
@@ -125,74 +144,56 @@ fn scan(root: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
     Ok(entries)
 }
 
-/// Remove packages matching `name` (and optional exact `version`) from the pool.
+/// Remove packages matching `name` (and optional exact `version`). Returns the
+/// removed entries; does not print or republish.
 pub fn remove(
     root: &Path,
     name: &str,
     version: Option<&str>,
     apt: bool,
     yum: bool,
-) -> Result<usize> {
-    let matches: Vec<Entry> = scan(root, apt, yum)?
+) -> Result<Vec<Entry>> {
+    let matches: Vec<Entry> = list(root, apt, yum)?
         .into_iter()
         .filter(|e| e.name == name && version.is_none_or(|v| e.version == v))
         .collect();
-
-    if matches.is_empty() {
-        println!("No packages matched {name}{}.", version.map(|v| format!(" {v}")).unwrap_or_default());
-        return Ok(0);
-    }
     for e in &matches {
         std::fs::remove_file(&e.path)
             .with_context(|| format!("removing {}", e.path.display()))?;
-        println!("Removed {} {} ({})", e.name, e.version, e.path.display());
     }
-    println!(
-        "\nRemoved {} file(s). Run `arx publish` to update repository metadata.",
-        matches.len()
-    );
-    Ok(matches.len())
+    Ok(matches)
 }
 
-/// Keep the `keep` most recently added files per package (name+arch+scope),
-/// deleting older ones. `dry_run` reports without deleting.
-///
-/// Retention is by recency (file mtime), not semantic version ordering — simple
-/// and safe; semver-aware retention is a planned enhancement.
-pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Result<usize> {
+/// Result of a `gc` pass.
+pub struct GcReport {
+    pub pruned: Vec<Entry>,
+    pub dry_run: bool,
+}
+
+/// Keep the `keep` most recently added files per package; prune older ones.
+/// Returns the pruned entries (deleted unless `dry_run`). Retention is by
+/// recency (mtime); semver-aware ordering is a planned enhancement.
+pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
-    let entries = scan(root, apt, yum)?;
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
-    for e in entries {
+    for e in list(root, apt, yum)? {
         groups.entry(e.group_key()).or_default().push(e);
     }
 
-    let mut removed = 0usize;
+    let mut pruned = Vec::new();
     for (_, mut versions) in groups {
         if versions.len() <= keep {
             continue;
         }
-        // Newest first; keep the first `keep`.
         versions.sort_by_key(|e| std::cmp::Reverse(e.mtime));
         for e in versions.into_iter().skip(keep) {
-            if dry_run {
-                println!("[dry-run] would prune {} {} ({})", e.name, e.version, e.path.display());
-            } else {
+            if !dry_run {
                 std::fs::remove_file(&e.path)
                     .with_context(|| format!("removing {}", e.path.display()))?;
-                println!("Pruned {} {} ({})", e.name, e.version, e.path.display());
             }
-            removed += 1;
+            pruned.push(e);
         }
     }
-
-    if removed == 0 {
-        println!("Nothing to prune (every package has <= {keep} version(s)).");
-    } else if dry_run {
-        println!("\n[dry-run] {removed} file(s) would be pruned.");
-    } else {
-        println!("\nPruned {removed} file(s). Run `arx publish` to update repository metadata.");
-    }
-    Ok(removed)
+    Ok(GcReport { pruned, dry_run })
 }

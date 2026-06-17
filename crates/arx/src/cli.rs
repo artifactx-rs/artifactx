@@ -32,6 +32,8 @@ pub enum Command {
     Add(AddArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
+    /// Push a package to a running `arx serve` (uploads + publishes remotely).
+    Push(PushArgs),
     /// Remove a package from the pool (then run `publish`).
     Rm(RmArgs),
     /// Prune old package versions from the pool (then run `publish`).
@@ -116,6 +118,25 @@ pub struct PublishArgs {
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
     pub passphrase_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct PushArgs {
+    /// Package files (`.deb` / `.rpm`) to upload.
+    #[arg(required = true)]
+    pub packages: Vec<PathBuf>,
+    /// Base URL of the running server, e.g. `https://repo.example.com`.
+    #[arg(long)]
+    pub url: String,
+    /// Bearer token; falls back to `ARX_SERVE_TOKEN`.
+    #[arg(long)]
+    pub token: Option<String>,
+    /// apt component for `.deb` uploads (server default if unset).
+    #[arg(long)]
+    pub component: Option<String>,
+    /// yum repo for `.rpm` uploads (server default if unset).
+    #[arg(long)]
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Args)]

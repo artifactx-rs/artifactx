@@ -43,6 +43,7 @@ and run `docker compose up`.
 | `arx key {generate\|import <file>\|export}` | Manage the signing key |
 | `arx add <pkg…>` | Add `.deb`/`.rpm` into the pool (arch detected from metadata) |
 | `arx publish [--apt] [--yum]` | Generate and sign repository metadata |
+| `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |
 | `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
 | `arx gc --keep N [--dry-run]` | Prune old package versions from the pool, then `publish` |
 | `arx serve [--addr] [--root]` | Serve the repo over HTTP (+ `/metrics`) |
@@ -76,6 +77,32 @@ gpgkey=http://REPO_HOST:8080/keys/public.asc
 
 ```bash
 sudo dnf install <package>
+```
+
+## HTTP API
+
+`arx serve` exposes a small REST API under `/api/v1` — the same operations as the
+CLI, for tools and CI. Reads are public if no token is set; **writes always require
+`ARX_SERVE_TOKEN`** (bearer auth).
+
+| Method & path | Does | Equivalent |
+| --- | --- | --- |
+| `GET /api/v1/health` | `{name, version}` | — |
+| `GET /api/v1/packages` | list pooled packages (JSON) | `arx list` |
+| `POST /api/v1/packages` | upload a `.deb`/`.rpm`, then publish | `arx push` / `arx add`+`publish` |
+| `DELETE /api/v1/packages/:name?version=&yum=` | remove + publish | `arx rm` |
+| `POST /api/v1/gc?keep=N&dry_run=` | prune old versions + publish | `arx gc` |
+
+Upload headers: `X-Arx-Filename` (required), optional `X-Arx-Component` (deb) /
+`X-Arx-Repo` (rpm). Push from CI in one line:
+
+```bash
+arx push ./dist/*.deb --url https://repo.example.com   # ARX_SERVE_TOKEN in env
+# or with curl:
+curl -fsSL -H "Authorization: Bearer $ARX_SERVE_TOKEN" \
+     -H "X-Arx-Filename: app_1.0_amd64.deb" \
+     --data-binary @app_1.0_amd64.deb \
+     https://repo.example.com/api/v1/packages
 ```
 
 ## Configuration (`arx.toml`)

@@ -41,12 +41,34 @@ async fn main() -> Result<()> {
         Command::Key(args) => cmd_key(&args),
         Command::Add(args) => cmd_add(&args),
         Command::Publish(args) => cmd_publish(&args).await,
+        Command::Push(args) => cmd_push(&args).await,
         Command::Rm(args) => {
-            pool::remove(&args.root, &args.name, args.version.as_deref(), args.apt, args.yum)?;
+            let removed =
+                pool::remove(&args.root, &args.name, args.version.as_deref(), args.apt, args.yum)?;
+            if removed.is_empty() {
+                println!("No packages matched {}.", args.name);
+            } else {
+                for e in &removed {
+                    println!("Removed {} {} ({})", e.name, e.version, e.path.display());
+                }
+                println!(
+                    "\nRemoved {} file(s). Run `arx publish` to update metadata.",
+                    removed.len()
+                );
+            }
             Ok(())
         }
         Command::Gc(args) => {
-            pool::gc(&args.root, args.keep, args.apt, args.yum, args.dry_run)?;
+            let report = pool::gc(&args.root, args.keep, args.apt, args.yum, args.dry_run)?;
+            for e in &report.pruned {
+                let tag = if report.dry_run { "[dry-run] would prune" } else { "Pruned" };
+                println!("{tag} {} {} ({})", e.name, e.version, e.path.display());
+            }
+            if report.pruned.is_empty() {
+                println!("Nothing to prune (every package has <= {} version(s)).", args.keep);
+            } else if !report.dry_run {
+                println!("\nPruned {} file(s). Run `arx publish` to update metadata.", report.pruned.len());
+            }
             Ok(())
         }
         Command::Serve(args) => cmd_serve(&args).await,
@@ -347,9 +369,56 @@ fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str) -> 
 
 async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
-    let addr = args.addr.clone().unwrap_or(cfg.server.addr);
+    let addr = args.addr.clone().unwrap_or_else(|| cfg.server.addr.clone());
     let handle = observability::init_metrics()?;
-    // Optional bearer-token auth; unset means public (zero-config quickstart).
+    // Optional bearer-token auth; unset means public reads, writes disabled.
     let token = std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty());
-    server::serve(args.root.clone(), addr, handle, token).await
+    // Context for accepting & publishing pushes (key/passphrase for signing).
+    let key = load_key(&args.root, &cfg)?;
+    let passphrase = resolve_passphrase(None)?.unwrap_or_default();
+    let push = server::PushContext {
+        cfg,
+        key,
+        passphrase,
+    };
+    server::serve(args.root.clone(), addr, handle, token, push).await
+}
+
+async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
+    let token = args
+        .token
+        .clone()
+        .or_else(|| std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty()))
+        .context("no token: pass --token or set ARX_SERVE_TOKEN")?;
+    let endpoint = format!("{}/api/v1/packages", args.url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+
+    for pkg in &args.packages {
+        let filename = pkg
+            .file_name()
+            .and_then(|f| f.to_str())
+            .context("package path has no filename")?
+            .to_string();
+        let body = std::fs::read(pkg).with_context(|| format!("reading {}", pkg.display()))?;
+        let mut req = client
+            .post(&endpoint)
+            .bearer_auth(&token)
+            .header("X-Arx-Filename", &filename)
+            .body(body);
+        if let Some(c) = &args.component {
+            req = req.header("X-Arx-Component", c);
+        }
+        if let Some(r) = &args.repo {
+            req = req.header("X-Arx-Repo", r);
+        }
+        let resp = req.send().await.with_context(|| format!("POST {endpoint}"))?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            bail!("push {filename} failed ({status}): {}", text.trim());
+        }
+        println!("✓ pushed {filename}");
+        tracing::debug!(%filename, response = %text.trim(), "push ok");
+    }
+    Ok(())
 }

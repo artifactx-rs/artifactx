@@ -37,6 +37,7 @@ Today it does **Publish** (repository management). The roadmap fills in
 | 🔏 **Signed by default** | v4 RSA PGP (rpgp): `InRelease`/`Release.gpg` for apt, `repomd.xml.asc` for yum. Verified end-to-end against real `apt-get` and `dnf`. |
 | 🌐 **Serve built-in** | axum static server with a Prometheus `/metrics` endpoint and structured `tracing` logs. |
 | 🧩 **Reusable library** | `debrepo` is a permissively-licensed, signing-agnostic apt-repo generator you can embed anywhere. |
+| 🚀 **Push from CI** | `arx push ./app.deb --url https://repo.example.com` — server stores, signs, and publishes. Token-auth REST API under `/api/v1`. |
 
 > **Why not Nexus / aptly / Pulp / nfpm / Cloudsmith?** See the product-level
 > [competitive teardown](COMPETITORS.md) — what we steal, what we refuse, and the
