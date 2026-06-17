@@ -11,36 +11,91 @@ permissions:
   id-token: write
 
 jobs:
-  # --- Build + GitHub Release + GHCR ---
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - name: Install musl tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
 
-      - name: Build static binary (x86_64)
+      - name: Install build deps
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl -p artifactx
+          sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+          wget -qO- https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | tar xJ
+          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
+          cargo install cargo-zigbuild
+
+      - name: Build static binaries (amd64 + arm64)
+        run: |
+          cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
+          cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
           cp target/x86_64-unknown-linux-musl/release/arx arx-amd64
-          ls -la arx-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-arm64
+          ls -la arx-*
+
+      - name: Self-package — arx packages arx (.deb + .rpm)
+        run: |
+          chmod +x arx-amd64
+          V="${{ github.ref_name }}"; V="${V#v}"
+          [ -z "$V" ] && V="0.1.0"  # fallback for workflow_dispatch
+          for arch in amd64 arm64; do
+            mkdir -p /tmp/pack/$arch
+            cp arx-$arch /tmp/pack/$arch/arx
+            # deb manifest
+            cat > /tmp/pack/$arch/arx-deb.toml << TOML
+          name = "arx"
+          version = "$V"
+          arch = "$arch"
+          maintainer = "ArtifactX <team@artifactx.rs>"
+          description = "Cross-platform package repository manager — one static binary"
+          license = "GPL-2.0-or-later"
+          section = "utils"
+          depends = ["libc6"]
+          [[files]]
+          source = "/tmp/pack/$arch/arx"
+          dest = "/usr/bin/arx"
+          mode = "0755"
+          TOML
+            # rpm manifest
+            rpm_arch="x86_64"; [ "$arch" = "arm64" ] && rpm_arch="aarch64"
+            cat > /tmp/pack/$arch/arx-rpm.toml << TOML
+          name = "arx"
+          version = "$V"
+          arch = "$rpm_arch"
+          maintainer = "ArtifactX <team@artifactx.rs>"
+          description = "Cross-platform package repository manager — one static binary"
+          license = "GPL-2.0-or-later"
+          [[files]]
+          source = "/tmp/pack/$arch/arx"
+          dest = "/usr/bin/arx"
+          mode = "0755"
+          TOML
+            ./arx-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
+            ./arx-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
+          done
+          # Also build native apk
+          ./arx-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
+          echo "=== self-packaged artifacts ==="
+          ls -la dist/
 
       - name: GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: arx-amd64
+          files: arx-*,dist/*
           body: |
             ## ArtifactX ${{ github.ref_name }}
             **Build Once. Package Once. Publish Everywhere.**
+            ### Download
+            | Arch | Binary | .deb | .rpm |
+            |---|---|---|---|
+            | amd64 | `arx-amd64` | `arx_*_amd64.deb` | `arx-*.x86_64.rpm` |
+            | arm64 | `arx-arm64` | `arx_*_arm64.deb` | `arx-*.aarch64.rpm` |
             ```bash
             curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/${{ github.ref_name }}/arx-amd64
             sudo install -m 755 arx-amd64 /usr/local/bin/arx
-            arx init && arx pack ./Cargo.toml && arx publish && arx serve
             ```
             Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/artifactx-rs/arx:${{ github.ref_name }} serve`
           generate_release_notes: true
@@ -52,26 +107,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: GHCR Docker image
-        if: github.ref_type == 'tag'
+      - name: GHCR multi-arch image
         run: |
           V="${{ github.ref_name }}"
-          mkdir -p /tmp/ghcr
-          cp arx-amd64 /tmp/ghcr/arx
-          printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/Dockerfile
-          docker build -t ghcr.io/artifactx-rs/arx:$V -t ghcr.io/artifactx-rs/arx:latest /tmp/ghcr
-          docker push ghcr.io/artifactx-rs/arx:$V
-          docker push ghcr.io/artifactx-rs/arx:latest
-          # GHCR default is private — make it public
-          gh api /orgs/artifactx-rs/packages/container/arx --method PATCH -f visibility=public 2>/dev/null || echo '(visibility change requires admin token, set manually at https://github.com/orgs/artifactx-rs/packages/container/arx/settings)'
+          for arch in amd64 arm64; do
+            mkdir -p /tmp/ghcr/$arch
+            cp arx-$arch /tmp/ghcr/$arch/arx
+            printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
+          done
+          docker buildx create --use --name arx-builder 2>/dev/null || docker buildx use arx-builder
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/artifactx-rs/arx:$V \
+            -t ghcr.io/artifactx-rs/arx:latest --push /tmp/ghcr
 
-      # Save arx for the pages job
       - uses: actions/upload-artifact@v4
-        with:
-          name: arx-bin
-          path: arx-amd64
+        with: { name: arx-bin, path: arx-amd64 }
 
-  # --- Dogfood: publish arx → GitHub Pages ---
   pages:
     needs: release
     runs-on: ubuntu-latest
@@ -81,13 +132,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with:
-          name: arx-bin
+        with: { name: arx-bin }
+      - run: chmod +x arx-amd64 && mv arx-amd64 arx
 
-      - name: Stage arx binary
-        run: chmod +x arx-amd64 && mv arx-amd64 arx
-
-      - name: Package arx (.deb + .rpm)
+      - name: Package arx for dogfood
         run: ./arx pack packaging/arx.toml --out dist
 
       - name: Build signed repo → Pages
