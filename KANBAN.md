@@ -42,14 +42,16 @@
 | **Key rotation** | `arx key rotate` (generates new key, backs up old) + `arx key revoke` (deletes backup) | _(pending push)_ |
 | **gc --grace + bytes-freed** | `--grace N` defers deletion for N days; output shows human-readable bytes freed | _(pending push)_ |
 | **arx promote** | `arx promote <name> --from <comp> --to <comp>` moves packages between components | _(pending push)_ |
-| **arx watch (incoming/)** | `arx watch <dir> --root <repo>` polls for new .deb/.rpm, auto-adds + publishes | _(pending push)_ |
-| Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
+| **arx watch (incoming/)** | `arx watch <dir> --root <repo>` polls for new .deb/.rpm, auto-adds + publishes | [`fa2f505`](https://github.com/artifactx-rs/artifactx/commit/fa2f505) |
+| **Pack Docker backend** | Real implementation — mounts arx + source files into container, builds, extracts artifacts | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
+| **Pack .apk builder** | Pure-Rust Alpine Linux `.apk` assembler (tar.gz + .PKGINFO + payload). Native + Backend API. | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
+| **Object-storage ADR** | [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md) — deferred with architecture sketch | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
+| **Coverage** | 57 tests green (4 new: human_bytes, promote CLI, key rotate/revoke, apk). All 4 workspace crates covered. | [`c628a3f`](https://github.com/artifactx-rs/artifactx/commit/c628a3f) |
+| Published to GitHub (public) | `artifactx-rs/artifactx` + [GitHub Project **Done=24 Todo=0**](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
-| Item | Owner | Notes |
-| --- | --- | --- |
-| _(board is clear — all P0/P1/P2 items complete)_ | main | ✓ |
+_(empty — all items complete)_
 
 ## 📋 Backlog
 
@@ -65,12 +67,12 @@
 - _(done — key rotation, Contents-<arch>, dedupe all complete)_
 
 ### Consider later
-- `promote` (staging→prod move) — done.
-- `incoming/` drop-dir ingestion — done (`arx watch`).
-- `arx pack --from <staging>` — already exists (manifests with `source` paths).
-- repo-level overrides — deferred (covered by `[package.metadata.arx]` per-package).
-- optional read-through proxy cache — deferred (separate ADR needed).
-- apk/arch output — deferred (new format, needs `pack` crate extension).
+- _(all done or deferred — see Done column)_
+
+### Deferred (tracked here for visibility)
+- Object-storage backend → [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md) (architecture sketched)
+- Proxy cache → separate ADR needed
+- More formats beyond deb/rpm/apk → `pack` crate extension point
 
 ### Reject (charter — see COMPETITORS.md)
 RBAC/identity platform · web UI/dashboard · mirroring-as-core · plugin platform + external DB · 20+ formats · format **conversion** · `.changes` ceremony · deltarpm · billing.
