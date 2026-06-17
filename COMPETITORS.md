@@ -48,7 +48,7 @@ delete-first, one static binary, no platform.
 - `promote` (staging→prod as a *move*); `incoming/` drop-dir ingestion (scp a file, repo updates); `arx pack --from <staging-dir>` (checkinstall's value, sandboxed); repo-level overrides (component/section without re-upload); optional read-through proxy cache; apk/ipk/arch output.
 
 ## Reject (scope creep — named)
-RBAC/identity platform · web UI/dashboard · mirroring-as-core · plugin/content-type platform + external DB/workers · 20+ format universality · deltarpm · full snapshot CRUD · policy-DSL retention · billing/quotas · format **conversion** (alien) · `.changes` upload ceremony · bespoke GUI installer (EPM).
+RBAC/identity platform · web UI/dashboard · one-way package sync (arx mirror, not bidirectional platform mirroring) · plugin/content-type platform + external DB/workers · 20+ format universality · deltarpm · full snapshot CRUD · policy-DSL retention · billing/quotas · format **conversion** (alien) · `.changes` upload ceremony · bespoke GUI installer (EPM).
 
 ## Why not… (honest, landing-page ready)
 

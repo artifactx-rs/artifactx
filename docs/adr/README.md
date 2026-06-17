@@ -67,3 +67,6 @@ How we'd make this better later, and what would trigger that.
 | [0011](0011-repo-product-readiness.md) | Repository product-readiness trust/hardening | Accepted |
 | [0012](0012-pack-product-readiness.md) | `pack` product-readiness — reproducibility, fail-loud, workspaces | Accepted |
 | [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |
+| [0014](0014-oidc-keyless-push.md) | OIDC keyless push — ditch the long-lived token | Accepted |
+| [0015](0015-object-storage-backend-deferred.md) | Object-storage backend | Deferred |
+| [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |

@@ -9,6 +9,11 @@
 //! | `POST /api/v1/packages` | `arx push` / `arx add` + `publish` | upload a `.deb`/`.rpm`, republish |
 //! | `DELETE /api/v1/packages/:name` | `arx rm` + `publish` | `?version=&apt=&yum=` |
 //! | `POST /api/v1/gc` | `arx gc` | `?keep=N&dry_run=&apt=&yum=` |
+//! | `POST /api/v1/publish` | `arx publish` | trigger apt+yum publish |
+//! | `POST /api/v1/rollback/:target` | `arx rollback` | atomic symlink flip |
+//! | `GET /api/v1/history/:target` | `arx history` | JSON list of published states |
+//! | `POST /api/v1/import` | `arx import` | pull from upstream repo |
+//! | `POST /api/v1/promote` | `arx promote` | move packages between components |
 //!
 //! All write operations require a configured `ARX_SERVE_TOKEN` (bearer auth).
 

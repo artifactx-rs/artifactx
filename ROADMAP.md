@@ -57,3 +57,22 @@
 3. **Design for operations.** stateless · deterministic · atomic · observable.
 4. **The 5-minute rule.** install → create → package → publish → consume in 5 minutes.
 5. **Think like Caddy.** Defaults are correct. Configuration disappears whenever possible.
+
+## v0.1.0 shipped features (June 2026)
+
+Repository: apt+yum generate/sign/serve, atomic publish+rollback, incremental
+publish (file-manifest cache), version-aware GC, import from existing repos
+(Ubuntu/ClickHouse/Docker CE verified), mirror (incremental upstream sync),
+OIDC keyless push, Contents-<arch>.
+
+Pack: pure-Rust .deb/.rpm/.apk builder, reproducible-by-construction,
+Cargo.toml-driven zero-config, Docker backend.
+
+CLI (20 commands): init, key generate/import/rotate/revoke, add, pack, publish,
+serve, push, rm, gc, rollback, history, import, mirror, promote, watch, compose.
+
+API (10 endpoints): health, packages CRUD, gc, publish, rollback, history,
+import, promote. Token + OIDC auth.
+
+Verified: 57 tests green, clippy zero-warning. Docker E2E: apt-get (Debian) +
+dnf (Fedora) both pass.

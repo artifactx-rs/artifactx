@@ -58,9 +58,9 @@ _(empty)_
 
 | Item | Notes |
 |---|---|
-| ~~arx mirror~~ | ✅ Done — incremental sync, SHA256 diff, --prune, --publish. Review: empty-upstream data-loss guard added. [`edca116`](https://github.com/artifactx-rs/artifactx/commit/edca116) |
-| ~~REST API first-class parity~~ | ✅ Done — 5 new endpoints (publish/rollback/history/import/promote). Adversarial review: caught missing PublishLock + unwrap, both fixed. [`884913d`](https://github.com/artifactx-rs/artifactx/commit/884913d) |
-| ~~Nix flake~~ | ✅ Done — `nix run` + `nix develop` + package. [`1ff629f`](https://github.com/artifactx-rs/artifactx/commit/1ff629f) |
+| ~~arx mirror~~ | ✅ Done |
+| ~~REST API~~ | ✅ Done |
+| ~~Nix flake~~ | ✅ Done |
 - More formats beyond deb/rpm/apk → `pack` crate extension point
 
 ### Reject (charter — see COMPETITORS.md)
