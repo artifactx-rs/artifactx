@@ -58,7 +58,7 @@ _(empty)_
 
 | Item | Notes |
 |---|---|
-| **arx mirror** | Full repository mirror — sync upstream apt/yum repo, incremental fetch, version diff, scheduled sync. Builds on import infrastructure. |
+| ~~arx mirror~~ | ✅ Done — incremental sync, SHA256 diff, --prune, --publish. Review: empty-upstream data-loss guard added. [`edca116`](https://github.com/artifactx-rs/artifactx/commit/edca116) |
 | ~~REST API first-class parity~~ | ✅ Done — 5 new endpoints (publish/rollback/history/import/promote). Adversarial review: caught missing PublishLock + unwrap, both fixed. [`884913d`](https://github.com/artifactx-rs/artifactx/commit/884913d) |
 | **Nix flake** | `flake.nix` — zero-install for Nix users: `nix run github:artifactx-rs/artifactx` builds + runs arx; `nix develop` drops into a dev shell with the Rust toolchain. |
 - More formats beyond deb/rpm/apk → `pack` crate extension point
