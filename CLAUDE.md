@@ -54,12 +54,20 @@ shipping software became effortless.
 13. **Every release answers one question:** *does this make software distribution
     easier?* If not, don't build it.
 
+## Process: documentation-first
+
+**Design first → review → then build.** A non-trivial feature starts as a
+`Proposed` [ADR](docs/adr/), not as code: write the design, review it against this
+charter, *then* implement and mark it `Accepted`. Trivial changes skip the ADR.
+See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
+
 ## Ship gate (run before any change)
 
 - Which of Build / Package / Repository / Publish does this serve? (None → stop.)
 - Does it keep the 5-minute path intact? Could two things be deleted instead?
 - Can it be explained in one paragraph and shown in one code block?
 - *Why not Aptly / Nexus / nfpm?* — is the advantage obvious?
+- For a non-trivial change: is there a reviewed ADR? (No → write it first.)
 
 ## Applying this to current work
 

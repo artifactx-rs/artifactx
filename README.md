@@ -122,11 +122,22 @@ signed** with `by-hash`. Remaining gaps before production use:
 
 Don't point it at the public internet unguarded yet. See the roadmap.
 
+## 📚 Documentation
+
+- [`docs/DESIGN.md`](docs/DESIGN.md) — the architecture in one read (the data model
+  is the whole mental model).
+- [`docs/adr/`](docs/adr/) — Architecture Decision Records: *why* each choice was
+  made, the trade-offs, and how we'd improve it.
+- [`COMPETITORS.md`](COMPETITORS.md) — what we steal, what we refuse, and why.
+
 ## 🤝 Contributing
 
-Issues and PRs welcome. `cargo test --workspace` and `cargo clippy --workspace`
-must pass. The `debrepo` crate is a good first contribution target — it has a
-small, well-tested surface.
+Issues and PRs welcome. **We work documentation-first: design → review → build.**
+A non-trivial feature starts as a `Proposed` ADR (see
+[`docs/adr/README.md`](docs/adr/README.md)), reviewed against the
+[charter](CLAUDE.md), *then* implemented. `cargo test --workspace` and
+`cargo clippy --workspace` must pass. `debrepo` and `pack` are good first targets —
+small, well-tested surfaces.
 
 ## 📄 License
 
