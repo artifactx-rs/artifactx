@@ -108,6 +108,41 @@ fn builds_packages_and_release() {
     assert!(release.contains("SHA256:"));
     assert!(release.contains("main/binary-amd64/Packages"));
     assert!(release.contains("main/binary-amd64/Packages.gz"));
+    // Default ReleaseMeta has valid_days = 0 → no expiry field.
+    assert!(
+        !release.contains("Valid-Until:"),
+        "Valid-Until must be omitted when valid_days == 0"
+    );
+}
+
+#[test]
+fn valid_until_emitted_when_configured() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+    write_deb(&pool.join("foo_1.0_amd64.deb"), &control("foo", "1.0", "amd64"));
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable").with_valid_days(7);
+    build_dist(&apt, "stable", &meta).unwrap();
+
+    let release = std::fs::read_to_string(apt.join("dists/stable/Release")).unwrap();
+    let date = release
+        .lines()
+        .find_map(|l| l.strip_prefix("Date: "))
+        .expect("Release has a Date");
+    let valid = release
+        .lines()
+        .find_map(|l| l.strip_prefix("Valid-Until: "))
+        .expect("Release has Valid-Until when valid_days > 0");
+    // apt requires the same RFC822 shape as Date; the window is non-empty.
+    assert!(valid.ends_with(" UTC"), "Valid-Until is RFC822 UTC: {valid}");
+    assert_eq!(
+        date.split(' ').count(),
+        valid.split(' ').count(),
+        "Valid-Until ({valid}) must share Date's ({date}) field shape"
+    );
+    assert_ne!(date, valid, "a 7-day window must move the timestamp");
 }
 
 #[test]

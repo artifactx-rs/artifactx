@@ -41,6 +41,11 @@ pub struct ReleaseMeta {
     pub description: String,
     /// Suite/codename (e.g. `stable`). Both `Suite` and `Codename` use this.
     pub suite: String,
+    /// Days until the `Release` expires (`Valid-Until`). `0` omits the field
+    /// (no expiry), preserving the original behavior; a positive value protects
+    /// clients against repository freeze/replay (a MITM serving stale metadata).
+    /// Republishing refreshes the window.
+    pub valid_days: u32,
 }
 
 impl ReleaseMeta {
@@ -55,7 +60,14 @@ impl ReleaseMeta {
             label: label.into(),
             description: description.into(),
             suite: suite.into(),
+            valid_days: 0,
         }
+    }
+
+    /// Set the `Valid-Until` window (days). `0` means no expiry.
+    pub fn with_valid_days(mut self, days: u32) -> Self {
+        self.valid_days = days;
+        self
     }
 }
 
@@ -312,7 +324,10 @@ fn render_release(
     arches: &[String],
     index_files: &[IndexFile],
 ) -> String {
-    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S UTC").to_string();
+    // One snapshot drives both Date and Valid-Until so they can't drift.
+    const RFC822: &str = "%a, %d %b %Y %H:%M:%S UTC";
+    let now = Utc::now();
+    let date = now.format(RFC822).to_string();
 
     let mut out = String::new();
     out.push_str(&format!("Origin: {}\n", meta.origin));
@@ -322,6 +337,14 @@ fn render_release(
     out.push_str(&format!("Components: {}\n", components.join(" ")));
     out.push_str(&format!("Architectures: {}\n", arches.join(" ")));
     out.push_str(&format!("Date: {date}\n"));
+    // Freeze protection: expire the index N days out (same format as Date so apt
+    // parses it). Omitted entirely when valid_days == 0.
+    if meta.valid_days > 0 {
+        let valid_until = (now + chrono::Duration::days(meta.valid_days as i64))
+            .format(RFC822)
+            .to_string();
+        out.push_str(&format!("Valid-Until: {valid_until}\n"));
+    }
     out.push_str("Acquire-By-Hash: yes\n");
     out.push_str(&format!("Description: {}\n", meta.description));
 

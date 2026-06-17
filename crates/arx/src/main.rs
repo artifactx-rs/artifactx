@@ -137,6 +137,10 @@ async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
     }
 
     let mut cfg = Config::default();
+    // New repos are secure-by-default: expire the apt Release 7 days out so a
+    // stale-metadata (freeze/replay) attack has only a small window. Republishing
+    // refreshes it. (Serde default stays 0 — existing repos are untouched.)
+    cfg.apt.valid_days = 7;
     if args.no_key {
         cfg.signing.enabled = false;
     } else {
@@ -379,7 +383,8 @@ fn publish_apt(
         cfg.repo.label.as_str(),
         cfg.repo.description.as_str(),
         cfg.apt.dist.as_str(),
-    );
+    )
+    .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
     let staged = debrepo::stage_dist(&apt_root, &cfg.apt.dist, &meta)?;

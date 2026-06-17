@@ -92,6 +92,12 @@ pub struct Apt {
     pub dist: String,
     /// Default component.
     pub component: String,
+    /// Days until the published `Release` expires (`Valid-Until`). `0` omits the
+    /// field (no expiry). `arx init` writes `7` for new repos (secure-by-default
+    /// against repository freeze); the serde default stays `0` so existing repos
+    /// and programmatic callers are never surprised by silent expiry.
+    #[serde(default)]
+    pub valid_days: u32,
 }
 
 impl Default for Apt {
@@ -99,6 +105,7 @@ impl Default for Apt {
         Self {
             dist: "stable".into(),
             component: "main".into(),
+            valid_days: 0,
         }
     }
 }
