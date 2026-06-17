@@ -6,30 +6,30 @@
 
 ## ✅ Done
 
-| Item | Notes |
-| --- | --- |
-| Workspace scaffold | `crates/arx` (CLI, GPL) + `crates/debrepo` (lib, MIT/Apache) |
-| yum/dnf repodata + signing | via `createrepo_rs`; `repomd.xml.asc`; verified with real `dnf` |
-| apt repo generation + signing | `debrepo`; `InRelease`/`Release.gpg`; verified with real `apt-get` |
-| Built-in HTTP serve + `/metrics` | axum + tower-http; Prometheus; `tracing` logs |
-| `compose` generator | `Dockerfile` + `docker-compose.yml` |
-| Version stamping | vergen → `arx --version` (git sha / build time / rustc) |
-| Tests + CI hygiene | `cargo test --workspace` green; `clippy` clean |
-| READMEs (×3) + logo | platform + arx + debrepo |
-| **P0 — multi-dist/component atomic publish** | single `Release` per dist; `by-hash`; staging→commit swap; publish lock |
-| **P0 — private key encryption + passphrase** | S2K-encrypted key via `ARX_KEY_PASSPHRASE`/`--passphrase-file`; default stays frictionless (5-min rule) + warns |
-| **`pack` PoC** (packaging moat) | `crates/pack`: manifest → `.deb`/`.rpm`, pure-Rust native-first, Docker fallback stub, build hygiene; 5 tests green |
-| **P0 — package delete / GC / retention** | `arx rm <name> [--version]` (yank) + `arx gc --keep N [--dry-run]` (retention); 3 integration tests |
-| **P0 — serve security** | optional bearer-token auth (`ARX_SERVE_TOKEN`); `ServeDir` blocks path traversal; TLS delegated to a reverse proxy by design |
-| **`pack` relationships** | manifest `depends`/`conflicts`/`provides`/`replaces` + maintainer scripts → deb control + rpm |
-| **`arx push` + REST API** | `POST/GET/DELETE /api/v1/packages`, `/api/v1/gc`, `/api/v1/health`; bearer-auth; `arx push` client; uploads store + sign + publish atomically |
-| **`arx pack`** | manifest → `.deb`/`.rpm` in the CLI; `--add` into the pool — Build·Package·Publish in one binary |
-| **atomic rollback (apt + yum)** | publish → immutable state dir + atomic symlink flip (shared `debrepo::statedir`); `arx rollback <target>`/`history`; `gc` pins files referenced by retained states ([ADR-0008](docs/adr/0008-atomic-rollback.md)) |
-| **docs + design-first** | `docs/DESIGN.md` + 9 ADRs; "design → review → build" in the charter |
-| **Dogfood** | `arx` packs + publishes `arx` → signed apt+yum repo on GitHub Pages (`.github/workflows/release.yml`); verified locally incl. `apt-get install arx` from its own repo (ADR-0009) |
-| **CI** | `.github/workflows/ci.yml` — clippy + test on every push/PR |
-| Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page |
-| Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
+> Commit links for traceability. Base: `https://github.com/artifactx-rs/artifactx/commit/`.
+
+| Item | Notes | Commit |
+| --- | --- | --- |
+| Workspace scaffold | `crates/arx` (CLI, GPL) + `crates/debrepo` (lib, MIT/Apache) | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| yum/dnf repodata + signing | via `createrepo_rs`; `repomd.xml.asc`; verified with real `dnf` | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| apt repo generation + signing | `debrepo`; `InRelease`/`Release.gpg`; verified with real `apt-get` | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| Built-in HTTP serve + `/metrics` | axum + tower-http; Prometheus; `tracing` logs | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| `compose` generator | `Dockerfile` + `docker-compose.yml` | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| Version stamping | vergen → `arx --version` (git sha / build time / rustc) | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| READMEs (×3) + logo | platform + arx + debrepo | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| **P0 — multi-dist/component atomic publish** | single `Release` per dist; `by-hash`; staging→commit swap; publish lock | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| **P0 — private key encryption + passphrase** | S2K-encrypted key via `ARX_KEY_PASSPHRASE`/`--passphrase-file`; default stays frictionless (5-min rule) + warns | [`26f0260`](https://github.com/artifactx-rs/artifactx/commit/26f0260) |
+| **`pack` PoC** (packaging moat) | `crates/pack`: manifest → `.deb`/`.rpm`, pure-Rust native-first, Docker fallback stub, build hygiene | [`dd2ee59`](https://github.com/artifactx-rs/artifactx/commit/dd2ee59) |
+| Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page | [`002c88e`](https://github.com/artifactx-rs/artifactx/commit/002c88e) |
+| **P0 — package delete / GC / retention** | `arx rm <name> [--version]` (yank) + `arx gc --keep N [--dry-run]`; 3 integration tests | [`56b9ace`](https://github.com/artifactx-rs/artifactx/commit/56b9ace) |
+| **P0 — serve security** | optional bearer-token auth (`ARX_SERVE_TOKEN`); `ServeDir` blocks path traversal; TLS via reverse proxy | [`237ac1f`](https://github.com/artifactx-rs/artifactx/commit/237ac1f) |
+| **`pack` relationships** | manifest `depends`/`conflicts`/`provides`/`replaces` + maintainer scripts → deb control + rpm | [`237ac1f`](https://github.com/artifactx-rs/artifactx/commit/237ac1f) |
+| **`arx push` + REST API** | `/api/v1/packages` (GET/POST/DELETE), `/api/v1/gc`, `/health`; bearer-auth; `arx push` client | [`7e9a770`](https://github.com/artifactx-rs/artifactx/commit/7e9a770) |
+| **`arx pack`** | manifest → `.deb`/`.rpm` in the CLI; `--add` into the pool — Build·Package·Publish in one binary | [`bc64612`](https://github.com/artifactx-rs/artifactx/commit/bc64612) |
+| **docs + design-first** | `docs/DESIGN.md` + 9 ADRs; "design → review → build" in the charter | [`e6311d4`](https://github.com/artifactx-rs/artifactx/commit/e6311d4) |
+| **atomic rollback (apt + yum)** | immutable state dir + atomic symlink flip (shared `debrepo::statedir`); `arx rollback`/`history`; `gc` pins referenced files ([ADR-0008](docs/adr/0008-atomic-rollback.md)) | [`2fad4e9`](https://github.com/artifactx-rs/artifactx/commit/2fad4e9) · [`2b5a000`](https://github.com/artifactx-rs/artifactx/commit/2b5a000) · [`60598c5`](https://github.com/artifactx-rs/artifactx/commit/60598c5) |
+| **Dogfood + CI** | `arx` packs + publishes `arx` → GitHub Pages (`release.yml`); `ci.yml` clippy+test; verified incl. `apt-get install arx` (ADR-0009) | [`8513dc1`](https://github.com/artifactx-rs/artifactx/commit/8513dc1) |
+| Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
