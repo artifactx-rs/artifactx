@@ -23,6 +23,9 @@
 | **P0 — serve security** | optional bearer-token auth (`ARX_SERVE_TOKEN`); `ServeDir` blocks path traversal; TLS delegated to a reverse proxy by design |
 | **`pack` relationships** | manifest `depends`/`conflicts`/`provides`/`replaces` + maintainer scripts → deb control + rpm |
 | **`arx push` + REST API** | `POST/GET/DELETE /api/v1/packages`, `/api/v1/gc`, `/api/v1/health`; bearer-auth; `arx push` client; uploads store + sign + publish atomically |
+| **`arx pack`** | manifest → `.deb`/`.rpm` in the CLI; `--add` into the pool — Build·Package·Publish in one binary |
+| **atomic rollback (apt)** | publish → immutable `dists/.states/<id>` + symlink flip; `arx rollback`/`history`; `gc` pins files referenced by retained states ([ADR-0008](docs/adr/0008-atomic-rollback.md)) |
+| **docs + design-first** | `docs/DESIGN.md` + 8 ADRs; "design → review → build" in the charter |
 | Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page |
 | Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
@@ -30,7 +33,7 @@
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: `arx rollback` or incremental publish)_ | main | not started |
+| _(next: yum-side rollback, or incremental publish)_ | main | not started |
 
 ## 📋 Backlog
 

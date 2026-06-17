@@ -1,7 +1,15 @@
 # ADR-0008: Atomic rollback (pointer-flip)
 
-- Status: **Accepted** (reviewed 2026-06-17) — implementation pending
+- Status: **Accepted** (reviewed 2026-06-17) — apt implemented; yum pending
 - Date: 2026-06-17
+
+## Implementation status
+
+- **apt: done & safe.** Publish commits into `dists/.states/<dist>/<NNNNNN>`;
+  `dists/<dist>` is a symlink flipped atomically; `arx rollback`/`arx history`;
+  `gc` won't prune a pool file pinned by a retained state. Verified e2e.
+- **yum: pending.** Mirror the state-dir + symlink approach for `repodata`, and
+  extend `gc`'s referenced-set to parse retained `primary.xml`.
 
 ## Review outcome
 

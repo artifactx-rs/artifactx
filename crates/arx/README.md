@@ -42,7 +42,10 @@ and run `docker compose up`.
 | `arx init [path]` | Scaffold directories + `arx.toml`, generate a signing key |
 | `arx key {generate\|import <file>\|export}` | Manage the signing key |
 | `arx add <pkg…>` | Add `.deb`/`.rpm` into the pool (arch detected from metadata) |
+| `arx pack <manifest> [--add]` | Build `.deb`/`.rpm` from a manifest (optionally into the pool) |
 | `arx publish [--apt] [--yum]` | Generate and sign repository metadata |
+| `arx rollback [dist] [--to <id>]` | Flip an apt dist back to a previous published state |
+| `arx history [dist]` | List retained published states for an apt dist |
 | `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |
 | `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
 | `arx gc --keep N [--dry-run]` | Prune old package versions from the pool, then `publish` |
