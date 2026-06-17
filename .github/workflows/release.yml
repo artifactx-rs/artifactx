@@ -31,18 +31,17 @@ jobs:
         run: |
           cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
           cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
-          cp target/x86_64-unknown-linux-musl/release/arx arx-amd64
-          cp target/aarch64-unknown-linux-musl/release/arx arx-arm64
+          V="${{ github.ref_name }}"; V="${V#v}"; cp target/x86_64-unknown-linux-musl/release/arx arx-${V}-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-${V}-arm64
           ls -la arx-*
 
       - name: Self-package — arx packages arx (.deb + .rpm)
         run: |
-          chmod +x arx-amd64
-          V="${{ github.ref_name }}"; V="${V#v}"
-          [ -z "$V" ] && V="0.1.0"  # fallback for workflow_dispatch
+          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
+          chmod +x arx-${V}-amd64
           for arch in amd64 arm64; do
             mkdir -p /tmp/pack/$arch
-            cp arx-$arch /tmp/pack/$arch/arx
+            cp arx-${V}-$arch /tmp/pack/$arch/arx
             # deb manifest
             cat > /tmp/pack/$arch/arx-deb.toml << TOML
           name = "arx"
@@ -84,7 +83,7 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: arx-*,dist/*
+          files: arx-*-amd64,arx-*-arm64,dist/*
           body: |
             ## ArtifactX ${{ github.ref_name }}
             **Build Once. Package Once. Publish Everywhere.**
@@ -109,10 +108,10 @@ jobs:
 
       - name: GHCR multi-arch image
         run: |
-          V="${{ github.ref_name }}"
+          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
           for arch in amd64 arm64; do
             mkdir -p /tmp/ghcr/$arch
-            cp arx-$arch /tmp/ghcr/$arch/arx
+            cp arx-${V}-$arch /tmp/ghcr/$arch/arx
             printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
             docker build -t ghcr.io/artifactx-rs/arx:$V-$arch -f /tmp/ghcr/$arch/Dockerfile /tmp/ghcr/$arch
             docker push ghcr.io/artifactx-rs/arx:$V-$arch
@@ -127,7 +126,7 @@ jobs:
           docker manifest push ghcr.io/artifactx-rs/arx:latest
 
       - uses: actions/upload-artifact@v4
-        with: { name: arx-bin, path: arx-amd64 }
+        with: { name: arx-bin, path: arx-*-amd64 }
 
   pages:
     needs: release
@@ -139,7 +138,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: arx-bin }
-      - run: chmod +x arx-amd64 && mkdir -p build && cp arx-amd64 build/arx
+      - run: |
+          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
+          chmod +x arx-${V}-amd64 && mkdir -p build && cp arx-${V}-amd64 build/arx
 
       - name: Package arx for dogfood
         run: ./build/arx pack packaging/arx.toml --out dist
