@@ -1,6 +1,6 @@
 [package]
 name = "pack"
-version = "0.1.1"
+version = "0.1.2"
 edition.workspace = true
 authors.workspace = true
 description = "Pure-Rust packager: build .deb and .rpm from a single TOML manifest, no native toolchain required for the common case."
