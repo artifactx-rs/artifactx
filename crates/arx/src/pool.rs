@@ -197,6 +197,51 @@ fn referenced_apt_files(root: &Path) -> std::collections::HashSet<String> {
     set
 }
 
+/// Absolute `.rpm` paths referenced by any retained yum state's `primary.xml`
+/// (`yum/<repo>/<arch>/.states/repodata/**/sha256-primary.xml.gz`).
+fn referenced_yum_files(root: &Path) -> std::collections::HashSet<PathBuf> {
+    let mut set = std::collections::HashSet::new();
+    let yum = root.join("yum");
+    if !yum.is_dir() {
+        return set;
+    }
+    for entry in walkdir::WalkDir::new(&yum).into_iter().filter_map(|e| e.ok()) {
+        let p = entry.path();
+        let is_primary = p
+            .file_name()
+            .map(|n| n.to_string_lossy().ends_with("primary.xml.gz"))
+            .unwrap_or(false);
+        if !is_primary || !p.components().any(|c| c.as_os_str() == ".states") {
+            continue;
+        }
+        // arch dir = the directory whose child is `.states`.
+        let arch_dir = p
+            .ancestors()
+            .find(|a| a.file_name().map(|n| n == ".states").unwrap_or(false))
+            .and_then(|a| a.parent());
+        let Some(arch_dir) = arch_dir else { continue };
+        if let Ok(gz) = std::fs::read(p) {
+            if let Ok(xml) = createrepo_rs::compression::gzip_decompress(&gz) {
+                for href in extract_hrefs(&String::from_utf8_lossy(&xml)) {
+                    set.insert(arch_dir.join(href));
+                }
+            }
+        }
+    }
+    set
+}
+
+/// Pull `href="..."` values out of a primary.xml body (cheap, parser-free).
+fn extract_hrefs(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in xml.split("href=\"").skip(1) {
+        if let Some(end) = part.find('"') {
+            out.push(part[..end].to_string());
+        }
+    }
+    out
+}
+
 /// Keep the `keep` most recently added files per package; prune older ones.
 /// Returns the pruned entries (deleted unless `dry_run`). Retention is by
 /// recency (mtime); semver-aware ordering is a planned enhancement. Files pinned
@@ -205,6 +250,7 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
     use std::collections::BTreeMap;
 
     let referenced = referenced_apt_files(root);
+    let referenced_rpm = referenced_yum_files(root);
     let apt_root = root.join("apt");
 
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
@@ -221,13 +267,17 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
         versions.sort_by_key(|e| std::cmp::Reverse(e.mtime));
         for e in versions.into_iter().skip(keep) {
             // Keep files a retained rollback state still points at.
-            if e.kind == Kind::Apt {
-                if let Ok(rel) = e.path.strip_prefix(&apt_root) {
-                    if referenced.contains(rel.to_string_lossy().as_ref()) {
-                        retained_for_rollback += 1;
-                        continue;
-                    }
-                }
+            let pinned = match e.kind {
+                Kind::Apt => e
+                    .path
+                    .strip_prefix(&apt_root)
+                    .map(|rel| referenced.contains(rel.to_string_lossy().as_ref()))
+                    .unwrap_or(false),
+                Kind::Yum => referenced_rpm.contains(&e.path),
+            };
+            if pinned {
+                retained_for_rollback += 1;
+                continue;
             }
             if !dry_run {
                 std::fs::remove_file(&e.path)

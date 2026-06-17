@@ -32,9 +32,9 @@ pub enum Command {
     Add(AddArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
-    /// Roll an apt dist back to its previous published state.
+    /// Roll a target back to its previous published state.
     Rollback(RollbackArgs),
-    /// List retained published states for an apt dist.
+    /// List retained published states (all targets, or one).
     History(HistoryArgs),
     /// Build a `.deb`/`.rpm` from a manifest (the Package pillar).
     Pack(PackArgs),
@@ -211,7 +211,8 @@ pub struct GcArgs {
 
 #[derive(Debug, Args)]
 pub struct RollbackArgs {
-    /// apt dist to roll back (config default if unset).
+    /// Target: an apt dist (e.g. `stable`) or a yum `repo/arch` (e.g.
+    /// `myrepo/x86_64`). Defaults to the configured apt dist.
     pub dist: Option<String>,
     /// Roll back to this specific state id (default: the previous state).
     #[arg(long)]
@@ -223,7 +224,7 @@ pub struct RollbackArgs {
 
 #[derive(Debug, Args)]
 pub struct HistoryArgs {
-    /// apt dist to inspect (config default if unset).
+    /// Target to inspect (apt dist or yum `repo/arch`); omit to list all.
     pub dist: Option<String>,
     /// Repository root.
     #[arg(long, default_value = ".")]

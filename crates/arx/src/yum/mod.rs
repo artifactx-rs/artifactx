@@ -95,7 +95,12 @@ pub fn build_repodata(
     }
     pool.join();
 
-    let repodata = dir.join("repodata");
+    // Build into a staging dir, then atomically flip `repodata` (a symlink) to a
+    // new immutable state — mirrors the apt side for rollback.
+    let repodata = dir.join(".repodata.staging");
+    if repodata.exists() {
+        std::fs::remove_dir_all(&repodata).ok();
+    }
     std::fs::create_dir_all(&repodata)
         .with_context(|| format!("creating {}", repodata.display()))?;
 
@@ -131,6 +136,10 @@ pub fn build_repodata(
         std::fs::write(repodata.join("repomd.xml.asc"), armored)
             .context("writing repomd.xml.asc")?;
     }
+
+    // Atomic flip: `<arch>/repodata` → `.states/repodata/<id>`.
+    debrepo::statedir::commit(&repodata, &dir.join("repodata"), debrepo::DEFAULT_KEEP_STATES)
+        .context("committing repodata state")?;
 
     Ok(packages.len())
 }

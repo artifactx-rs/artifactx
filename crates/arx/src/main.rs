@@ -431,30 +431,81 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
     server::serve(args.root.clone(), addr, handle, token, push).await
 }
 
+/// Resolve a rollback target to its versioned symlink path. A target containing
+/// `/` is a yum `<repo>/<arch>` (`yum/<repo>/<arch>/repodata`); otherwise it is an
+/// apt dist (`apt/dists/<dist>`).
+fn target_link(root: &Path, target: &str) -> PathBuf {
+    match target.split_once('/') {
+        Some((repo, arch)) => root.join("yum").join(repo).join(arch).join("repodata"),
+        None => root.join("apt/dists").join(target),
+    }
+}
+
+/// Child names under `dir`, excluding hidden entries (e.g. `.states`).
+fn visible_children(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Every rollback target present in the repo: apt dists and yum `repo/arch`.
+fn all_targets(root: &Path) -> Vec<String> {
+    let mut targets = Vec::new();
+    for dist in visible_children(&root.join("apt/dists")) {
+        targets.push(dist);
+    }
+    let yum = root.join("yum");
+    for repo in visible_children(&yum) {
+        for arch in visible_children(&yum.join(&repo)) {
+            targets.push(format!("{repo}/{arch}"));
+        }
+    }
+    targets
+}
+
+fn print_states(target: &str, link: &Path) -> Result<()> {
+    let states = debrepo::statedir::list(link)?;
+    if states.is_empty() {
+        return Ok(());
+    }
+    println!("{target} (* = current):");
+    for s in &states {
+        println!("  {} {}", if s.current { "*" } else { " " }, s.id);
+    }
+    Ok(())
+}
+
 fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
-    let dist = args.dist.clone().unwrap_or(cfg.apt.dist);
-    let apt_root = args.root.join("apt");
-    let state = debrepo::rollback(&apt_root, &dist, args.to.as_deref())?;
-    println!("Rolled back apt dist '{dist}' to state {state}.");
+    let target = args.dist.clone().unwrap_or(cfg.apt.dist);
+    let link = target_link(&args.root, &target);
+    let id = debrepo::statedir::rollback(&link, args.to.as_deref())?;
+    println!("Rolled back '{target}' to state {id}.");
     println!("(The next `arx publish` regenerates metadata from the current pool.)");
     Ok(())
 }
 
 fn cmd_history(args: &cli::HistoryArgs) -> Result<()> {
-    let cfg = Config::load(&args.root).unwrap_or_default();
-    let dist = args.dist.clone().unwrap_or(cfg.apt.dist);
-    let apt_root = args.root.join("apt");
-    let states = debrepo::list_states(&apt_root, &dist)?;
-    if states.is_empty() {
-        println!("No published states for '{dist}'.");
-        return Ok(());
+    match &args.dist {
+        Some(target) => print_states(target, &target_link(&args.root, target)),
+        None => {
+            let targets = all_targets(&args.root);
+            if targets.is_empty() {
+                println!("No published states yet — run `arx publish`.");
+                return Ok(());
+            }
+            for t in &targets {
+                print_states(t, &target_link(&args.root, t))?;
+            }
+            Ok(())
+        }
     }
-    println!("States for apt dist '{dist}' (* = current):");
-    for s in &states {
-        println!("  {} {}", if s.current { "*" } else { " " }, s.id);
-    }
-    Ok(())
 }
 
 async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
