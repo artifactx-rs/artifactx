@@ -17,6 +17,7 @@
 //! clients never see a `Hash Sum mismatch` across a publish.
 
 pub mod deb;
+pub mod manifest;
 pub mod statedir;
 
 pub use statedir::StateInfo;
@@ -128,13 +129,19 @@ fn hex_sha256(data: &[u8]) -> String {
 /// Read a `.deb`'s control + raw bytes, validating the fields the index needs
 /// (Package/Version/Architecture). Returns a human reason on any failure so the
 /// caller can skip-and-record instead of aborting the whole publish.
-fn read_deb(path: &Path) -> std::result::Result<(deb::Control, Vec<u8>), String> {
-    let control = deb::read_control(path).map_err(|e| format!("{e:#}"))?;
-    control.package().map_err(|e| e.to_string())?;
-    control.version().map_err(|e| e.to_string())?;
-    control.architecture().map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(path).map_err(|e| format!("reading file: {e}"))?;
-    Ok((control, bytes))
+/// Return (mtime_secs, file_size) for a deb path, or `(None, None)` on stat error.
+fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
+    std::fs::metadata(path)
+        .ok()
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs());
+            (mtime, Some(m.len()))
+        })
+        .unwrap_or((None, None))
 }
 
 /// Build a single package's `Packages` stanza.
@@ -227,7 +234,12 @@ fn write_index(
 /// `<apt_root>/dists/.<dist>.staging`, without touching the live dist.
 ///
 /// Sign `release_text` into the returned `staging_dir`, then call [`commit_dist`].
-pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<StagedDist> {
+///
+/// When `incremental` is true, (mtime, size) of each `.deb` is compared against a
+/// cached manifest (`.arx-manifest.toml` per pool component). A match reuses the
+/// cached `Packages` stanza + SHA256 without re-opening the file — O(changes).
+/// Set `incremental = false` (or pass `--full`) to rebuild everything from scratch.
+pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: bool) -> Result<StagedDist> {
     let dists = apt_root.join("dists");
     let final_dir = dists.join(dist);
     let staging_dir = dists.join(format!(".{dist}.staging"));
@@ -252,47 +264,138 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
     let mut seen: HashMap<(String, String, String), (String, PathBuf)> = HashMap::new();
 
     for component in &components {
-        // arch -> accumulated Packages text; plus Architecture: all stanzas.
         let mut by_arch: BTreeMap<String, String> = BTreeMap::new();
         let mut all_stanzas: Vec<String> = Vec::new();
+        let pool_comp = apt_root.join("pool").join(component);
+        let comp_manifest = if incremental {
+            manifest::FileManifest::load(&pool_comp).unwrap_or_default()
+        } else {
+            manifest::FileManifest::default()
+        };
+        let mut next_manifest = manifest::FileManifest::default();
+        // Track filenames actually on disk so we don't leave stale manifest entries.
+        let mut on_disk: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for deb_path in debs_in(apt_root, component) {
-            // A single unreadable/malformed .deb must not sink the whole publish.
-            // We record it (the caller surfaces/keeps the list) and carry on.
-            let (control, deb_bytes) = match read_deb(&deb_path) {
-                Ok(v) => v,
+            let fname = deb_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            on_disk.insert(fname.clone());
+
+            // Stat for cache lookup.
+            let (mtime, fsize) = stat_mtime_size(&deb_path);
+
+            // Fast path: (mtime, size) match → reuse cached stanza + sha256.
+            // We still parse the control for dedup (it's just control.tar — cheap).
+            let cache_hit = incremental
+                && mtime.zip(fsize).is_some_and(|(m, s)| {
+                    comp_manifest.lookup(&fname, m, s).is_some()
+                });
+            let cached = if cache_hit {
+                comp_manifest.lookup(&fname, mtime.unwrap(), fsize.unwrap()).cloned()
+            } else {
+                None
+            };
+
+            // Always parse the control section (cheap — control.tar is tiny).
+            // On cache miss we also read the full file body for the checksum.
+            let control = match deb::read_control(&deb_path) {
+                Ok(c) => c,
                 Err(reason) => {
-                    skipped.push(SkippedDeb { path: deb_path.clone(), reason });
+                    skipped.push(SkippedDeb {
+                        path: deb_path.clone(),
+                        reason: format!("{reason:#}"),
+                    });
                     continue;
                 }
             };
-            // Guaranteed present by read_deb.
-            let name = control.package().unwrap().to_string();
-            let version = control.version().unwrap().to_string();
-            let arch = control.architecture().unwrap().to_string();
+            let name = match control.package() {
+                Ok(n) => n.to_string(),
+                Err(e) => {
+                    skipped.push(SkippedDeb {
+                        path: deb_path.clone(),
+                        reason: e.to_string(),
+                    });
+                    continue;
+                }
+            };
+            let version = match control.version() {
+                Ok(v) => v.to_string(),
+                Err(e) => {
+                    skipped.push(SkippedDeb {
+                        path: deb_path.clone(),
+                        reason: e.to_string(),
+                    });
+                    continue;
+                }
+            };
+            let arch = match control.architecture() {
+                Ok(a) => a.to_string(),
+                Err(e) => {
+                    skipped.push(SkippedDeb {
+                        path: deb_path.clone(),
+                        reason: e.to_string(),
+                    });
+                    continue;
+                }
+            };
 
-            let sha = hex_sha256(&deb_bytes);
+            let (sha, stanza) = if let Some(ref c) = cached {
+                // Cache hit: reuse pre-built stanza + checksum. Never read the
+                // data.tar body. If the cached stanza is somehow stale the
+                // `--full` flag (incremental=false) regenerates everything.
+                (c.sha256.clone(), c.stanza.clone())
+            } else {
+                // Cache miss: read the full file, compute checksum, build stanza.
+                let deb_bytes = match std::fs::read(&deb_path) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        skipped.push(SkippedDeb {
+                            path: deb_path.clone(),
+                            reason: format!("reading: {e}"),
+                        });
+                        continue;
+                    }
+                };
+                let sha = hex_sha256(&deb_bytes);
+                let rel = format!("pool/{component}/{fname}");
+                let s = package_stanza(&control, &rel, &deb_bytes);
+                // Store in the next manifest.
+                if incremental {
+                    if let (Some(m), Some(sz)) = (mtime, fsize) {
+                        next_manifest.insert(
+                            fname.clone(),
+                            manifest::CachedPackage {
+                                mtime: m,
+                                size: sz,
+                                sha256: sha.clone(),
+                                stanza: s.clone(),
+                            },
+                        );
+                    }
+                }
+                (sha, s)
+            };
+
+            // Dedup (shared, fast-path and slow-path).
             let key = (name.clone(), version.clone(), arch.clone());
             if let Some((prev_sha, prev_path)) = seen.get(&key) {
-                // Same identity + same bytes: an idempotent re-add → index once.
-                // Same identity, different bytes: a real collision → keep the
-                // first (sorted) and record the loser instead of duplicating it.
                 if prev_sha != &sha {
                     let reason = format!(
                         "collision: {name} {version} {arch} already indexed from {} with different contents",
                         prev_path.display()
                     );
-                    skipped.push(SkippedDeb { path: deb_path.clone(), reason });
+                    skipped.push(SkippedDeb {
+                        path: deb_path.clone(),
+                        reason,
+                    });
                 }
                 continue;
             }
             seen.insert(key, (sha, deb_path.clone()));
 
-            let rel_filename = format!(
-                "pool/{component}/{}",
-                deb_path.file_name().unwrap().to_string_lossy()
-            );
-            let stanza = package_stanza(&control, &rel_filename, &deb_bytes);
             if arch == "all" {
                 all_stanzas.push(stanza);
             } else {
@@ -301,6 +404,12 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<Sta
                 buf.push('\n');
             }
             total += 1;
+        }
+
+        // Save updated manifest (prune stale entries).
+        if incremental {
+            next_manifest.retain(&on_disk);
+            let _ = next_manifest.save(&pool_comp);
         }
 
         let concrete: Vec<String> = by_arch.keys().cloned().collect();
@@ -363,7 +472,7 @@ pub fn rollback(apt_root: &Path, dist: &str, to: Option<&str>) -> Result<String>
 
 /// Convenience: stage and commit in one step (no signing). For tests / unsigned repos.
 pub fn build_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta) -> Result<DistBuild> {
-    let staged = stage_dist(apt_root, dist, meta)?;
+    let staged = stage_dist(apt_root, dist, meta, false)?;
     let out = DistBuild {
         release_text: staged.release_text.clone(),
         packages: staged.packages,

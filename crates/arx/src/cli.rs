@@ -120,6 +120,11 @@ pub struct PublishArgs {
     /// Only publish the yum repository.
     #[arg(long)]
     pub yum: bool,
+    /// Rebuild all metadata from scratch, ignoring the incremental cache
+    /// (`.arx-manifest.toml`). Use after `init`, after deleting pool files, or
+    /// when the cache is suspected to be stale.
+    #[arg(long)]
+    pub full: bool,
     /// Fail if any package is unreadable or collides, instead of skipping it and
     /// publishing the rest. Also settable as `[apt].strict` in `arx.toml`.
     #[arg(long)]

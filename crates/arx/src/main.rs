@@ -355,15 +355,17 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     let do_yum = args.yum || !args.apt;
     // CLI flag OR config opt-in: any skipped package becomes a hard error.
     let strict = args.strict || cfg.apt.strict;
+    // `--full` disables the incremental cache (rebuild from scratch).
+    let incremental = !args.full;
 
     // CPU-bound generation runs on a blocking thread.
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
-            lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict)?.summary);
+            lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict, incremental)?.summary);
         }
         if do_yum {
-            lines.push(publish_yum(&root, key.as_ref(), &passphrase)?);
+            lines.push(publish_yum(&root, key.as_ref(), &passphrase, incremental)?);
         }
         Ok(lines.join("\n"))
     })
@@ -417,6 +419,7 @@ fn publish_apt(
     key: Option<&SignedSecretKey>,
     passphrase: &str,
     strict: bool,
+    incremental: bool,
 ) -> Result<AptPublish> {
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
@@ -430,7 +433,7 @@ fn publish_apt(
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
-    let staged = debrepo::stage_dist(&apt_root, &cfg.apt.dist, &meta)?;
+    let staged = debrepo::stage_dist(&apt_root, &cfg.apt.dist, &meta, incremental)?;
 
     // A forgiving default must still be observable: never let a skipped package
     // pass silently behind an exit-0 publish. Under strict, refuse to commit.
@@ -481,7 +484,7 @@ fn publish_apt(
     })
 }
 
-fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str) -> Result<String> {
+fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str, incremental: bool) -> Result<String> {
     let yum_root = root.join("yum");
     let mut total = 0usize;
     let mut repos = 0usize;
@@ -494,7 +497,7 @@ fn publish_yum(root: &Path, key: Option<&SignedSecretKey>, passphrase: &str) -> 
             for arch_entry in std::fs::read_dir(&repo_path)? {
                 let arch_path = arch_entry?.path();
                 if arch_path.is_dir() {
-                    let n = yum::build_repodata(&arch_path, key, passphrase)?;
+                    let n = yum::build_repodata(&arch_path, key, passphrase, incremental)?;
                     total += n;
                     repos += 1;
                 }

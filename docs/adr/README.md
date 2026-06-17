@@ -64,3 +64,6 @@ How we'd make this better later, and what would trigger that.
 | [0008](0008-atomic-rollback.md) | Atomic rollback (pointer-flip) | Accepted (apt + yum) |
 | [0009](0009-dogfood-self-publish.md) | Dogfood — arx publishes arx (GitHub Pages) | Accepted |
 | [0010](0010-cargo-toml-driven-packaging.md) | Cargo.toml-driven packaging (`arx pack`) | Accepted |
+| [0011](0011-repo-product-readiness.md) | Repository product-readiness trust/hardening | Accepted |
+| [0012](0012-pack-product-readiness.md) | `pack` product-readiness — reproducibility, fail-loud, workspaces | Accepted |
+| [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |

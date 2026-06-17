@@ -26,6 +26,20 @@ fn sha256_hex(data: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
+    std::fs::metadata(path)
+        .ok()
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs());
+            (mtime, Some(m.len()))
+        })
+        .unwrap_or((None, None))
+}
+
 fn now_unix() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -64,14 +78,46 @@ fn write_stream(
 
 /// Build repodata for a single `<dir>` containing `.rpm` files, writing into
 /// `<dir>/repodata/`. If `key` is provided, also writes `repomd.xml.asc`.
+///
+/// When `incremental` is true, (mtime, size) of every `.rpm` is compared against
+/// `.arx-manifest.toml`. If nothing changed, the repodata rebuild is skipped
+/// entirely — O(scan) instead of O(repo). Set `incremental = false` (or `--full`)
+/// to rebuild everything.
 pub fn build_repodata(
     dir: &Path,
     key: Option<&pgp::composed::SignedSecretKey>,
     passphrase: &str,
+    incremental: bool,
 ) -> Result<usize> {
     let rpms = DirectoryWalker::new(dir)
         .with_context(|| format!("scanning {}", dir.display()))?
         .collect();
+
+    // Fast path: nothing changed since last publish → skip entirely.
+    if incremental && !rpms.is_empty() {
+        let manifest = debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
+        let mut all_match = !manifest.files.is_empty(); // must have a manifest to trust
+        let mut on_disk = std::collections::HashSet::new();
+        for rpm in &rpms {
+            if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
+                on_disk.insert(fname.to_string());
+                if all_match {
+                    let (mtime, size) = stat_mtime_size(rpm);
+                    all_match = mtime
+                        .zip(size)
+                        .is_some_and(|(m, s)| manifest.lookup(fname, m, s).is_some());
+                }
+            }
+        }
+        if all_match && on_disk.len() == manifest.files.len() {
+            // Everything unchanged → nothing to do. (Still clean stale manifest
+            // entries from deleted files.)
+            let mut fresh = manifest;
+            fresh.retain(&on_disk);
+            let _ = fresh.save(dir);
+            return Ok(rpms.len());
+        }
+    }
 
     // Parse RPMs via createrepo_rs's worker pool, which yields fully-populated
     // `types::Package` values (the conversion the library performs internally).
@@ -140,6 +186,28 @@ pub fn build_repodata(
     // Atomic flip: `<arch>/repodata` → `.states/repodata/<id>`.
     debrepo::statedir::commit(&repodata, &dir.join("repodata"), debrepo::DEFAULT_KEEP_STATES)
         .context("committing repodata state")?;
+
+    // Save the file manifest for the NEXT incremental publish.
+    if incremental {
+        let mut m = debrepo::manifest::FileManifest::default();
+        for rpm in &rpms {
+            if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
+                let (mtime, size) = stat_mtime_size(rpm);
+                if let (Some(mt), Some(sz)) = (mtime, size) {
+                    m.insert(
+                        fname.to_string(),
+                        debrepo::manifest::CachedPackage {
+                            mtime: mt,
+                            size: sz,
+                            sha256: String::new(),  // yum side: not used for cache lookups
+                            stanza: String::new(),   // yum side: not used for cache lookups
+                        },
+                    );
+                }
+            }
+        }
+        let _ = m.save(dir);
+    }
 
     Ok(packages.len())
 }

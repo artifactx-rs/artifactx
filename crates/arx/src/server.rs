@@ -278,8 +278,8 @@ fn safe_filename(name: &str) -> Option<String> {
 /// (a skipped package → error) is governed by the server's `[apt].strict`.
 fn publish_both(st: &AppState) -> Result<String> {
     let key = st.key.as_deref();
-    let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict)?;
-    let yum = crate::publish_yum(&st.root, key, &st.passphrase)?;
+    let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict, true)?;
+    let yum = crate::publish_yum(&st.root, key, &st.passphrase, true)?;
     Ok(format!("{}; {yum}", apt.summary))
 }
 
@@ -305,7 +305,7 @@ fn ingest(
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(dir.join(filename), &body).context("writing uploaded .deb")?;
             let published =
-                crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict)?;
+                crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict, true)?;
             Ok(PushResult {
                 stored: format!("apt/{comp}/{filename}"),
                 published: published.summary,
@@ -326,7 +326,7 @@ fn ingest(
             let dir = yum.join(&repo).join(&arch);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::rename(&tmp, dir.join(filename)).context("moving uploaded .rpm")?;
-            let published = crate::publish_yum(&st.root, key, &st.passphrase)?;
+            let published = crate::publish_yum(&st.root, key, &st.passphrase, true)?;
             Ok(PushResult {
                 stored: format!("yum/{repo}/{arch}/{filename}"),
                 published,
