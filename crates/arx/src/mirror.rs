@@ -73,6 +73,10 @@ pub fn mirror_apt(
         MirrorState::default()
     };
 
+    if upstream.is_empty() {
+        anyhow::bail!("upstream returned 0 packages — refusing to sync (might be a transient error, try again)");
+    }
+
     let mut downloaded = 0usize;
     let mut removed = 0usize;
     let mut next = MirrorState::default();
