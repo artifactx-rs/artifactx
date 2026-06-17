@@ -59,6 +59,7 @@ _(empty)_
 | Item | Notes |
 |---|---|
 | **arx mirror** | Full repository mirror — sync upstream apt/yum repo, incremental fetch, version diff, scheduled sync. Builds on import infrastructure. |
+| **Nix flake** | `flake.nix` — `nix run github:artifactx-rs/artifactx` builds + runs arx. `nix develop` for dev shell with Rust toolchain. |
 - More formats beyond deb/rpm/apk → `pack` crate extension point
 
 ### Reject (charter — see COMPETITORS.md)
