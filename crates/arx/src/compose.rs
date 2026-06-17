@@ -5,17 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-const DOCKERFILE: &str = r#"# Build a static arx binary, then run it from a minimal image.
-FROM rust:1-bookworm AS build
-WORKDIR /src
-RUN rustup target add x86_64-unknown-linux-musl \
-    && apt-get update && apt-get install -y musl-tools clang && rm -rf /var/lib/apt/lists/*
-COPY . .
-RUN cargo build --release --target x86_64-unknown-linux-musl
-RUN cp target/x86_64-unknown-linux-musl/release/arx /arx
-
-FROM alpine:3.20
-COPY --from=build /arx /usr/local/bin/arx
+const DOCKERFILE: &str = r#"FROM ghcr.io/artifactx-rs/arx:latest
 EXPOSE 8080
 ENTRYPOINT ["arx"]
 CMD ["serve", "--addr", "0.0.0.0:8080", "--root", "/repo"]
@@ -26,10 +16,7 @@ fn compose_yml(addr: &str) -> String {
     format!(
         r#"services:
   arx:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: artifactx:latest
+    image: ghcr.io/artifactx-rs/arx:latest
     command: ["serve", "--addr", "0.0.0.0:8080", "--root", "/repo"]
     ports:
       - "{port}:8080"

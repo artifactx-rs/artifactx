@@ -114,11 +114,17 @@ jobs:
             mkdir -p /tmp/ghcr/$arch
             cp arx-$arch /tmp/ghcr/$arch/arx
             printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
+            docker build -t ghcr.io/artifactx-rs/arx:$V-$arch -f /tmp/ghcr/$arch/Dockerfile /tmp/ghcr/$arch
+            docker push ghcr.io/artifactx-rs/arx:$V-$arch
           done
-          docker buildx create --use --name arx-builder 2>/dev/null || docker buildx use arx-builder
-          docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/artifactx-rs/arx:$V \
-            -t ghcr.io/artifactx-rs/arx:latest --push /tmp/ghcr
+          docker manifest create ghcr.io/artifactx-rs/arx:$V \
+            ghcr.io/artifactx-rs/arx:$V-amd64 \
+            ghcr.io/artifactx-rs/arx:$V-arm64
+          docker manifest create ghcr.io/artifactx-rs/arx:latest \
+            ghcr.io/artifactx-rs/arx:$V-amd64 \
+            ghcr.io/artifactx-rs/arx:$V-arm64
+          docker manifest push ghcr.io/artifactx-rs/arx:$V
+          docker manifest push ghcr.io/artifactx-rs/arx:latest
 
       - uses: actions/upload-artifact@v4
         with: { name: arx-bin, path: arx-amd64 }
