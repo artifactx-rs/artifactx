@@ -40,10 +40,11 @@ fn compose_yml(addr: &str) -> String {
     )
 }
 
-/// Write `Dockerfile` and `docker-compose.yml` into the repository root.
-pub fn generate(root: &Path, addr: &str) -> Result<()> {
-    std::fs::write(root.join("Dockerfile"), DOCKERFILE).context("writing Dockerfile")?;
-    std::fs::write(root.join("docker-compose.yml"), compose_yml(addr))
-        .context("writing docker-compose.yml")?;
+/// Write `Dockerfile` and `docker-compose.yml` into `out_dir`.
+pub fn generate(_root: &Path, out_dir: &Path, addr: &str) -> Result<()> {
+    std::fs::create_dir_all(out_dir).context("creating output dir")?;
+    let yml = compose_yml(addr);
+    std::fs::write(out_dir.join("Dockerfile"), DOCKERFILE).context("writing Dockerfile")?;
+    std::fs::write(out_dir.join("docker-compose.yml"), yml).context("writing docker-compose.yml")?;
     Ok(())
 }

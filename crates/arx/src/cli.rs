@@ -355,6 +355,9 @@ pub struct ComposeArgs {
     /// Repository root.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
+    /// Output directory for generated files.
+    #[arg(long, default_value = ".")]
+    pub out: PathBuf,
     /// Listen address baked into the compose file.
     #[arg(long, default_value = "0.0.0.0:8080")]
     pub addr: String,

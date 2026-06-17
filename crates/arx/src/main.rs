@@ -96,7 +96,7 @@ async fn main() -> Result<()> {
         Command::Serve(args) => cmd_serve(&args).await,
         Command::Watch(args) => cmd_watch(&args).await,
         Command::Compose(args) => {
-            compose::generate(&args.root, &args.addr)?;
+            compose::generate(&args.root, &args.out, &args.addr)?;
             tracing::info!(root = %args.root.display(), "wrote Dockerfile + docker-compose.yml");
             Ok(())
         }
