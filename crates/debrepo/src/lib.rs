@@ -257,6 +257,8 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
     let mut all_arches: BTreeSet<String> = BTreeSet::new();
     let mut total = 0usize;
     let mut skipped: Vec<SkippedDeb> = Vec::new();
+    // Contents-<arch> data: arch → accumulated file\tpackage lines.
+    let mut contents: BTreeMap<String, String> = BTreeMap::new();
     // (Package, Version, Architecture) -> (sha256, source path) already indexed.
     // Lets identical double-adds be idempotent and flags genuine collisions
     // (same identity, different bytes). Keyed across the whole dist; iteration is
@@ -396,6 +398,9 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
             }
             seen.insert(key, (sha, deb_path.clone()));
 
+            // Save Contents arch before arch is moved by the entry() call below.
+            let contents_arch = if arch == "all" { "all".to_string() } else { arch.clone() };
+
             if arch == "all" {
                 all_stanzas.push(stanza);
             } else {
@@ -404,6 +409,20 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
                 buf.push('\n');
             }
             total += 1;
+
+            // Accumulate Contents-<arch> data for apt-file support.
+            // Failures here are not fatal — we silently skip a .deb whose
+            // data.tar can't be read. The caller can't log (no tracing in
+            // the MIT/Apache lib), but the data is returned in `skipped`.
+            if let Ok(paths) = deb::read_data_paths(&deb_path) {
+                if !paths.is_empty() {
+                    let pkg_line = name.clone();
+                    for fp in paths {
+                        let entry = format!("{}\t{pkg_line}\n", fp.trim_start_matches('/'));
+                        contents.entry(contents_arch.clone()).or_default().push_str(&entry);
+                    }
+                }
+            }
         }
 
         // Save updated manifest (prune stale entries).
@@ -431,6 +450,50 @@ pub fn stage_dist(apt_root: &Path, dist: &str, meta: &ReleaseMeta, incremental: 
             let gz = gzip(plain)?;
             write_index(&comp_dir, component, arch, "Packages.gz", &gz, &mut index_files)?;
             all_arches.insert(arch.clone());
+        }
+    }
+
+    // Build Contents-<arch> files (apt-file support). Architecture:all package
+    // paths are folded into every concrete arch, like Packages. Contents files
+    // live at dists/<dist>/ directly (not under a component), so we emit them
+    // here without using write_index.
+    let all_contents = contents.remove("all").unwrap_or_default();
+    for arch in all_arches.iter() {
+        let mut cbody = contents.remove(arch).unwrap_or_default();
+        if !all_contents.is_empty() {
+            cbody.push_str(&all_contents);
+        }
+        if !cbody.is_empty() {
+            let plain = cbody.as_bytes();
+            let name = format!("Contents-{arch}");
+            let name_gz = format!("Contents-{arch}.gz");
+            std::fs::write(staging_dir.join(&name), plain)
+                .context("writing Contents")?;
+            let gz = gzip(plain)?;
+            std::fs::write(staging_dir.join(&name_gz), &gz)
+                .context("writing Contents.gz")?;
+            let sha256 = hex_sha256(plain);
+            // Also write by-hash copies.
+            let by_hash = staging_dir.join("by-hash").join("SHA256");
+            std::fs::create_dir_all(&by_hash)
+                .with_context(|| format!("creating {}", by_hash.display()))?;
+            std::fs::write(by_hash.join(&sha256), plain).context("writing by-hash Contents")?;
+            let sha_gz = hex_sha256(&gz);
+            std::fs::write(by_hash.join(&sha_gz), &gz).context("writing by-hash Contents.gz")?;
+            index_files.push(IndexFile {
+                rel: name,
+                size: plain.len() as u64,
+                md5: hex_md5(plain),
+                sha1: hex_sha1(plain),
+                sha256,
+            });
+            index_files.push(IndexFile {
+                rel: name_gz,
+                size: gz.len() as u64,
+                md5: hex_md5(&gz),
+                sha1: hex_sha1(&gz),
+                sha256: sha_gz,
+            });
         }
     }
 

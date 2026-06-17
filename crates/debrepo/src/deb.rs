@@ -143,6 +143,50 @@ fn control_from_tar(tar_bytes: &[u8]) -> Result<Control> {
     bail!("control tarball has no control file")
 }
 
+/// Extract the list of installed file paths from a `.deb`'s `data.tar` member.
+/// Only regular files and symlinks are included (no directories); paths are
+/// returned without the leading `./` that tar often prefixes.
+pub fn read_data_paths(path: &std::path::Path) -> Result<Vec<String>> {
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut archive = ar::Archive::new(file);
+
+    while let Some(entry) = archive.next_entry() {
+        let mut entry = entry.context("reading ar entry")?;
+        let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
+        let name = name.trim_end_matches('/');
+        if let Some(ext) = name.strip_prefix("data.tar") {
+            let mut compressed = Vec::new();
+            entry
+                .read_to_end(&mut compressed)
+                .context("reading data tarball")?;
+            let tar_bytes = decompress(ext, &compressed)
+                .with_context(|| format!("decompressing data.tar{ext}"))?;
+            return data_paths_from_tar(&tar_bytes)
+                .with_context(|| format!("listing data.tar from {}", path.display()));
+        }
+    }
+    bail!("{}: no data.tar member found", path.display())
+}
+
+fn data_paths_from_tar(tar_bytes: &[u8]) -> Result<Vec<String>> {
+    let mut paths = Vec::new();
+    let mut archive = tar::Archive::new(tar_bytes);
+    for entry in archive.entries().context("reading data tar")? {
+        let entry = entry.context("data tar entry")?;
+        let path = entry.path().context("entry path")?.into_owned();
+        let kind = entry.header().entry_type();
+        if kind != tar::EntryType::Regular && kind != tar::EntryType::Symlink {
+            continue;
+        }
+        let name = path.to_string_lossy();
+        let name = name.trim_start_matches("./");
+        if !name.is_empty() {
+            paths.push(name.to_string());
+        }
+    }
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

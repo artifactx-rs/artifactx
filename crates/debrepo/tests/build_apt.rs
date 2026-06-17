@@ -332,6 +332,50 @@ fn multiple_components_share_one_release() {
 }
 
 #[test]
+fn read_data_paths_extracts_installed_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Build a .deb with a non-empty data.tar (one regular file).
+    let deb = tmp.path().join("test.deb");
+    let control = control("test", "1.0", "amd64");
+    let mut control_tar = Vec::new();
+    {
+        let mut tb = tar::Builder::new(&mut control_tar);
+        let bytes = control.as_bytes();
+        let mut h = tar::Header::new_gnu();
+        h.set_path("./control").unwrap();
+        h.set_size(bytes.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        tb.append(&h, bytes).unwrap();
+        tb.finish().unwrap();
+    }
+    // Non-empty data.tar with one actual file (same pattern as write_deb).
+    let mut data_tar = Vec::new();
+    {
+        let mut tb = tar::Builder::new(&mut data_tar);
+        let body = b"bar";
+        let mut h = tar::Header::new_gnu();
+        h.set_path("./usr/bin/foo").unwrap();
+        h.set_size(body.len() as u64);
+        h.set_mode(0o755);
+        h.set_cksum();
+        tb.append(&h, body.as_slice()).unwrap();
+        tb.finish().unwrap();
+    }
+    let control_gz = gzip(&control_tar);
+    let data_gz = gzip(&data_tar);
+    let file = std::fs::File::create(&deb).unwrap();
+    let mut builder = ar::Builder::new(file);
+    builder.append(&ar::Header::new(b"debian-binary".to_vec(), 4), &b"2.0\n"[..]).unwrap();
+    builder.append(&ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64), control_gz.as_slice()).unwrap();
+    builder.append(&ar::Header::new(b"data.tar.gz".to_vec(), data_gz.len() as u64), data_gz.as_slice()).unwrap();
+
+    let paths = debrepo::deb::read_data_paths(&deb).unwrap();
+    assert!(!paths.is_empty(), "must find at least one file in data.tar");
+    assert!(paths.iter().any(|p| p.contains("usr/bin/foo")), "must contain the installed file: {paths:?}");
+}
+
+#[test]
 fn writes_by_hash_and_sets_acquire_by_hash() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");
