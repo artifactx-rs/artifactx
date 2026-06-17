@@ -30,6 +30,7 @@ jobs:
           ls -la arx-amd64
 
       - name: GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: arx-amd64
@@ -52,6 +53,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: GHCR Docker image
+        if: github.ref_type == 'tag'
         run: |
           V="${{ github.ref_name }}"
           mkdir -p /tmp/ghcr
