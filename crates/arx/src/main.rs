@@ -67,10 +67,16 @@ async fn main() -> Result<()> {
                 let tag = if report.dry_run { "[dry-run] would prune" } else { "Pruned" };
                 println!("{tag} {} {} ({})", e.name, e.version, e.path.display());
             }
-            if report.pruned.is_empty() {
+            if report.pruned.is_empty() && report.retained_for_rollback == 0 {
                 println!("Nothing to prune (every package has <= {} version(s)).", args.keep);
-            } else if !report.dry_run {
+            } else if !report.pruned.is_empty() && !report.dry_run {
                 println!("\nPruned {} file(s). Run `arx publish` to update metadata.", report.pruned.len());
+            }
+            if report.retained_for_rollback > 0 {
+                println!(
+                    "Kept {} older file(s) pinned by retained rollback states.",
+                    report.retained_for_rollback
+                );
             }
             Ok(())
         }

@@ -168,13 +168,44 @@ pub fn remove(
 pub struct GcReport {
     pub pruned: Vec<Entry>,
     pub dry_run: bool,
+    /// Files that *would* have been pruned but are pinned by a retained rollback
+    /// state (kept so `arx rollback` stays valid).
+    pub retained_for_rollback: usize,
+}
+
+/// Pool-relative `Filename:` paths referenced by any retained apt published state
+/// (`apt/dists/.states/**/Packages`). Such files must not be pruned, or a
+/// rolled-back index would 404.
+fn referenced_apt_files(root: &Path) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    let states = root.join("apt/dists/.states");
+    if !states.is_dir() {
+        return set;
+    }
+    for entry in walkdir::WalkDir::new(&states).into_iter().filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if p.is_file() && p.file_name().map(|n| n == "Packages").unwrap_or(false) {
+            if let Ok(text) = std::fs::read_to_string(p) {
+                for line in text.lines() {
+                    if let Some(v) = line.strip_prefix("Filename: ") {
+                        set.insert(v.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    set
 }
 
 /// Keep the `keep` most recently added files per package; prune older ones.
 /// Returns the pruned entries (deleted unless `dry_run`). Retention is by
-/// recency (mtime); semver-aware ordering is a planned enhancement.
+/// recency (mtime); semver-aware ordering is a planned enhancement. Files pinned
+/// by a retained rollback state are never pruned.
 pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Result<GcReport> {
     use std::collections::BTreeMap;
+
+    let referenced = referenced_apt_files(root);
+    let apt_root = root.join("apt");
 
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
     for e in list(root, apt, yum)? {
@@ -182,12 +213,22 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
     }
 
     let mut pruned = Vec::new();
+    let mut retained_for_rollback = 0usize;
     for (_, mut versions) in groups {
         if versions.len() <= keep {
             continue;
         }
         versions.sort_by_key(|e| std::cmp::Reverse(e.mtime));
         for e in versions.into_iter().skip(keep) {
+            // Keep files a retained rollback state still points at.
+            if e.kind == Kind::Apt {
+                if let Ok(rel) = e.path.strip_prefix(&apt_root) {
+                    if referenced.contains(rel.to_string_lossy().as_ref()) {
+                        retained_for_rollback += 1;
+                        continue;
+                    }
+                }
+            }
             if !dry_run {
                 std::fs::remove_file(&e.path)
                     .with_context(|| format!("removing {}", e.path.display()))?;
@@ -195,5 +236,9 @@ pub fn gc(root: &Path, keep: usize, apt: bool, yum: bool, dry_run: bool) -> Resu
             pruned.push(e);
         }
     }
-    Ok(GcReport { pruned, dry_run })
+    Ok(GcReport {
+        pruned,
+        dry_run,
+        retained_for_rollback,
+    })
 }
