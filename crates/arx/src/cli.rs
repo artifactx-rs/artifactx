@@ -172,9 +172,13 @@ pub struct PushArgs {
     /// Base URL of the running server, e.g. `https://repo.example.com`.
     #[arg(long)]
     pub url: String,
-    /// Bearer token; falls back to `ARX_SERVE_TOKEN`.
+    /// Bearer token; falls back to `ARX_SERVE_TOKEN`, then GitHub OIDC.
     #[arg(long)]
     pub token: Option<String>,
+    /// OIDC audience claim (defaults to `"arx"`). Only used when auto-detecting
+    /// GitHub Actions OIDC; ignored with explicit `--token`.
+    #[arg(long)]
+    pub oidc_audience: Option<String>,
     /// apt component for `.deb` uploads (server default if unset).
     #[arg(long)]
     pub component: Option<String>,

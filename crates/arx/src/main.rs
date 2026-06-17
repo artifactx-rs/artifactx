@@ -4,6 +4,7 @@ mod cli;
 mod compose;
 mod config;
 mod observability;
+mod oidc;
 mod pool;
 mod server;
 mod signing;
@@ -378,6 +379,24 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
 
 /// Print a loud, human-visible summary of skipped packages to stderr so a
 /// forgiving publish can't silently drop a package behind a green exit code.
+/// Fetch a GitHub Actions OIDC JWT. (ADR-0014.)
+async fn fetch_oidc_token(request_url: &str, request_token: &str, audience: &str) -> Result<String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{request_url}&audience={audience}"))
+        .bearer_auth(request_token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("fetching OIDC token")?;
+    #[derive(serde::Deserialize)]
+    struct OidcResp {
+        value: String,
+    }
+    let body: OidcResp = resp.json().await.context("parsing OIDC response")?;
+    Ok(body.value)
+}
+
 fn report_skipped(skipped: &[debrepo::SkippedDeb]) {
     eprintln!("WARNING: skipped {} package(s):", skipped.len());
     for s in skipped {
@@ -609,11 +628,32 @@ fn cmd_history(args: &cli::HistoryArgs) -> Result<()> {
 }
 
 async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
-    let token = args
-        .token
-        .clone()
-        .or_else(|| std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty()))
-        .context("no token: pass --token or set ARX_SERVE_TOKEN")?;
+    // Token resolution: explicit --token → ARX_SERVE_TOKEN → GitHub OIDC.
+    let token = match args.token.clone() {
+        Some(t) => t,
+        None => match std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty()) {
+            Some(t) => t,
+            None => {
+                // Try GitHub Actions OIDC (ADR-0014).
+                let request_url =
+                    std::env::var("ACTIONS_ID_TOKEN_REQUEST_URL").ok().filter(|s| !s.is_empty());
+                let request_token =
+                    std::env::var("ACTIONS_ID_TOKEN_REQUEST_TOKEN").ok().filter(|s| !s.is_empty());
+                match (request_url, request_token) {
+                    (Some(url), Some(rt)) => {
+                        let audience = args
+                            .oidc_audience
+                            .as_deref()
+                            .unwrap_or("arx");
+                        fetch_oidc_token(&url, &rt, audience).await?
+                    }
+                    _ => {
+                        bail!("no token: pass --token, set ARX_SERVE_TOKEN, or run in GitHub Actions (OIDC)")
+                    }
+                }
+            }
+        },
+    };
     let endpoint = format!("{}/api/v1/packages", args.url.trim_end_matches('/'));
     let client = reqwest::Client::new();
 

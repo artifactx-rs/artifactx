@@ -38,7 +38,7 @@ use crate::pool;
 #[derive(Clone)]
 struct AppState {
     metrics: PrometheusHandle,
-    /// Bearer token; `None` = public reads, writes disabled.
+    /// Bearer token; `None` = public reads, writes disabled (unless OIDC is on).
     token: Option<Arc<str>>,
     root: PathBuf,
     cfg: Arc<Config>,
@@ -47,13 +47,16 @@ struct AppState {
 }
 
 impl AppState {
-    /// Writes require a configured token; returns a 403 response otherwise.
+    /// Writes require authentication — either a stored token or OIDC.
+    /// Returns `None` if writes are allowed (auth is configured), `Some(403)` if
+    /// no auth is configured at all.
     fn write_forbidden(&self) -> Option<Response> {
-        if self.token.is_none() {
+        let has_auth = self.token.is_some() || self.cfg.oidc.enabled;
+        if !has_auth {
             Some(
                 (
                     StatusCode::FORBIDDEN,
-                    "writes disabled: set ARX_SERVE_TOKEN on the server\n",
+                    "writes disabled: set ARX_SERVE_TOKEN or enable OIDC on the server\n",
                 )
                     .into_response(),
             )
@@ -69,23 +72,45 @@ async fn metrics_handler(State(st): State<AppState>) -> String {
     st.metrics.render()
 }
 
-/// Optional bearer-token gate over every route. Unset token = public reads.
+/// Bearer-token gate: static `ARX_SERVE_TOKEN` OR OIDC JWT (ADR-0014).
+/// Unset token AND OIDC disabled = public reads, writes disabled.
 async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> Response {
-    if let Some(token) = st.token.as_deref() {
-        let presented = req
-            .headers()
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok());
-        if presented != Some(format!("Bearer {token}").as_str()) {
-            return (
+    let presented = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_string);
+
+    match presented {
+        Some(token) => {
+            // OIDC path: JWT-looking token + OIDC enabled.
+            if st.cfg.oidc.enabled && token.contains('.') {
+                match crate::oidc::validate_github_oidc(&token, &st.cfg.oidc) {
+                    Ok(()) => return next.run(req).await,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "OIDC validation failed");
+                        // Fall through to static-token check.
+                    }
+                }
+            }
+            // Static token path.
+            if st.token.as_deref() == Some(&token) {
+                return next.run(req).await;
+            }
+            (
                 StatusCode::UNAUTHORIZED,
                 [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
                 "unauthorized\n",
             )
-                .into_response();
+                .into_response()
+        }
+        None => {
+            // No creds presented — pass through. Write handlers call
+            // `write_forbidden()` which enforces auth when configured.
+            next.run(req).await
         }
     }
-    next.run(req).await
 }
 
 async fn track_metrics(req: Request, next: Next) -> Response {

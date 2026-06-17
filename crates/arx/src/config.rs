@@ -27,6 +27,37 @@ pub struct Config {
     /// yum (RPM) repository settings.
     #[serde(default)]
     pub yum: Yum,
+    /// OIDC (GitHub Actions keyless push) settings.
+    #[serde(default)]
+    pub oidc: OidcConfig,
+}
+
+/// OIDC configuration for keyless push authentication. (ADR-0014.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcConfig {
+    /// Enable OIDC JWT validation on the serve side.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Expected audience in the OIDC JWT (defaults to `"arx"`).
+    #[serde(default = "default_oidc_audience")]
+    pub audience: String,
+    /// Repository glob patterns allowed to push, e.g. `["myorg/*"]`.
+    #[serde(default)]
+    pub allowed_repos: Vec<String>,
+}
+
+fn default_oidc_audience() -> String {
+    "arx".to_string()
+}
+
+impl Default for OidcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            audience: "arx".to_string(),
+            allowed_repos: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
