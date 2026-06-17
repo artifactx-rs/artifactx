@@ -22,6 +22,7 @@
 | **P0 — package delete / GC / retention** | `arx rm <name> [--version]` (yank) + `arx gc --keep N [--dry-run]` (retention); 3 integration tests |
 | **P0 — serve security** | optional bearer-token auth (`ARX_SERVE_TOKEN`); `ServeDir` blocks path traversal; TLS delegated to a reverse proxy by design |
 | **`pack` relationships** | manifest `depends`/`conflicts`/`provides`/`replaces` + maintainer scripts → deb control + rpm |
+| **`arx push` + REST API** | `POST/GET/DELETE /api/v1/packages`, `/api/v1/gc`, `/api/v1/health`; bearer-auth; `arx push` client; uploads store + sign + publish atomically |
 | Competitive teardown | [`COMPETITORS.md`](COMPETITORS.md) + public org landing page |
 | Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
@@ -29,7 +30,7 @@
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: P1 wedge — `arx push` + OIDC, or `arx rollback`)_ | main | not started |
+| _(next: `arx rollback` or incremental publish)_ | main | not started |
 
 ## 📋 Backlog
 
@@ -39,11 +40,10 @@
 - **Dogfood** — build + package + publish `arx` itself with `arx` (GitHub Action). Charter principle 5; proves the wedge end-to-end.
 
 ### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
-- **`arx push`** — one-line publish; auto-detect dist/component/arch from the package; `curl -T` fallback; **GitHub Actions OIDC** keyless auth (no stored secret).
+- **OIDC keyless auth for push** — mint a short-lived token from GitHub Actions `id-token` instead of a stored `ARX_SERVE_TOKEN` (steal Cloudsmith).
 - **`arx rollback` / `arx history`** — atomic publish via immutable content-addressed states + pointer flip; expose ONLY these two verbs (never aptly's full snapshot CRUD).
 - **Incremental publish by default** — createrepo_c `--update` style: republish is O(changes), not O(repo).
 - **Retention policy** — `gc --keep-within 90d`; `gc --grace` window + bytes-freed report; semver-aware ordering.
-- **`pack` manifest surface** — `--depends` / `--after-install` scripts; manifest→native per-format (never conversion); deterministic byte-output.
 
 ### P1 — correctness
 - Duplicate-`add` handling (dedupe / reject same name+version); `Contents-<arch>` (`apt-file`); key rotation / revocation.
