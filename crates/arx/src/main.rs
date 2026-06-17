@@ -735,7 +735,7 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
 /// Resolve a rollback target to its versioned symlink path. A target containing
 /// `/` is a yum `<repo>/<arch>` (`yum/<repo>/<arch>/repodata`); otherwise it is an
 /// apt dist (`apt/dists/<dist>`).
-fn target_link(root: &Path, target: &str) -> PathBuf {
+pub(crate) fn target_link(root: &Path, target: &str) -> PathBuf {
     match target.split_once('/') {
         Some((repo, arch)) => root.join("yum").join(repo).join(arch).join("repodata"),
         None => root.join("apt/dists").join(target),

@@ -15,6 +15,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use walkdir::WalkDir;
+
 use anyhow::{bail, Context, Result};
 use axum::{
     body::Bytes,
@@ -263,6 +265,139 @@ async fn upload_handler(State(st): State<AppState>, headers: HeaderMap, body: By
     run_blocking(blocking).await
 }
 
+// --- API parity handlers (ADR: REST API = CLI first-class citizen) ---
+
+#[derive(Serialize)]
+struct PublishResult { apt: String, yum: String }
+
+async fn publish_handler(State(st): State<AppState>) -> Response {
+    if let Some(resp) = st.write_forbidden() { return resp; }
+    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
+    let key = st.key.clone(); let passphrase = Arc::clone(&st.passphrase);
+    let blocking = move || -> Result<PublishResult> {
+        let k = key.as_deref();
+        let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true)?;
+        let yum = crate::publish_yum(&root, &cfg, k, &passphrase, true)?;
+        Ok(PublishResult { apt: apt.summary, yum })
+    };
+    run_blocking(blocking).await
+}
+
+#[derive(Serialize)]
+struct HistoryItem { id: String, current: bool }
+
+async fn history_handler(State(st): State<AppState>, AxPath(target): AxPath<String>) -> Response {
+    let root = st.root.clone();
+    let blocking = move || -> Result<Vec<HistoryItem>> {
+        let link = crate::target_link(&root, &target);
+        let entries = debrepo::statedir::list(&link).context("listing states")?;
+        Ok(entries.into_iter().map(|s| HistoryItem { id: s.id, current: s.current }).collect())
+    };
+    run_blocking(blocking).await
+}
+
+#[derive(Deserialize)]
+struct RollbackQuery { to: Option<String> }
+
+#[derive(Serialize)]
+struct RollbackResult { previous: String, current: String }
+
+async fn rollback_handler(
+    State(st): State<AppState>, AxPath(target): AxPath<String>,
+    Query(q): Query<RollbackQuery>,
+) -> Response {
+    if let Some(resp) = st.write_forbidden() { return resp; }
+    let root = st.root.clone();
+    let blocking = move || -> Result<RollbackResult> {
+        let link = crate::target_link(&root, &target);
+        let id = debrepo::statedir::rollback(&link, q.to.as_deref())
+            .context("rollback failed")?;
+        Ok(RollbackResult { previous: target, current: id })
+    };
+    run_blocking(blocking).await
+}
+
+#[derive(Deserialize)]
+struct ApiImportQuery {
+    url: String,
+    #[serde(default)] apt: bool,
+    #[serde(default)] yum: bool,
+    #[serde(default)] dist: Option<String>,
+    #[serde(default)] component: Option<String>,
+    #[serde(default = "default_arch_str")] arch: String,
+    #[serde(default)] limit: Option<usize>,
+    #[serde(default)] match_name: Option<String>,
+}
+fn default_arch_str() -> String { "amd64".into() }
+
+#[derive(Serialize)]
+struct ImportResult { imported: usize }
+
+async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQuery>) -> Response {
+    if let Some(resp) = st.write_forbidden() { return resp; }
+    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
+    let blocking = move || -> Result<ImportResult> {
+        let do_apt = q.apt || !q.yum; let do_yum = q.yum || !q.apt; let mut imported = 0usize;
+        if do_apt {
+            let dist = q.dist.as_deref().unwrap_or(&cfg.apt.dist);
+            let comp = q.component.as_deref().unwrap_or(&cfg.apt.component);
+            imported += crate::import::import_apt(&crate::import::ImportOpts {
+                root: &root, cfg: &cfg, base_url: &q.url,
+                dist, component: comp, arch: &q.arch,
+                match_name: q.match_name.as_deref(), limit: q.limit,
+            })?;
+        }
+        if do_yum {
+            let repo = q.component.unwrap_or_else(|| cfg.yum.repo.clone());
+            imported += crate::import::import_yum(&root, &cfg, &q.url, &repo, q.limit)?;
+        }
+        Ok(ImportResult { imported })
+    };
+    run_blocking(blocking).await
+}
+
+#[derive(Deserialize)]
+struct ApiPromoteQuery { name: String, from: String, to: String, #[serde(default)] version: Option<String>, #[serde(default)] apt: bool, #[serde(default)] yum: bool }
+
+#[derive(Serialize)]
+struct PromoteResult { moved: usize }
+
+async fn promote_handler(State(st): State<AppState>, Query(q): Query<ApiPromoteQuery>) -> Response {
+    if let Some(resp) = st.write_forbidden() { return resp; }
+    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
+    let blocking = move || -> Result<PromoteResult> {
+        let do_apt = q.apt || !q.yum; let do_yum = q.yum || !q.apt; let mut moved = 0usize;
+        if do_apt {
+            moved += promote_files(&cfg.apt_pool_root(&root), &q.from, &q.to, &q.name, q.version.as_deref(), "deb")?;
+        }
+        if do_yum {
+            moved += promote_files(&cfg.yum_base(&root), &q.from, &q.to, &q.name, q.version.as_deref(), "rpm")?;
+        }
+        Ok(PromoteResult { moved })
+    };
+    run_blocking(blocking).await
+}
+
+fn promote_files(base: &Path, from: &str, to: &str, name: &str, version: Option<&str>, ext: &str) -> Result<usize> {
+    let src = base.join(from); let dst = base.join(to); let mut moved = 0usize;
+    if !src.is_dir() { return Ok(0); }
+    for entry in WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if !p.is_file() || p.extension().map(|e| e != ext).unwrap_or(true) { continue; }
+        let matches = if ext == "deb" {
+            let ctrl = debrepo::deb::read_control(p).with_context(|| format!("reading {}", p.display()))?;
+            (ctrl.package().ok() == Some(name))
+                && version.is_none_or(|v| ctrl.version().ok() == Some(v))
+        } else {
+            let mut r = createrepo_rs::rpm::RpmReader::open(p).with_context(|| format!("opening {}", p.display()))?;
+            let pkg = r.read_package().context("reading rpm")?;
+            pkg.name == name && version.is_none_or(|v| pkg.version == v)
+        };
+        if matches { std::fs::create_dir_all(&dst)?; std::fs::rename(p, dst.join(p.file_name().unwrap()))?; moved += 1; }
+    }
+    Ok(moved)
+}
+
 // --- shared helpers ---
 
 async fn run_blocking<T, F>(f: F) -> Response
@@ -398,6 +533,11 @@ pub async fn serve(
         .route("/api/v1/packages", get(list_handler).post(upload_handler))
         .route("/api/v1/packages/:name", delete(delete_handler))
         .route("/api/v1/gc", post(gc_handler))
+        .route("/api/v1/publish", post(publish_handler))
+        .route("/api/v1/rollback/:target", post(rollback_handler))
+        .route("/api/v1/history/:target", get(history_handler))
+        .route("/api/v1/import", post(import_handler))
+        .route("/api/v1/promote", post(promote_handler))
         .fallback_service(serve_dir)
         .layer(middleware::from_fn(track_metrics))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
