@@ -30,24 +30,31 @@
 
 ## 📋 Backlog
 
+> Prioritized via the competitive teardown — see [`COMPETITORS.md`](COMPETITORS.md).
+
 ### P0 — production credibility
-- **serve security** — built-in TLS + token auth (or official reverse-proxy/TLS templates); audit `/keys`·`/apt`·`/yum` path handling.
+- **serve security** — built-in TLS + token auth (or reverse-proxy/TLS templates); audit `/keys`·`/apt`·`/yum` path handling.
 
-### P1 — scale & correctness
-- Incremental `publish` (don't re-hash the whole pool every time).
-- Duplicate-`add` handling (dedupe / reject same name+version).
-- `Contents-<arch>` (enables `apt-file`).
-- Key rotation / revocation story.
+### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
+- **`arx push`** — one-line publish; auto-detect dist/component/arch from the package; `curl -T` fallback; **GitHub Actions OIDC** keyless auth (no stored secret).
+- **`arx rollback` / `arx history`** — atomic publish via immutable content-addressed states + pointer flip; expose ONLY these two verbs (never aptly's full snapshot CRUD).
+- **Incremental publish by default** — createrepo_c `--update` style: republish is O(changes), not O(repo).
+- **Retention policy** — `gc --keep-within 90d`; `gc --grace` window + bytes-freed report; semver-aware ordering.
+- **`pack` manifest surface** — `--depends` / `--after-install` scripts; manifest→native per-format (never conversion); deterministic byte-output.
 
-### P2 — later
-- `Translation-*`, delta-rpm, snapshots/rollback, mirroring.
-- Object-storage backends (S3); hosted/managed mode; web UI.
-- More formats: `.apk` (Alpine), Arch.
+### P1 — correctness
+- Duplicate-`add` handling (dedupe / reject same name+version); `Contents-<arch>` (`apt-file`); key rotation / revocation.
 
-## 🗺 Strategic bets (from review)
-1. Make **one** format production-grade + trusted (depth > breadth).
-2. Ship an **embeddable** packaging lib (`pack`) — the only defensible moat vs Cloudsmith/JFrog/Pulp.
-3. Pick a sharp wedge audience + a "5-minute signed apt+rpm repo (with a GitHub Action)" story.
+### Consider later
+- `promote` (staging→prod move); `incoming/` drop-dir ingestion; `arx pack --from <staging>`; repo-level overrides; optional read-through proxy cache; apk/arch output.
+
+### Reject (charter — see COMPETITORS.md)
+RBAC/identity platform · web UI/dashboard · mirroring-as-core · plugin platform + external DB · 20+ formats · format **conversion** · `.changes` ceremony · deltarpm · billing.
+
+## 🗺 Strategic bets
+1. Make apt **and** yum production-grade + trusted (depth > breadth).
+2. `pack` = the embeddable, pure-Rust, **deterministic** packager that also **publishes** — the gap nfpm/FPM leave open.
+3. The wedge story: **"your own signed apt+rpm repo in 5 minutes, one-line CI push, atomic rollback — one static binary, no platform."**
 
 ## Parallelization policy
 - Sequential (shared files `arx/src/main.rs`, `cli.rs`, `signing.rs`): key-encryption, GC/delete, serve-security.

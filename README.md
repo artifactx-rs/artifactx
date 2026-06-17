@@ -38,6 +38,10 @@ Today it does **Publish** (repository management). The roadmap fills in
 | 🌐 **Serve built-in** | axum static server with a Prometheus `/metrics` endpoint and structured `tracing` logs. |
 | 🧩 **Reusable library** | `debrepo` is a permissively-licensed, signing-agnostic apt-repo generator you can embed anywhere. |
 
+> **Why not Nexus / aptly / Pulp / nfpm / Cloudsmith?** See the product-level
+> [competitive teardown](COMPETITORS.md) — what we steal, what we refuse, and the
+> position none of them occupy.
+
 ## 🚀 Quick start
 
 ```bash
