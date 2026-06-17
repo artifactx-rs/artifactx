@@ -19,18 +19,18 @@
 | **P0 — multi-dist/component atomic publish** | single `Release` per dist; `by-hash`; staging→commit swap; publish lock |
 | **P0 — private key encryption + passphrase** | S2K-encrypted key via `ARX_KEY_PASSPHRASE`/`--passphrase-file`; default stays frictionless (5-min rule) + warns |
 | **`pack` PoC** (packaging moat) | `crates/pack`: manifest → `.deb`/`.rpm`, pure-Rust native-first, Docker fallback stub, build hygiene; 5 tests green |
+| **P0 — package delete / GC / retention** | `arx rm <name> [--version]` (yank) + `arx gc --keep N [--dry-run]` (retention); 3 integration tests |
 | Published to GitHub | `artifactx-rs/artifactx` (private) + Project board `artifactx-rs/projects/1` |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: P0 — package delete / GC / retention)_ | main | not started |
+| Competitor teardown (`scout` agent) | research | aptly/Nexus/Pulp/JFrog/Cloudsmith/nfpm + classics (FPM/alien/dak/mini-dinstall…) → `COMPETITORS.md` + org README positioning |
 
 ## 📋 Backlog
 
 ### P0 — production credibility
-- **Package delete / yank + GC / retention** — `arx rm` / `arx gc`; remove from pool, prune old versions, republish.
 - **serve security** — built-in TLS + token auth (or official reverse-proxy/TLS templates); audit `/keys`·`/apt`·`/yum` path handling.
 
 ### P1 — scale & correctness

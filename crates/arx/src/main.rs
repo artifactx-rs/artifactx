@@ -4,6 +4,7 @@ mod cli;
 mod compose;
 mod config;
 mod observability;
+mod pool;
 mod server;
 mod signing;
 mod yum;
@@ -40,6 +41,14 @@ async fn main() -> Result<()> {
         Command::Key(args) => cmd_key(&args),
         Command::Add(args) => cmd_add(&args),
         Command::Publish(args) => cmd_publish(&args).await,
+        Command::Rm(args) => {
+            pool::remove(&args.root, &args.name, args.version.as_deref(), args.apt, args.yum)?;
+            Ok(())
+        }
+        Command::Gc(args) => {
+            pool::gc(&args.root, args.keep, args.apt, args.yum, args.dry_run)?;
+            Ok(())
+        }
         Command::Serve(args) => cmd_serve(&args).await,
         Command::Compose(args) => {
             compose::generate(&args.root, &args.addr)?;

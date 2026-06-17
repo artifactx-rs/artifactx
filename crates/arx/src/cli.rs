@@ -32,6 +32,10 @@ pub enum Command {
     Add(AddArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
+    /// Remove a package from the pool (then run `publish`).
+    Rm(RmArgs),
+    /// Prune old package versions from the pool (then run `publish`).
+    Gc(GcArgs),
     /// Serve the repository over HTTP.
     Serve(ServeArgs),
     /// Generate docker-compose.yml + Dockerfile.
@@ -112,6 +116,43 @@ pub struct PublishArgs {
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
     pub passphrase_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct RmArgs {
+    /// Package name to remove.
+    pub name: String,
+    /// Only remove this exact version (else all versions of the name).
+    #[arg(long)]
+    pub version: Option<String>,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Restrict to the apt pool.
+    #[arg(long)]
+    pub apt: bool,
+    /// Restrict to the yum pool.
+    #[arg(long)]
+    pub yum: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct GcArgs {
+    /// Keep this many most-recently-added versions per package.
+    #[arg(long, default_value_t = 3)]
+    pub keep: usize,
+    /// Show what would be pruned without deleting.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Restrict to the apt pool.
+    #[arg(long)]
+    pub apt: bool,
+    /// Restrict to the yum pool.
+    #[arg(long)]
+    pub yum: bool,
 }
 
 #[derive(Debug, Args)]

@@ -44,6 +44,12 @@ chrono.workspace = true
 pgp = "0.14"
 rand = "0.8"
 
+[dev-dependencies]
+tempfile = "3"
+ar = "0.9"
+tar = "0.4"
+flate2 = "1"
+
 [build-dependencies]
 # Build-time version stamping (git sha, build time, rustc) via pure-Rust gix.
 # Pin vergen to 9.0.x: vergen-gix 1.0.x expects vergen-lib 0.1.6, but vergen

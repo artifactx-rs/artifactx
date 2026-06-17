@@ -43,6 +43,8 @@ and run `docker compose up`.
 | `arx key {generate\|import <file>\|export}` | Manage the signing key |
 | `arx add <pkg…>` | Add `.deb`/`.rpm` into the pool (arch detected from metadata) |
 | `arx publish [--apt] [--yum]` | Generate and sign repository metadata |
+| `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
+| `arx gc --keep N [--dry-run]` | Prune old package versions from the pool, then `publish` |
 | `arx serve [--addr] [--root]` | Serve the repo over HTTP (+ `/metrics`) |
 | `arx compose [--addr]` | Generate `Dockerfile` + `docker-compose.yml` |
 

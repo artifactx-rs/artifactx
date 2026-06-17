@@ -177,11 +177,13 @@ name = "artifactx"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ar",
  "axum",
  "chrono",
  "clap",
  "createrepo_rs",
  "debrepo",
+ "flate2",
  "hex",
  "metrics",
  "metrics-exporter-prometheus",
@@ -189,6 +191,8 @@ dependencies = [
  "rand",
  "serde",
  "sha2",
+ "tar",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml",
