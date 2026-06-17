@@ -44,8 +44,12 @@ pub enum Command {
     Rm(RmArgs),
     /// Prune old package versions from the pool (then run `publish`).
     Gc(GcArgs),
+    /// Promote packages between components (apt) or repos (yum).
+    Promote(PromoteArgs),
     /// Serve the repository over HTTP.
     Serve(ServeArgs),
+    /// Watch a directory for new packages (auto-add + publish).
+    Watch(WatchArgs),
     /// Generate docker-compose.yml + Dockerfile.
     Compose(ComposeArgs),
 }
@@ -87,6 +91,11 @@ pub struct KeyArgs {
 pub enum KeyAction {
     /// Generate a new signing key (overwrites existing).
     Generate,
+    /// Rotate the signing key: backs up the current key, generates a new one.
+    /// Clients must re-trust the new public key.
+    Rotate,
+    /// Revoke the old key (delete the backup created by `rotate`).
+    Revoke,
     /// Import an existing armored private key.
     Import {
         /// Path to an armored private key file.
@@ -194,6 +203,30 @@ pub struct PushArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct PromoteArgs {
+    /// Package name to promote.
+    pub name: String,
+    /// Source apt component (or yum repo).
+    #[arg(long)]
+    pub from: String,
+    /// Destination apt component (or yum repo).
+    #[arg(long)]
+    pub to: String,
+    /// Specific version to promote (all if unset).
+    #[arg(long)]
+    pub version: Option<String>,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Operate on the apt pool.
+    #[arg(long)]
+    pub apt: bool,
+    /// Operate on the yum pool.
+    #[arg(long)]
+    pub yum: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct RmArgs {
     /// Package name to remove.
     pub name: String,
@@ -217,10 +250,12 @@ pub struct GcArgs {
     #[arg(long, default_value_t = 3)]
     pub keep: usize,
     /// Additionally protect files newer than this many days from pruning.
-    /// e.g. `--keep-within 90d` keeps everything from the last 90 days
-    /// regardless of version count.
     #[arg(long, default_value_t = 0)]
     pub keep_within: u32,
+    /// Grace period in days: files eligible for pruning are deferred
+    /// (not deleted) until they're older than this window.
+    #[arg(long, default_value_t = 0)]
+    pub grace: u32,
     /// Show what would be pruned without deleting.
     #[arg(long)]
     pub dry_run: bool,
@@ -265,6 +300,19 @@ pub struct ServeArgs {
     /// Listen address (overrides config).
     #[arg(long)]
     pub addr: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    /// Directory to watch for new `.deb`/`.rpm` files.
+    #[arg(default_value = ".")]
+    pub dir: PathBuf,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Poll interval in seconds.
+    #[arg(long, default_value_t = 10)]
+    pub interval: u64,
 }
 
 #[derive(Debug, Args)]

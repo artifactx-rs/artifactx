@@ -212,6 +212,10 @@ pub struct GcReport {
     /// Files that *would* have been pruned but are pinned by a retained rollback
     /// state (kept so `arx rollback` stays valid).
     pub retained_for_rollback: usize,
+    /// Files eligible but within the grace period (deferred).
+    pub deferred: usize,
+    /// Total bytes freed (or would-be-freed in dry-run).
+    pub bytes_freed: u64,
 }
 
 /// Pool-relative `Filename:` paths referenced by any retained apt published state
@@ -296,6 +300,7 @@ pub fn gc(
     root: &Path,
     keep: usize,
     keep_within_days: u32,
+    grace_days: u32,
     apt: bool,
     yum: bool,
     dry_run: bool,
@@ -312,6 +317,7 @@ pub fn gc(
     }
 
     let keep_within_secs = (keep_within_days as u64).saturating_mul(86400);
+    let grace_secs = (grace_days as u64).saturating_mul(86400);
     let time_cutoff = if keep_within_days > 0 {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -320,9 +326,19 @@ pub fn gc(
     } else {
         None
     };
+    let grace_cutoff = if grace_days > 0 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs().saturating_sub(grace_secs))
+            .ok()
+    } else {
+        None
+    };
 
     let mut pruned = Vec::new();
     let mut retained_for_rollback = 0usize;
+    let mut deferred = 0usize;
+    let mut bytes_freed: u64 = 0;
     for (_, mut versions) in groups {
         if versions.len() <= keep && keep_within_days == 0 {
             continue;
@@ -359,6 +375,22 @@ pub fn gc(
                 retained_for_rollback += 1;
                 continue;
             }
+            // Grace period: defer files that are eligible but too young to delete.
+            if let Some(gc) = grace_cutoff {
+                let mtime_secs = e
+                    .mtime
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if mtime_secs >= gc {
+                    deferred += 1;
+                    continue;
+                }
+            }
+            // Track file size for bytes-freed reporting.
+            if let Ok(meta) = std::fs::metadata(&e.path) {
+                bytes_freed += meta.len();
+            }
             if !dry_run {
                 std::fs::remove_file(&e.path)
                     .with_context(|| format!("removing {}", e.path.display()))?;
@@ -370,6 +402,8 @@ pub fn gc(
         pruned,
         dry_run,
         retained_for_rollback,
+        deferred,
+        bytes_freed,
     })
 }
 

@@ -195,6 +195,8 @@ struct GcQuery {
     #[serde(default)]
     keep_within_days: u32,
     #[serde(default)]
+    grace_days: u32,
+    #[serde(default)]
     dry_run: bool,
     #[serde(default)]
     apt: bool,
@@ -215,7 +217,7 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
     }
     let blocking = move || -> Result<GcResult> {
         let _lock = crate::PublishLock::acquire(&st.root)?;
-        let report = pool::gc(&st.root, q.keep, q.keep_within_days, q.apt, q.yum, q.dry_run)?;
+        let report = pool::gc(&st.root, q.keep, q.keep_within_days, q.grace_days, q.apt, q.yum, q.dry_run)?;
         let pruned = report.pruned.iter().map(pool::Entry::info).collect();
         let published = if report.dry_run || report.pruned.is_empty() {
             None

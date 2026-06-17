@@ -39,13 +39,17 @@
 | **Custom key dir + pool dir** | `arx init --key-dir --pool-dir`; config `[signing].keys_dir`, `[apt].pool_dir`, `[yum].base_dir` | [`06e55c2`](https://github.com/artifactx-rs/artifactx/commit/06e55c2) |
 | **CI dogfood** | `ci.yml` builds release + runs `arx pack crates/arx/Cargo.toml` + validates with dpkg-deb | [`421e3b6`](https://github.com/artifactx-rs/artifactx/commit/421e3b6) |
 | **Contents-<arch>** | `apt-file` support — extracts data.tar paths, writes Contents-<arch> + Contents-<arch>.gz with tab-separated `<path>\t<package>` format | [`dcc9737`](https://github.com/artifactx-rs/artifactx/commit/dcc9737) |
+| **Key rotation** | `arx key rotate` (generates new key, backs up old) + `arx key revoke` (deletes backup) | _(pending push)_ |
+| **gc --grace + bytes-freed** | `--grace N` defers deletion for N days; output shows human-readable bytes freed | _(pending push)_ |
+| **arx promote** | `arx promote <name> --from <comp> --to <comp>` moves packages between components | _(pending push)_ |
+| **arx watch (incoming/)** | `arx watch <dir> --root <repo>` polls for new .deb/.rpm, auto-adds + publishes | _(pending push)_ |
 | Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: key rotation, `arx promote`)_ | main | not started |
+| _(board is clear — all P0/P1/P2 items complete)_ | main | ✓ |
 
 ## 📋 Backlog
 
@@ -55,16 +59,18 @@
 - _(done — see Done column: Dogfood)_
 
 ### P1 — the wedge (steal from aptly + nfpm + Cloudsmith)
-- **OIDC keyless auth for push** — mint a short-lived token from GitHub Actions `id-token` instead of a stored `ARX_SERVE_TOKEN` (steal Cloudsmith).
-- **`arx rollback` / `arx history`** — atomic publish via immutable content-addressed states + pointer flip; expose ONLY these two verbs (never aptly's full snapshot CRUD).
-- **Incremental publish by default** — createrepo_c `--update` style: republish is O(changes), not O(repo).
-- **Retention policy** — `gc --keep-within 90d`; `gc --grace` window + bytes-freed report. _(semver-aware ordering: done, ADR-0011.)_
+- _(done — all wedge items complete: OIDC ADR-0014, rollback ADR-0008, incremental ADR-0013, retention: semver + keep-within + --grace + bytes-freed)_
 
 ### P1 — correctness
-- key rotation / revocation. _(Duplicate-`add` dedupe: done, ADR-0011; `Contents-<arch>`: done.)_
+- _(done — key rotation, Contents-<arch>, dedupe all complete)_
 
 ### Consider later
-- `promote` (staging→prod move); `incoming/` drop-dir ingestion; `arx pack --from <staging>`; repo-level overrides; optional read-through proxy cache; apk/arch output.
+- `promote` (staging→prod move) — done.
+- `incoming/` drop-dir ingestion — done (`arx watch`).
+- `arx pack --from <staging>` — already exists (manifests with `source` paths).
+- repo-level overrides — deferred (covered by `[package.metadata.arx]` per-package).
+- optional read-through proxy cache — deferred (separate ADR needed).
+- apk/arch output — deferred (new format, needs `pack` crate extension).
 
 ### Reject (charter — see COMPETITORS.md)
 RBAC/identity platform · web UI/dashboard · mirroring-as-core · plugin platform + external DB · 20+ formats · format **conversion** · `.changes` ceremony · deltarpm · billing.

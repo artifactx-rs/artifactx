@@ -62,16 +62,26 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
-            let report = pool::gc(&args.root, args.keep, args.keep_within, args.apt, args.yum, args.dry_run)?;
+            let report = pool::gc(&args.root, args.keep, args.keep_within, args.grace, args.apt, args.yum, args.dry_run)?;
             for e in &report.pruned {
                 let tag = if report.dry_run { "[dry-run] would prune" } else { "Pruned" };
                 println!("{tag} {} {} ({})", e.name, e.version, e.path.display());
             }
-            if report.pruned.is_empty() && report.retained_for_rollback == 0 {
+            if report.pruned.is_empty() && report.retained_for_rollback == 0 && report.deferred == 0 {
                 println!("Nothing to prune (every package has <= {} version(s)).", args.keep);
             } else if !report.pruned.is_empty() && !report.dry_run {
-                println!("\nPruned {} file(s). Run `arx publish` to update metadata.", report.pruned.len());
+                println!("\nPruned {} file(s) ({}). Run `arx publish` to update metadata.",
+                    report.pruned.len(), human_bytes(report.bytes_freed));
+            } else if !report.pruned.is_empty() && report.dry_run {
+                println!("\nWould free {}.", human_bytes(report.bytes_freed));
+            }
+            if report.deferred > 0 {
+                println!(
+                    "Deferred {} file(s) within grace period ({} days).",
+                    report.deferred, args.grace
+                );
             }
             if report.retained_for_rollback > 0 {
                 println!(
@@ -82,6 +92,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => cmd_serve(&args).await,
+        Command::Watch(args) => cmd_watch(&args).await,
         Command::Compose(args) => {
             compose::generate(&args.root, &args.addr)?;
             tracing::info!(root = %args.root.display(), "wrote Dockerfile + docker-compose.yml");
@@ -196,6 +207,35 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             warn_if_unencrypted(&passphrase);
             println!("Wrote {}", cfg.public_key_path(root).display());
         }
+        KeyAction::Rotate => {
+            let passphrase =
+                resolve_passphrase(args.passphrase_file.as_deref())?.unwrap_or_default();
+            // Back up the current key.
+            let priv_path = cfg.private_key_path(root);
+            let old = format!("{}.old", priv_path.display());
+            if priv_path.exists() {
+                std::fs::copy(&priv_path, &old)
+                    .with_context(|| format!("backing up {} → {}", priv_path.display(), old))?;
+                println!("Backed up old key to {old}");
+            }
+            // Generate and store the new key.
+            generate_and_store_key(root, &cfg, &passphrase)?;
+            cfg.signing.encrypted = !passphrase.is_empty();
+            cfg.save(root)?;
+            warn_if_unencrypted(&passphrase);
+            println!("Key rotated — new public key at {}", cfg.public_key_path(root).display());
+            println!("Old key backed up to {old}");
+        }
+        KeyAction::Revoke => {
+            let old = format!("{}.old", cfg.private_key_path(root).display());
+            if std::path::Path::new(&old).exists() {
+                std::fs::remove_file(&old)
+                    .with_context(|| format!("removing old key {old}"))?;
+                println!("Revoked old key ({old} deleted)");
+            } else {
+                println!("No old key found at {old} — nothing to revoke");
+            }
+        }
         KeyAction::Import { file } => {
             let armored = std::fs::read_to_string(file)
                 .with_context(|| format!("reading {}", file.display()))?;
@@ -282,6 +322,68 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
     } else {
         pack::Manifest::from_toml_str(&text)
     }
+}
+
+fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let do_apt = args.apt || !args.yum;
+    let do_yum = args.yum || !args.apt;
+    let mut moved = 0usize;
+
+    if do_apt {
+        let src = cfg.apt_pool_root(&args.root).join(&args.from);
+        let dst = cfg.apt_pool_root(&args.root).join(&args.to);
+        if src.is_dir() {
+            for entry in walkdir::WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
+                    let ctrl = debrepo::deb::read_control(p)
+                        .with_context(|| format!("reading {}", p.display()))?;
+                    let name = ctrl.package()?;
+                    let version = ctrl.version()?;
+                    if name == args.name
+                        && args.version.as_deref().is_none_or(|v| version == v)
+                    {
+                        let dest = dst.join(p.file_name().unwrap());
+                        std::fs::create_dir_all(&dst)?;
+                        std::fs::rename(p, &dest)
+                            .with_context(|| format!("promoting {}", p.display()))?;
+                        println!("Promoted {name} {version} {} → {}",
+                            args.from, args.to);
+                        moved += 1;
+                    }
+                }
+            }
+        }
+    }
+    if do_yum {
+        let yum_base = cfg.yum_base(&args.root);
+        for entry in walkdir::WalkDir::new(&yum_base).into_iter().filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.is_file() && p.extension().map(|e| e == "rpm").unwrap_or(false) {
+                let mut reader = createrepo_rs::rpm::RpmReader::open(p)
+                    .with_context(|| format!("opening {}", p.display()))?;
+                let pkg = reader.read_package()?;
+                if pkg.name == args.name
+                    && args.version.as_deref().is_none_or(|v| pkg.version == v)
+                    && p.parent().and_then(|pp| pp.file_name()).map(|n| n.to_string_lossy()) == Some(args.from.as_str().into())
+                {
+                    let dst = yum_base.join(&args.to).join(&pkg.arch);
+                    std::fs::create_dir_all(&dst)?;
+                    std::fs::rename(p, dst.join(p.file_name().unwrap()))?;
+                    println!("Promoted {} {} {} → {}", pkg.name, pkg.version, args.from, args.to);
+                    moved += 1;
+                }
+            }
+        }
+    }
+
+    if moved == 0 {
+        println!("No packages matched '{}'.", args.name);
+    } else {
+        println!("Promoted {moved} package(s). Run `arx publish` to update metadata.");
+    }
+    Ok(())
 }
 
 fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
@@ -411,6 +513,21 @@ async fn fetch_oidc_token(request_url: &str, request_token: &str, audience: &str
     }
     let body: OidcResp = resp.json().await.context("parsing OIDC response")?;
     Ok(body.value)
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < UNITS.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
 }
 
 fn report_skipped(skipped: &[debrepo::SkippedDeb]) {
@@ -641,6 +758,54 @@ fn cmd_history(args: &cli::HistoryArgs) -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn cmd_watch(args: &cli::WatchArgs) -> Result<()> {
+    use std::collections::HashSet;
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let interval = std::time::Duration::from_secs(args.interval);
+    println!("Watching {} (polling every {}s)...", args.dir.display(), args.interval);
+    loop {
+        let dir = args.dir.clone();
+        let root = args.root.clone();
+        let cfg = cfg.clone();
+        let mut added = 0usize;
+        for entry in walkdir::WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
+            let p = entry.path().to_path_buf();
+            if p.is_file()
+                && (p.extension().map(|e| e == "deb").unwrap_or(false)
+                    || p.extension().map(|e| e == "rpm").unwrap_or(false))
+                && !seen.contains(&p)
+            {
+                seen.insert(p.clone());
+                match add_to_pool(&root, &cfg, &p, &cfg.apt.component, &cfg.yum.repo) {
+                    Ok(dest) => {
+                        println!("Added {}", dest.display());
+                        added += 1;
+                    }
+                    Err(e) => eprintln!("Error adding {}: {e:#}", p.display()),
+                }
+            }
+        }
+        if added > 0 {
+            match cmd_publish_static(&root, &cfg) {
+                Ok(summary) => println!("Published — {summary}"),
+                Err(e) => eprintln!("Publish error: {e:#}"),
+            }
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// Synchronous publish for the watcher (no async needed).
+fn cmd_publish_static(root: &Path, cfg: &Config) -> Result<String> {
+    let key = load_key(root, cfg)?;
+    let passphrase = resolve_passphrase(None)?.unwrap_or_default();
+    let _lock = PublishLock::acquire(root)?;
+    let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true)?;
+    let yum = publish_yum(root, cfg, key.as_ref(), &passphrase, true)?;
+    Ok(format!("{}; {yum}", apt.summary))
 }
 
 async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
