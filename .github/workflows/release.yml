@@ -60,6 +60,8 @@ jobs:
           docker build -t ghcr.io/artifactx-rs/arx:$V -t ghcr.io/artifactx-rs/arx:latest /tmp/ghcr
           docker push ghcr.io/artifactx-rs/arx:$V
           docker push ghcr.io/artifactx-rs/arx:latest
+          # GHCR default is private — make it public
+          gh api /orgs/artifactx-rs/packages/container/arx --method PATCH -f visibility=public 2>/dev/null || echo '(visibility change requires admin token, set manually at https://github.com/orgs/artifactx-rs/packages/container/arx/settings)'
 
       # Save arx for the pages job
       - uses: actions/upload-artifact@v4

@@ -3,6 +3,7 @@
 mod cli;
 mod compose;
 mod config;
+mod import;
 mod observability;
 mod oidc;
 mod pool;
@@ -62,6 +63,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Import(args) => cmd_import(&args),
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
             let report = pool::gc(&args.root, args.keep, args.keep_within, args.grace, args.apt, args.yum, args.dry_run)?;
@@ -322,6 +324,28 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
     } else {
         pack::Manifest::from_toml_str(&text)
     }
+}
+
+fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
+    let do_apt = args.apt || !args.yum;
+    let do_yum = args.yum || !args.apt;
+    let mut total = 0usize;
+
+    if do_apt {
+        let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
+        let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
+        let n = import::import_apt(&args.root, &cfg, &args.url, dist, comp, &args.arch)?;
+        total += n;
+    }
+    if do_yum {
+        let repo = args.component.as_deref().unwrap_or(&cfg.yum.repo);
+        let n = import::import_yum(&args.root, &cfg, &args.url, repo)?;
+        total += n;
+    }
+
+    println!("Imported {total} package(s). Run `arx publish` to update metadata.");
+    Ok(())
 }
 
 fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {

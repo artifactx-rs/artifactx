@@ -42,6 +42,8 @@ pub enum Command {
     Push(PushArgs),
     /// Remove a package from the pool (then run `publish`).
     Rm(RmArgs),
+    /// Import packages from an existing apt/yum repository (migration path).
+    Import(ImportArgs),
     /// Prune old package versions from the pool (then run `publish`).
     Gc(GcArgs),
     /// Promote packages between components (apt) or repos (yum).
@@ -203,6 +205,30 @@ pub struct PushArgs {
     /// yum repo for `.rpm` uploads (server default if unset).
     #[arg(long)]
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    /// Base URL of the upstream repository.
+    pub url: String,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// apt distribution (default: config default).
+    #[arg(long)]
+    pub dist: Option<String>,
+    /// apt component or yum repo name.
+    #[arg(long)]
+    pub component: Option<String>,
+    /// Architecture filter for apt (default: amd64).
+    #[arg(long, default_value = "amd64")]
+    pub arch: String,
+    /// Import from an apt repo.
+    #[arg(long)]
+    pub apt: bool,
+    /// Import from a yum repo.
+    #[arg(long)]
+    pub yum: bool,
 }
 
 #[derive(Debug, Args)]
