@@ -275,6 +275,7 @@ async fn publish_handler(State(st): State<AppState>) -> Response {
     let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
     let key = st.key.clone(); let passphrase = Arc::clone(&st.passphrase);
     let blocking = move || -> Result<PublishResult> {
+        let _lock = crate::PublishLock::acquire(&root)?;
         let k = key.as_deref();
         let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true)?;
         let yum = crate::publish_yum(&root, &cfg, k, &passphrase, true)?;
@@ -393,7 +394,12 @@ fn promote_files(base: &Path, from: &str, to: &str, name: &str, version: Option<
             let pkg = r.read_package().context("reading rpm")?;
             pkg.name == name && version.is_none_or(|v| pkg.version == v)
         };
-        if matches { std::fs::create_dir_all(&dst)?; std::fs::rename(p, dst.join(p.file_name().unwrap()))?; moved += 1; }
+        if matches {
+            let name = p.file_name().and_then(|n| n.to_str()).context("invalid filename")?;
+            std::fs::create_dir_all(&dst)?;
+            std::fs::rename(p, dst.join(name))?;
+            moved += 1;
+        }
     }
     Ok(moved)
 }
