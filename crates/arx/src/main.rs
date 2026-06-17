@@ -257,7 +257,10 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     if path.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
-        pack::Manifest::from_cargo_toml(&text)
+        let crate_root = path
+            .parent()
+            .expect("Cargo.toml has a parent directory");
+        pack::Manifest::from_cargo_toml_at(&text, crate_root)
             .with_context(|| format!("from {}", path.display()))
     } else {
         pack::Manifest::from_toml_str(&text)

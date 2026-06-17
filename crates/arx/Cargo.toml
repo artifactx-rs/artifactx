@@ -65,3 +65,12 @@ flate2 = "1"
 # 9.1.0 switched to an incompatible vergen-lib, breaking add_instructions().
 vergen = ">=9.0.5, <9.1.0"
 vergen-gix = { version = "1", features = ["build", "cargo", "rustc"] }
+
+# Cargo.toml-driven packaging (ADR-0010 / ADR-0012 §3 dogfood). [[bin]].name
+# = "arx" overrides the package name, and target-dir walks up to the workspace
+# root — so `arx pack` from this directory just works after `cargo build`.
+# The release workflow still uses packaging/arx.toml for its custom build/ dir.
+[package.metadata.arx]
+section = "utils"
+depends = ["libc6"]
+maintainer = "jamesarch <han.shan@live.cn>"

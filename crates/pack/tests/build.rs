@@ -59,9 +59,17 @@ fn cargo_toml_derives_manifest() {
     assert_eq!(m.section.as_deref(), Some("utils"));
     assert_eq!(m.depends, vec!["libc6".to_string()]);
     assert_eq!(m.provides, vec!["greet".to_string()]);
-    // Convention: with no [[files]], default to target/release/<name> → /usr/bin/<name>.
+    // Convention: with no [[files]], default to .../target/release/<name> →
+    // /usr/bin/<name>. In a workspace the target dir is at the workspace root.
+    // The bin name is the package name (no [[bin]] override in test input).
     assert_eq!(m.files.len(), 1);
-    assert_eq!(m.files[0].source, "target/release/greeter");
+    assert!(
+        m.files[0]
+            .source
+            .ends_with("target/release/greeter"),
+        "source should end with target/release/greeter, got: {}",
+        m.files[0].source
+    );
     assert_eq!(m.files[0].dest, "/usr/bin/greeter");
 }
 
