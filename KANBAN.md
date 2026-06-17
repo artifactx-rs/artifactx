@@ -36,13 +36,15 @@
 | **Incremental publish (ADR-0013)** | apt: file-manifest cache (mtime,size→sha256+stanza) — no-op publish skips .deb body reads; yum: manifest detects no-change → skips repodata rebuild. End-to-end verified (manifest → cache hit → --full) | [ADR](docs/adr/0013-incremental-publish.md) · [`a82bfec`](https://github.com/artifactx-rs/artifactx/commit/a82bfec) · [`9ac9081`](https://github.com/artifactx-rs/artifactx/commit/9ac9081) |
 | **OIDC keyless push (ADR-0014)** | server: JWT validation (GitHub JWKS, RS256, repo allowlist); client: auto-detect GitHub Actions OIDC. 52 tests green | [ADR](docs/adr/0014-oidc-keyless-push.md) · [`e498651`](https://github.com/artifactx-rs/artifactx/commit/e498651) |
 | **gc --keep-within** | Time-based retention window — `--keep-within 90d` protects recent files regardless of version count | [`751d5ae`](https://github.com/artifactx-rs/artifactx/commit/751d5ae) |
+| **Custom key dir + pool dir** | `arx init --key-dir --pool-dir`; config `[signing].keys_dir`, `[apt].pool_dir`, `[yum].base_dir` | [`(commit)`](https://github.com/artifactx-rs/artifactx/commits) |
+| **CI dogfood** | `ci.yml` builds release + runs `arx pack crates/arx/Cargo.toml` + validates with dpkg-deb | [`421e3b6`](https://github.com/artifactx-rs/artifactx/commit/421e3b6) |
 | Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| _(next: `arx pack` dogfood in CI release, `Contents-<arch>`, key rotation)_ | main | not started |
+| _(next: `Contents-<arch>`, key rotation, `arx promote`)_ | main | not started |
 
 ## 📋 Backlog
 
