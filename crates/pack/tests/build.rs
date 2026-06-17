@@ -97,6 +97,76 @@ fn manifest_round_trip() {
 }
 
 #[test]
+fn deb_is_byte_reproducible() {
+    let dir = tempfile::tempdir().unwrap();
+    let m = sample_manifest(dir.path());
+    let a = pack::build_deb(&m, &dir.path().join("a")).unwrap();
+    let b = pack::build_deb(&m, &dir.path().join("b")).unwrap();
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        std::fs::read(&b).unwrap(),
+        ".deb must be byte-for-byte reproducible across builds"
+    );
+}
+
+#[test]
+fn rpm_is_byte_reproducible_and_has_fixed_build_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let m = sample_manifest(dir.path());
+    let a = pack::build_rpm(&m, &dir.path().join("a")).unwrap();
+    let b = pack::build_rpm(&m, &dir.path().join("b")).unwrap();
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        std::fs::read(&b).unwrap(),
+        ".rpm must be byte-for-byte reproducible across builds"
+    );
+    // Verify the build time is the deterministic-epoch value (0), not wall-clock.
+    let pkg = rpm::Package::open(&a).expect("rpm re-opens for timestamp check");
+    let build_time = pkg
+        .metadata
+        .get_build_time()
+        .expect("rpm must have a build_time header");
+    assert_eq!(build_time, 0, "rpm build_time must be 0 (SOURCE_DATE_EPOCH default)");
+}
+
+#[test]
+fn unknown_arch_is_rejected_not_silently_defaulted() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("x");
+    std::fs::write(&src, b"x").unwrap();
+    let m = Manifest::from_toml_str(&format!(
+        "name='a'\nversion='1'\narch='bogus42'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[files]]\nsource='{}'\ndest='/x'\nmode='0644'\n",
+        src.display()
+    )).unwrap();
+    let err = pack::build_deb(&m, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("unknown architecture"),
+        "expected 'unknown architecture' error, got: {err}"
+    );
+    let err = pack::build_rpm(&m, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("unknown architecture"),
+        "expected 'unknown architecture' error, got: {err}"
+    );
+}
+
+#[test]
+fn non_regular_file_source_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let sym = dir.path().join("link");
+    std::os::unix::fs::symlink("/tmp", &sym).unwrap();
+    let m = Manifest::from_toml_str(&format!(
+        "name='a'\nversion='1'\narch='amd64'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[files]]\nsource='{}'\ndest='/x'\nmode='0644'\n",
+        sym.display()
+    )).unwrap();
+    let err = pack::build_deb(&m, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("symbolic link"),
+        "expected 'symbolic link' error, got: {err}"
+    );
+}
+
+#[test]
 fn builds_and_reparses_deb() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());

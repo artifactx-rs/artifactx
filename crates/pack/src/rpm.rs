@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rpm::{Dependency, FileMode, FileOptions, PackageBuilder};
 
 use crate::manifest::Manifest;
@@ -16,10 +16,16 @@ use crate::manifest::Manifest;
 /// Returns the path of the written package, named
 /// `{name}-{version}-1.{arch}.rpm` using the rpm architecture spelling.
 pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
-    let arch = rpm_arch(&manifest.arch);
+    crate::validate_sources(manifest)?;
+    let arch = rpm_arch(&manifest.arch)?;
 
     // rpm wants a one-line summary; reuse the first line of the description.
     let summary = manifest.description.lines().next().unwrap_or("").to_string();
+
+    // Deterministic build: feed the shared epoch to the rpm crate so BUILDTIME,
+    // payload file mtimes, and signature timestamp are all clamped — no wall-clock
+    // or source-file-mtime leakage. (ADR-0012 §1.)
+    let source_date = crate::resolve_source_epoch();
 
     let mut builder = PackageBuilder::new(
         &manifest.name,
@@ -29,6 +35,7 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         &summary,
     )
     .release("1")
+    .source_date(source_date)
     .description(manifest.description.clone())
     .packager(manifest.maintainer.clone());
 
@@ -95,17 +102,20 @@ fn read_script(path: &str) -> Result<String> {
 ///
 /// rpm uses the GNU names (`x86_64`/`aarch64`) and `noarch`; we also accept the
 /// Debian spellings so a single manifest can feed both builders.
-fn rpm_arch(arch: &str) -> &'static str {
+fn rpm_arch(arch: &str) -> Result<&'static str> {
     match arch {
-        "x86_64" | "amd64" => "x86_64",
-        "aarch64" | "arm64" => "aarch64",
-        "i686" | "i386" | "x86" => "i686",
-        "armv7hl" | "armhf" | "armv7" => "armv7hl",
-        "ppc64le" | "ppc64el" => "ppc64le",
-        "s390x" => "s390x",
-        "riscv64" => "riscv64",
-        "noarch" | "all" => "noarch",
-        // Unknown: default to x86_64 for the PoC rather than failing the build.
-        _ => "x86_64",
+        "x86_64" | "amd64" => Ok("x86_64"),
+        "aarch64" | "arm64" => Ok("aarch64"),
+        "i686" | "i386" | "x86" => Ok("i686"),
+        "armv7hl" | "armhf" | "armv7" => Ok("armv7hl"),
+        "ppc64le" | "ppc64el" => Ok("ppc64le"),
+        "s390x" => Ok("s390x"),
+        "riscv64" => Ok("riscv64"),
+        "noarch" | "all" => Ok("noarch"),
+        other => bail!(
+            "unknown architecture {:?} — accepted: x86_64/amd64, aarch64/arm64, \
+             i686/i386/x86, armv7hl/armhf/armv7, ppc64le/ppc64el, s390x, riscv64, noarch/all",
+            other
+        ),
     }
 }

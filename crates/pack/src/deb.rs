@@ -24,7 +24,9 @@ use crate::manifest::Manifest;
 /// Returns the path of the written package, named `{name}_{version}_{arch}.deb`
 /// using the Debian architecture spelling.
 pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
-    let arch = deb_arch(&manifest.arch);
+    crate::validate_sources(manifest)?;
+    let arch = deb_arch(&manifest.arch)?;
+    let epoch = crate::resolve_source_epoch();
 
     // Stage the payload on disk first. tempfile gives us an isolated, auto-removed
     // directory so a build leaves nothing behind even if it fails midway.
@@ -48,10 +50,10 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     // Sort by install path for reproducible archive ordering.
     staged.sort_by(|a, b| a.rel.cmp(&b.rel));
 
-    let data_tar = build_data_tar(&staged).context("building data.tar.gz")?;
+    let data_tar = build_data_tar(&staged, epoch).context("building data.tar.gz")?;
     let md5sums = md5sums(&staged);
     let control = render_control(manifest, arch, installed_size(&staged));
-    let control_tar = build_control_tar(manifest, &control, &md5sums)
+    let control_tar = build_control_tar(manifest, &control, &md5sums, epoch)
         .context("building control.tar.gz")?;
 
     std::fs::create_dir_all(out_dir)
@@ -62,9 +64,9 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 
     // ar members must appear in this exact order for a valid .deb.
     let mut builder = ar::Builder::new(file);
-    append_ar(&mut builder, "debian-binary", b"2.0\n")?;
-    append_ar(&mut builder, "control.tar.gz", &control_tar)?;
-    append_ar(&mut builder, "data.tar.gz", &data_tar)?;
+    append_ar(&mut builder, "debian-binary", b"2.0\n", epoch)?;
+    append_ar(&mut builder, "control.tar.gz", &control_tar, epoch)?;
+    append_ar(&mut builder, "data.tar.gz", &data_tar, epoch)?;
     builder.into_inner().context("finalising ar archive")?;
 
     // `staging` is dropped (and deleted) here; keep it alive until now so any
@@ -84,18 +86,21 @@ struct StagedFile {
 ///
 /// Debian uses `amd64`/`arm64`/`i386`; we also accept the GNU/rpm spellings so a
 /// single manifest can feed both builders.
-fn deb_arch(arch: &str) -> &'static str {
+fn deb_arch(arch: &str) -> Result<&'static str> {
     match arch {
-        "amd64" | "x86_64" => "amd64",
-        "arm64" | "aarch64" => "arm64",
-        "i386" | "i686" | "x86" => "i386",
-        "armhf" | "armv7" | "armv7hl" => "armhf",
-        "ppc64el" | "ppc64le" => "ppc64el",
-        "s390x" => "s390x",
-        "riscv64" => "riscv64",
-        "all" | "noarch" => "all",
-        // Unknown: default to amd64 for the PoC rather than failing the build.
-        _ => "amd64",
+        "amd64" | "x86_64" => Ok("amd64"),
+        "arm64" | "aarch64" => Ok("arm64"),
+        "i386" | "i686" | "x86" => Ok("i386"),
+        "armhf" | "armv7" | "armv7hl" => Ok("armhf"),
+        "ppc64el" | "ppc64le" => Ok("ppc64el"),
+        "s390x" => Ok("s390x"),
+        "riscv64" => Ok("riscv64"),
+        "all" | "noarch" => Ok("all"),
+        other => bail!(
+            "unknown architecture {:?} — accepted: amd64/x86_64, arm64/aarch64, \
+             i386/i686/x86, armhf/armv7/armv7hl, ppc64el/ppc64le, s390x, riscv64, all/noarch",
+            other
+        ),
     }
 }
 
@@ -158,7 +163,7 @@ fn md5sums(staged: &[StagedFile]) -> String {
 
 /// Build `data.tar.gz` from the staged files, creating parent directory entries
 /// deterministically so the archive matches across rebuilds.
-fn build_data_tar(staged: &[StagedFile]) -> Result<Vec<u8>> {
+fn build_data_tar(staged: &[StagedFile], epoch: u32) -> Result<Vec<u8>> {
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut tar = tar::Builder::new(gz);
     tar.mode(tar::HeaderMode::Deterministic);
@@ -182,7 +187,7 @@ fn build_data_tar(staged: &[StagedFile]) -> Result<Vec<u8>> {
         header.set_entry_type(tar::EntryType::Directory);
         header.set_mode(0o755);
         header.set_size(0);
-        header.set_mtime(0);
+        header.set_mtime(epoch as u64);
         header.set_cksum();
         tar.append_data(&mut header, format!("./{dir}"), std::io::empty())
             .with_context(|| format!("appending dir {dir}"))?;
@@ -193,7 +198,7 @@ fn build_data_tar(staged: &[StagedFile]) -> Result<Vec<u8>> {
         header.set_entry_type(tar::EntryType::Regular);
         header.set_mode(f.mode);
         header.set_size(f.data.len() as u64);
-        header.set_mtime(0);
+        header.set_mtime(epoch as u64);
         header.set_cksum();
         tar.append_data(&mut header, format!("./{}", f.rel), f.data.as_slice())
             .with_context(|| format!("appending file {}", f.rel))?;
@@ -204,13 +209,13 @@ fn build_data_tar(staged: &[StagedFile]) -> Result<Vec<u8>> {
 }
 
 /// Build `control.tar.gz` containing `control`, `md5sums`, and any scripts.
-fn build_control_tar(manifest: &Manifest, control: &str, md5sums: &str) -> Result<Vec<u8>> {
+fn build_control_tar(manifest: &Manifest, control: &str, md5sums: &str, epoch: u32) -> Result<Vec<u8>> {
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut tar = tar::Builder::new(gz);
     tar.mode(tar::HeaderMode::Deterministic);
 
-    append_text(&mut tar, "./control", control, 0o644)?;
-    append_text(&mut tar, "./md5sums", md5sums, 0o644)?;
+    append_text(&mut tar, "./control", control, 0o644, epoch)?;
+    append_text(&mut tar, "./md5sums", md5sums, 0o644, epoch)?;
 
     // Maintainer scripts are mode 0755 and read from their host paths.
     let scripts = [
@@ -223,7 +228,7 @@ fn build_control_tar(manifest: &Manifest, control: &str, md5sums: &str) -> Resul
         if let Some(path) = path {
             let body = std::fs::read(path)
                 .with_context(|| format!("reading maintainer script {path}"))?;
-            append_bytes(&mut tar, name, &body, 0o755)?;
+            append_bytes(&mut tar, name, &body, 0o755, epoch)?;
         }
     }
 
@@ -237,8 +242,9 @@ fn append_text<W: Write>(
     name: &str,
     body: &str,
     mode: u32,
+    epoch: u32,
 ) -> Result<()> {
-    append_bytes(tar, name, body.as_bytes(), mode)
+    append_bytes(tar, name, body.as_bytes(), mode, epoch)
 }
 
 /// Append a raw byte member to a tar builder with a deterministic header.
@@ -247,12 +253,13 @@ fn append_bytes<W: Write>(
     name: &str,
     body: &[u8],
     mode: u32,
+    epoch: u32,
 ) -> Result<()> {
     let mut header = tar::Header::new_gnu();
     header.set_entry_type(tar::EntryType::Regular);
     header.set_mode(mode);
     header.set_size(body.len() as u64);
-    header.set_mtime(0);
+    header.set_mtime(epoch as u64);
     header.set_cksum();
     tar.append_data(&mut header, name, body)
         .with_context(|| format!("appending {name}"))?;
@@ -260,10 +267,10 @@ fn append_bytes<W: Write>(
 }
 
 /// Append a member to the outer `ar` archive with deterministic metadata.
-fn append_ar<W: Write>(builder: &mut ar::Builder<W>, name: &str, data: &[u8]) -> Result<()> {
+fn append_ar<W: Write>(builder: &mut ar::Builder<W>, name: &str, data: &[u8], epoch: u32) -> Result<()> {
     let mut header = ar::Header::new(name.as_bytes().to_vec(), data.len() as u64);
     header.set_mode(0o644);
-    header.set_mtime(0);
+    header.set_mtime(epoch as u64);
     builder
         .append(&header, data)
         .with_context(|| format!("appending ar member {name}"))?;
