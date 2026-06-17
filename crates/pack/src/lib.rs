@@ -37,11 +37,13 @@
 //! let rpm = pack::build_rpm(&manifest, Path::new("dist")).unwrap();
 //! ```
 
+mod apk;
 mod backend;
 mod deb;
 mod manifest;
 mod rpm;
 
+pub use apk::build_apk;
 pub use backend::{Backend, Format};
 pub use deb::build_deb;
 pub use manifest::{FileEntry, Manifest, Scripts};

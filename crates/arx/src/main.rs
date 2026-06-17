@@ -530,6 +530,21 @@ fn human_bytes(bytes: u64) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn human_bytes_formats_correctly() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1024), "1.0 KiB");
+        assert_eq!(human_bytes(1536), "1.5 KiB");
+        assert_eq!(human_bytes(1048576), "1.0 MiB");
+        assert_eq!(human_bytes(1073741824), "1.0 GiB");
+    }
+}
+
 fn report_skipped(skipped: &[debrepo::SkippedDeb]) {
     eprintln!("WARNING: skipped {} package(s):", skipped.len());
     for s in skipped {

@@ -128,3 +128,55 @@ fn rm_by_name_and_version() {
     arx(root, &["rm", "hello", "--apt"]);
     assert_eq!(std::fs::read_dir(&pool).unwrap().count(), 0);
 }
+
+#[test]
+fn promote_moves_between_components() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let src = root.join("apt/pool/main");
+    let dst = root.join("apt/pool/stable");
+    std::fs::create_dir_all(&src).unwrap();
+    write_deb(&src.join("hello_1.0-1_amd64.deb"), "hello", "1.0-1", "amd64");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+        .args(["promote", "hello", "--from", "main", "--to", "stable", "--apt", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "promote failed: {stdout}");
+    assert!(stdout.contains("Promoted"));
+    // File moved.
+    assert!(dst.join("hello_1.0-1_amd64.deb").exists());
+    assert!(!src.join("hello_1.0-1_amd64.deb").exists());
+}
+
+#[test]
+fn key_rotate_backs_up_and_replaces() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    // init with a key.
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+        .args(["init", root.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(root.join("keys/private.asc").exists());
+
+    // Rotate.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+        .args(["key", "rotate", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "rotate failed: {stdout}");
+    assert!(root.join("keys/private.asc.old").exists(), "old key must be backed up");
+    assert!(root.join("keys/private.asc").exists(), "new key must exist");
+
+    // Revoke.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+        .args(["key", "revoke", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!root.join("keys/private.asc.old").exists(), "old key must be deleted");
+}

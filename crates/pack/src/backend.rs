@@ -29,60 +29,123 @@
 //! clear "not yet implemented" error rather than a half-working build.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::manifest::Manifest;
-use crate::{build_deb, build_rpm};
+use crate::{build_apk, build_deb, build_rpm};
 
 /// Which output format to produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Deb,
     Rpm,
+    Apk,
 }
 
 /// How a build is executed.
-///
-/// [`Native`](Backend::Native) is fully implemented. [`Docker`](Backend::Docker)
-/// is the documented fallback path for builds the native packagers cannot do;
-/// see the [module docs](self) for the native-first philosophy.
 #[derive(Debug, Clone, Default)]
 pub enum Backend {
     /// Pure-Rust, on-host build. No toolchain or container runtime required.
     #[default]
     Native,
-    /// Containerised build in a pinned image. Not yet implemented.
-    Docker {
-        /// The container image to build inside, e.g. `debian:bookworm`.
-        image: String,
-    },
+    /// Containerised build. Spins up a fresh container from `image`, mounts the
+    /// host's `arx` binary and source files, runs `arx pack` inside, and copies
+    /// the resulting artifacts back. Requires `docker` on PATH.
+    Docker { image: String },
 }
 
 impl Backend {
     /// Build `manifest` in `format`, writing the package into `out_dir`.
-    ///
-    /// Returns the path of the written package. The [`Native`](Backend::Native)
-    /// backend dispatches to [`build_deb`]/[`build_rpm`]; the
-    /// [`Docker`](Backend::Docker) backend is a stub that returns an error.
     pub fn build(&self, manifest: &Manifest, format: Format, out_dir: &Path) -> Result<PathBuf> {
         match self {
             Backend::Native => match format {
                 Format::Deb => build_deb(manifest, out_dir),
                 Format::Rpm => build_rpm(manifest, out_dir),
+                Format::Apk => build_apk(manifest, out_dir),
             },
-            Backend::Docker { image } => {
-                // Stub: the interface is final, the implementation is deferred.
-                // When built out, this must spin up a fresh container from
-                // `image`, build inside it with the host source files mounted
-                // read-only, and copy the resulting artifact back to `out_dir`.
-                bail!(
-                    "Docker backend (image {image:?}) is not yet implemented; \
-                     use Backend::Native for the {format:?} build. The native \
-                     path covers the common case — Docker is reserved for builds \
-                     that genuinely need a foreign toolchain."
-                )
+            Backend::Docker { image } => docker_build(manifest, format, out_dir, image),
+        }
+    }
+}
+
+/// Real Docker backend: mount host arx + source files, build inside container.
+fn docker_build(manifest: &Manifest, format: Format, out_dir: &Path, image: &str) -> Result<PathBuf> {
+    // Find the host's arx binary.
+    let arx_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("arx"));
+    if !arx_bin.exists() {
+        bail!("Docker backend requires the arx binary at {} — build arx first", arx_bin.display());
+    }
+
+    // Build a self-contained context directory with the manifest + source files.
+    let context = tempfile::tempdir().context("creating Docker build context")?;
+    let manifest_path = context.path().join("manifest.toml");
+
+    // Copy source files into the context directory, adjusting paths.
+    let mut adjusted = manifest.clone();
+    for entry in adjusted.files.iter_mut() {
+        let src = Path::new(&entry.source);
+        let name = src.file_name().context("source has no filename")?;
+        let dest = context.path().join(name);
+        std::fs::copy(src, &dest)
+            .with_context(|| format!("copying {} into Docker context", entry.source))?;
+        entry.source = dest.to_string_lossy().into_owned();
+    }
+    // Write the adjusted manifest.
+    let manifest_toml = toml::to_string_pretty(&adjusted).context("serialising manifest")?;
+    std::fs::write(&manifest_path, &manifest_toml).context("writing manifest.toml")?;
+
+    if format == Format::Apk {
+        anyhow::bail!("Docker backend does not yet support .apk builds; use Backend::Native");
+    }
+    let fmt_flag = match format {
+        Format::Deb => "--deb",
+        Format::Rpm => "--rpm",
+        Format::Apk => unreachable!(),
+    };
+    let container_out = "/build/out";
+
+    // Run: docker run --rm -v <context>:/build -v <arx>:/arx <image> /arx pack manifest.toml --out <container_out>
+    let status = Command::new("docker")
+        .args([
+            "run", "--rm",
+            "-v", &format!("{}:/build", context.path().display()),
+            "-v", &format!("{}:/arx", arx_bin.display()),
+            "-w", "/build",
+            image,
+            "/arx", "pack", "manifest.toml", fmt_flag, "--out", container_out,
+        ])
+        .status()
+        .context("running docker — is Docker installed and running?")?;
+
+    if !status.success() {
+        bail!("Docker build failed (exit {status})");
+    }
+
+    // Find the built artifact in the context output dir and copy it out.
+    let container_out_dir = context.path().join("out");
+    let mut found: Option<PathBuf> = None;
+    for entry in std::fs::read_dir(&container_out_dir)
+        .with_context(|| format!("reading Docker output dir {}", container_out_dir.display()))?
+    {
+        let entry = entry?;
+        let p = entry.path();
+        if p.is_file() {
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if (format == Format::Deb && ext == "deb") || (format == Format::Rpm && ext == "rpm") {
+                found = Some(p);
+                break;
             }
         }
     }
+    let artifact = found.context("no .deb/.rpm found in Docker build output")?;
+    let name = artifact.file_name().unwrap().to_string_lossy().into_owned();
+    let dest = out_dir.join(&name);
+    std::fs::create_dir_all(out_dir)
+        .with_context(|| format!("creating {}", out_dir.display()))?;
+    std::fs::copy(&artifact, &dest)
+        .with_context(|| format!("copying {name} from container"))?;
+
+    Ok(dest)
 }

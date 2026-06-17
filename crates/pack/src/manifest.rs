@@ -5,13 +5,13 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A complete package description parsed from TOML.
 ///
 /// `arch` is accepted in either ecosystem's spelling (e.g. `amd64` or
 /// `x86_64`); the builders normalise it to the convention each format expects.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     /// Package name, e.g. `hello`.
     pub name: String,
@@ -56,7 +56,7 @@ pub struct Manifest {
 }
 
 /// A single file to stage into the package.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
     /// Path on the build host to read the file contents from.
     pub source: String,
@@ -79,7 +79,7 @@ impl FileEntry {
 
 /// Optional maintainer scripts. Each is a host path to a script file whose
 /// contents are embedded into the package.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Scripts {
     #[serde(default)]
     pub preinst: Option<String>,
