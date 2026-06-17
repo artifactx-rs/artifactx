@@ -61,4 +61,4 @@ How we'd make this better later, and what would trigger that.
 | [0005](0005-pack-manifest-native.md) | `pack`: manifest → native, never conversion | Accepted |
 | [0006](0006-http-api-and-push.md) | HTTP write API + `arx push` | Accepted |
 | [0007](0007-retention-and-gc.md) | Pool retention & GC | Accepted |
-| [0008](0008-atomic-rollback.md) | Atomic rollback (pointer-flip) | Accepted (impl pending) |
+| [0008](0008-atomic-rollback.md) | Atomic rollback (pointer-flip) | Accepted (apt + yum) |

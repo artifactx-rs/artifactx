@@ -1,15 +1,16 @@
 # ADR-0008: Atomic rollback (pointer-flip)
 
-- Status: **Accepted** (reviewed 2026-06-17) — apt implemented; yum pending
+- Status: **Accepted & implemented** (apt + yum)
 - Date: 2026-06-17
 
-## Implementation status
+## Implementation status — done & safe (apt + yum)
 
-- **apt: done & safe.** Publish commits into `dists/.states/<dist>/<NNNNNN>`;
-  `dists/<dist>` is a symlink flipped atomically; `arx rollback`/`arx history`;
-  `gc` won't prune a pool file pinned by a retained state. Verified e2e.
-- **yum: pending.** Mirror the state-dir + symlink approach for `repodata`, and
-  extend `gc`'s referenced-set to parse retained `primary.xml`.
+- Shared `debrepo::statedir` implements the generic versioned-dir-via-symlink-flip.
+- apt: `dists/<dist>` → `dists/.states/<dist>/<NNNNNN>`. yum: `<arch>/repodata` →
+  `<arch>/.states/repodata/<NNNNNN>`. Both flip atomically (single `rename`).
+- `arx rollback <target>` / `arx history [target]` (target = apt dist or yum
+  `repo/arch`); `gc` pins pool files referenced by retained states (parses apt
+  `Packages` and yum `primary.xml`) so a rollback can't 404. Verified e2e for both.
 
 ## Review outcome
 
