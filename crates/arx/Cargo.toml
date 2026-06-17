@@ -1,6 +1,6 @@
 [package]
 name = "artifactx"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
