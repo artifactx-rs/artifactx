@@ -1,7 +1,7 @@
 //! Repository import: download packages from an upstream apt/yum repo into
 //! the local arx pool — the migration path from aptly/Nexus/reprepro.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
