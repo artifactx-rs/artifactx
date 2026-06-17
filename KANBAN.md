@@ -31,13 +31,14 @@
 | **atomic rollback (apt + yum)** | immutable state dir + atomic symlink flip (shared `debrepo::statedir`); `arx rollback`/`history`; `gc` pins referenced files ([ADR-0008](docs/adr/0008-atomic-rollback.md)) | [`2fad4e9`](https://github.com/artifactx-rs/artifactx/commit/2fad4e9) · [`2b5a000`](https://github.com/artifactx-rs/artifactx/commit/2b5a000) · [`60598c5`](https://github.com/artifactx-rs/artifactx/commit/60598c5) |
 | **Dogfood + CI** | `arx` packs + publishes `arx` → GitHub Pages (`release.yml`); `ci.yml` clippy+test; verified incl. `apt-get install arx` (ADR-0009) | [`8513dc1`](https://github.com/artifactx-rs/artifactx/commit/8513dc1) |
 | **P0 — repo product-readiness (ADR-0011)** | apt `Release` `Valid-Until` (freeze protection); bad/duplicate package isolation (skip-and-warn, always visible; `--strict`; push→422); version-aware GC (dpkg/rpm EVR, not mtime). Verified e2e | [ADR](docs/adr/0011-repo-product-readiness.md) · [`785f9ba`](https://github.com/artifactx-rs/artifactx/commit/785f9ba) · [`5bd5126`](https://github.com/artifactx-rs/artifactx/commit/5bd5126) · [`bb3e31e`](https://github.com/artifactx-rs/artifactx/commit/bb3e31e) · [`6f8abe0`](https://github.com/artifactx-rs/artifactx/commit/6f8abe0) |
+| **yum e2e test + backup runbook** | yum repodata integration test (binary-driven, structure + signature) + [`docs/OPERATIONS.md`](docs/OPERATIONS.md) backup/restore (ADR-0011 bars #4/#5) | [`(pending push)`](https://github.com/artifactx-rs/artifactx/commits) |
 | Published to GitHub (public) | `artifactx-rs/artifactx` + [Project board](https://github.com/orgs/artifactx-rs/projects/1) + [Wiki](https://github.com/artifactx-rs/artifactx/wiki) | — |
 
 ## 🔨 In progress
 
 | Item | Owner | Notes |
 | --- | --- | --- |
-| **Product-ready bar #4/#5** | main | yum end-to-end integration test (real `dnf`) + backup/restore runbook — the two non-code follow-ups from ADR-0011 |
+| _(repo is product-ready; next: incremental publish, or `Contents-<arch>`)_ | main | not started |
 
 ## 📋 Backlog
 
