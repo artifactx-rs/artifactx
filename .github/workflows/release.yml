@@ -491,7 +491,7 @@ jobs:
             --dist stable --component main \
             --match-name myapp --limit 20
           arx publish --root ./repo
-          arx serve --root ./repo</pre></div>
+          arx serve --root ./repo  # 127.0.0.1:8080</pre></div>
                 </div>
                 <div class="card feature">
                   <h2>Create and serve a new repo</h2>
@@ -499,7 +499,24 @@ jobs:
                   <div class="terminal"><pre>arx init ./repo
           arx add dist/*.deb dist/*.rpm --root ./repo
           arx publish --root ./repo
-          arx serve --root ./repo</pre></div>
+          arx serve --root ./repo  # 127.0.0.1:8080</pre></div>
+                </div>
+              </section>
+
+              <section class="split">
+                <div class="card feature">
+                  <h2>Docker users get Compose</h2>
+                  <p>Generate deploy files from the same repo. Compose binds inside the container to <code>0.0.0.0:8080</code> so Docker port publishing works.</p>
+                  <div class="terminal"><pre>arx compose --root ./repo --out ./deploy
+          cd ./deploy
+          docker compose up -d</pre></div>
+                </div>
+                <div class="card feature">
+                  <h2>Operators get API + systemd</h2>
+                  <p><code>arx serve</code> defaults to localhost. Put systemd and a reverse proxy around it; use <code>ARX_SERVE_TOKEN</code> only when write APIs are enabled.</p>
+                  <div class="terminal"><pre>arx serve --root /var/lib/arx/repo
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+          journalctl -u arx -f</pre></div>
                 </div>
               </section>
             </main>

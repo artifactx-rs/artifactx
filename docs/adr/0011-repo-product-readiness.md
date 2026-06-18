@@ -175,6 +175,14 @@ are indistinguishable (a delete-the-wrong-file hazard).
 
 - **Always emit `Valid-Until` with a fixed window.** Rejected: silently breaks
   publish-and-walk-away repos. The `init`-writes-default compromise is safer.
+- **Manage OpenPGP key expiry automatically.** Rejected: key lifetime is an
+  operator/governance policy. ArtifactX should generate a compatible default key
+  for the 5-minute path and let organizations import their own managed keys when
+  they have expiry, HSM/KMS, audit, or trust-rollout requirements.
+- **Invent yum/dnf metadata expiry.** Rejected: yum repo metadata does not have an
+  ArtifactX-owned equivalent to apt `Valid-Until`; rely on signed `repomd.xml`,
+  client cache policy, and republish/rollback rather than adding a fake policy
+  knob.
 - **Hard-fail on any bad package (status quo).** Rejected as the default: one
   bad input shouldn't deny service to good packages. Kept as `--strict`.
 - **Pull in a full Debian-version crate.** Considered for #3; lean to a tiny

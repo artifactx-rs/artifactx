@@ -18,7 +18,8 @@ auto-detected) and trigger an **atomic republish under the publish lock**, signe
 with the serve process's key. `arx push <pkg> --url <server>` is the client.
 
 Auth: a single bearer token (`ARX_SERVE_TOKEN`). **Reads are public if no token is
-set; writes always require a token** (403 otherwise). TLS is delegated to a reverse
+set; writes always require a token** (403 otherwise). `arx serve` defaults to `127.0.0.1:8080`; direct network exposure requires an
+explicit `--addr 0.0.0.0:8080` or config change. TLS is delegated to a reverse
 proxy — the binary doesn't terminate TLS (charter principle 8: one binary, no hidden
 magic; let Caddy/nginx do the thing they're great at).
 
@@ -26,6 +27,8 @@ magic; let Caddy/nginx do the thing they're great at).
 
 - Good: CLI and API are one surface; CI push is one command; `curl` works too.
 - Good: `serve` is the single stateful component, still one binary, still no DB.
+- Good: localhost-by-default avoids accidentally publishing a write-capable API to
+  the LAN/Internet during first-run testing.
 - Bad: `serve` must hold the signing key (and passphrase) to publish on upload.
 - Bad: a static bearer token is coarse; no per-package or short-lived auth yet.
 

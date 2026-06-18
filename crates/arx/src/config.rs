@@ -71,7 +71,7 @@ impl Default for RepoMeta {
         Self {
             origin: "ArtifactX".into(),
             label: "ArtifactX".into(),
-            description: "Repository managed by arx".into(),
+            description: "Signed package repository managed by ArtifactX".into(),
         }
     }
 }
@@ -107,7 +107,7 @@ impl Default for Signing {
             keys_dir: "keys".into(),
             private_key: "keys/private.asc".into(),
             public_key: "keys/public.asc".into(),
-            user_id: "ArtifactX <arx@localhost>".into(),
+            user_id: "ArtifactX Repository Signing <signing@artifactx.local>".into(),
         }
     }
 }
@@ -120,7 +120,7 @@ pub struct Server {
 impl Default for Server {
     fn default() -> Self {
         Self {
-            addr: "0.0.0.0:8080".into(),
+            addr: "127.0.0.1:8080".into(),
         }
     }
 }
@@ -241,6 +241,7 @@ mod tests {
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back.repo.origin, cfg.repo.origin);
         assert_eq!(back.signing.private_key, "keys/private.asc");
+        assert_eq!(back.server.addr, "127.0.0.1:8080");
         assert_eq!(back.apt.dist, "stable");
         assert_eq!(back.yum.repo, "myrepo");
     }

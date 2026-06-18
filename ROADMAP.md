@@ -68,6 +68,11 @@ existing apt/yum repo
    - Improve first-run docs around `init`, `import`, `publish`, `serve`, backup/restore, and rollback.
    - Keep the 5-minute path honest: install → import/add → publish → consume.
    - Prefer deletion and sharper defaults over additional flags.
+   - Roll out service management in order:
+     1. `arx serve` defaults to localhost; public exposure is explicit.
+     2. Document a copy-pasteable systemd unit with an env file, reverse-proxy stance, and journal/debug commands.
+     3. Validate Docker/Compose examples against real containers before promoting them in Pages.
+     4. Only after repeated use, consider a generator such as `arx systemd --print`; do not add it before the docs prove stable.
 
 5. **Adversarial review**
    - Re-check the README and Pages copy from a user/investor perspective: one clear wedge, no overclaiming, no vague platform promises.
@@ -76,6 +81,12 @@ existing apt/yum repo
 ## Parked until after the freeze
 
 These are plausible, but intentionally not current focus:
+
+### v0.2 research candidates
+
+- **HSM / KMS-backed repository signing spike** — explore whether `arx publish` can sign apt/yum metadata through an external signing boundary instead of loading `keys/private.asc` directly. Scope the design first: PKCS#11/HSM, cloud KMS, or `gpg-agent` may have very different tradeoffs. Do not implement before an ADR proves it preserves the one-binary/5-minute path for normal users.
+
+### Later product bets
 
 - Auto-dependency detection (`--auto-deps` using ldd or objdump).
 - Multi-arch manifests.

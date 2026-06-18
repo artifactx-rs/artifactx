@@ -29,7 +29,7 @@ arx init ./myrepo                       # scaffold + generate signing key
 arx add ./nginx_1.0_amd64.deb --root ./myrepo
 arx add ./redis-7.x86_64.rpm  --root ./myrepo
 arx publish --root ./myrepo             # generate + sign apt & yum metadata
-arx serve   --root ./myrepo --addr 0.0.0.0:8080
+arx serve   --root ./myrepo
 ```
 
 Or `arx compose --root ./myrepo` to emit a `Dockerfile` + `docker-compose.yml`
@@ -49,7 +49,7 @@ and run `docker compose up`.
 | `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |
 | `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
 | `arx gc --keep N [--dry-run]` | Keep the N newest **versions** per package (dpkg/rpm version-aware), prune the rest, then `publish` |
-| `arx serve [--addr] [--root]` | Serve the repo over HTTP (+ `/metrics`) |
+| `arx serve [--addr] [--root]` | Serve the repo over HTTP (defaults to `127.0.0.1:8080`, + `/metrics`) |
 | `arx compose [--addr]` | Generate `Dockerfile` + `docker-compose.yml` |
 
 `arx --version` reports the build's git sha, build time, and rustc version.
