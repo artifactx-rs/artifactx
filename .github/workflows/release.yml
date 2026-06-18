@@ -13,8 +13,27 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          CRATE_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/arx/Cargo.toml | head -n1)"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+          else
+            TAG="latest"
+            VERSION="$CRATE_VERSION"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release metadata: tag=$TAG version=$VERSION"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
@@ -31,13 +50,16 @@ jobs:
         run: |
           cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
           cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
-          cp target/x86_64-unknown-linux-musl/release/arx arx-${{ github.ref_name }}-amd64
-          cp target/aarch64-unknown-linux-musl/release/arx arx-${{ github.ref_name }}-arm64
+          TAG="${{ steps.meta.outputs.tag }}"
+          cp target/x86_64-unknown-linux-musl/release/arx arx-${TAG}-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-${TAG}-arm64
+          cp target/x86_64-unknown-linux-musl/release/arx arx-latest-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-latest-arm64
           ls -la arx-*
 
       - name: Self-package — arx packages arx (.deb + .rpm)
         run: |
-          TAG="${{ github.ref_name }}"; PKGVER="${TAG#v}"; [ -z "$PKGVER" ] && PKGVER="0.1.0"
+          TAG="${{ steps.meta.outputs.tag }}"; PKGVER="${{ steps.meta.outputs.version }}"
           chmod +x arx-${TAG}-amd64
           for arch in amd64 arm64; do
             mkdir -p /tmp/pack/$arch
@@ -80,19 +102,25 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: arx-*-amd64,arx-*-arm64,dist/*
+          files: |
+            arx-${{ steps.meta.outputs.tag }}-amd64
+            arx-${{ steps.meta.outputs.tag }}-arm64
+            arx-latest-amd64
+            arx-latest-arm64
+            dist/*
           body: |
             ## ArtifactX ${{ github.ref_name }}
             **Build Once. Package Once. Publish Everywhere.**
             ```bash
-            curl -fsSLO ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/arx-${{ github.ref_name }}-amd64
-            sudo install -m 755 arx-${{ github.ref_name }}-amd64 /usr/local/bin/arx
+            curl -fsSLO ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/arx-latest-amd64
+            sudo install -m 755 arx-latest-amd64 /usr/local/bin/arx
             arx init && arx pack ./Cargo.toml && arx publish && arx serve
             ```
             Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/${{ github.repository_owner }}/arx:${{ github.ref_name }} serve`
           generate_release_notes: true
 
       - name: GHCR login
+        if: github.ref_type == 'tag'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -100,8 +128,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: GHCR multi-arch image
+        if: github.ref_type == 'tag'
         run: |
-          TAG="${{ github.ref_name }}"; PKGVER="${TAG#v}"; [ -z "$PKGVER" ] && PKGVER="0.1.0"
+          TAG="${{ steps.meta.outputs.tag }}"
           for arch in amd64 arm64; do
             mkdir -p /tmp/ghcr/$arch
             cp arx-${TAG}-$arch /tmp/ghcr/$arch/arx
@@ -119,10 +148,11 @@ jobs:
           docker manifest push ghcr.io/artifactx-rs/arx:latest
 
       - uses: actions/upload-artifact@v4
-        with: { name: arx-bin, path: arx-v*-amd64 }
+        with: { name: arx-bin, path: arx-latest-amd64 }
 
   pages:
     needs: release
+    if: github.ref_type == 'tag' || github.ref_name == 'main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -132,30 +162,225 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: arx-bin }
       - run: |
-          TAG="${{ github.ref_name }}"; [ -z "$TAG" ] && TAG="v0.1.0"
-          chmod +x arx-${TAG}-amd64 && mkdir -p build && cp arx-${TAG}-amd64 build/arx
+          chmod +x arx-latest-amd64
+          mkdir -p build
+          cp arx-latest-amd64 build/arx
 
       - name: Package arx for dogfood
-        run: ./build/arx pack packaging/arx.toml --out dist
+        env:
+          ARX_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path('packaging/arx.toml')
+          version = os.environ['ARX_VERSION']
+          lines = path.read_text().splitlines()
+          for i, line in enumerate(lines):
+              if line.startswith('version = '):
+                  lines[i] = f'version = "{version}"'
+                  break
+          else:
+              raise SystemExit('version field not found in packaging/arx.toml')
+          path.write_text('\n'.join(lines) + '\n')
+          PY
+          ./build/arx pack packaging/arx.toml --out dist
 
       - name: Build signed repo → Pages
         env:
           ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
+          ARX_SIGNING_KEY: ${{ secrets.ARX_SIGNING_KEY }}
+          PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
+          PAGES_REPOSITORY_NAME: ${{ github.event.repository.name }}
         run: |
-          ./build/arx init public --no-key
-          if [ -n "${{ secrets.ARX_SIGNING_KEY }}" ]; then
-            printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/key.asc
-            ./build/arx key import /tmp/key.asc --root public
+          if [ -z "${ARX_SIGNING_KEY:-}" ]; then
+            echo "ARX_SIGNING_KEY is required for the public Pages repo so clients keep trusting a stable key." >&2
+            exit 1
           fi
+          ./build/arx init public --no-key
+          printf '%s' "$ARX_SIGNING_KEY" > /tmp/key.asc
+          ./build/arx key import /tmp/key.asc --root public
           ./build/arx add dist/*.deb dist/*.rpm --root public
           ./build/arx publish --root public
-          cp public/keys/public.asc public/public.asc 2>/dev/null || true
-          cat > public/index.html <<'HTML'
-          <!doctype html><meta charset=utf-8><title>ArifactX repo</title>
-          <h1>Install arx</h1>
-          <pre>curl -fsSL REPO_URL/public.asc | sudo tee /etc/apt/keyrings/arx.asc
-          echo "deb [signed-by=/etc/apt/keyrings/arx.asc] REPO_URL/apt stable main" | sudo tee /etc/apt/sources.list.d/arx.list
-          sudo apt-get update && sudo apt-get install arx</pre>
+          cp public/keys/public.asc public/public.asc
+          rm -f public/keys/private.asc /tmp/key.asc
+          test -s public/public.asc
+          test ! -e public/keys/private.asc
+          OWNER="$GITHUB_REPOSITORY_OWNER"
+          REPO="$PAGES_REPOSITORY_NAME"
+          if [ -n "$PAGES_BASE_URL" ]; then
+            REPO_URL="${PAGES_BASE_URL%/}"
+          elif [ "$REPO" = "$OWNER.github.io" ]; then
+            REPO_URL="https://${OWNER}.github.io"
+          else
+            REPO_URL="https://${OWNER}.github.io/${REPO}"
+          fi
+          cat > public/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>ArtifactX — import apt/yum repos into a signed static repo</title>
+            <style>
+              :root {
+                color-scheme: dark;
+                --bg: #090b10;
+                --panel: rgba(18, 23, 34, .78);
+                --panel-strong: #111827;
+                --text: #eef4ff;
+                --muted: #99a7bd;
+                --line: rgba(148, 163, 184, .24);
+                --cyan: #22d3ee;
+                --lime: #a3e635;
+                --violet: #a78bfa;
+                --amber: #fbbf24;
+                --shadow: 0 24px 80px rgba(0, 0, 0, .45);
+              }
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                background:
+                  radial-gradient(circle at 20% 10%, rgba(34, 211, 238, .18), transparent 30rem),
+                  radial-gradient(circle at 80% 0%, rgba(167, 139, 250, .16), transparent 28rem),
+                  radial-gradient(circle at 80% 70%, rgba(163, 230, 53, .10), transparent 30rem),
+                  var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+              }
+              a { color: inherit; }
+              .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+              header { padding: 56px 0 28px; }
+              .eyebrow {
+                display: inline-flex;
+                gap: 10px;
+                align-items: center;
+                padding: 8px 12px;
+                border: 1px solid var(--line);
+                border-radius: 999px;
+                color: var(--cyan);
+                background: rgba(8, 13, 24, .72);
+                font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+                letter-spacing: .12em;
+                text-transform: uppercase;
+              }
+              h1 {
+                margin: 24px 0 14px;
+                max-width: 980px;
+                font-size: clamp(44px, 8vw, 92px);
+                line-height: .92;
+                letter-spacing: -.07em;
+              }
+              .grad { background: linear-gradient(90deg, var(--cyan), var(--lime), var(--amber)); -webkit-background-clip: text; color: transparent; }
+              .lead { max-width: 780px; color: var(--muted); font-size: clamp(18px, 2.4vw, 24px); line-height: 1.5; }
+              .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+              .btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                padding: 13px 16px;
+                text-decoration: none;
+                background: rgba(255,255,255,.06);
+                transition: transform .18s ease, border-color .18s ease, background .18s ease;
+              }
+              .btn:hover { transform: translateY(-2px); border-color: var(--cyan); background: rgba(34,211,238,.10); }
+              .btn.primary { background: linear-gradient(135deg, rgba(34,211,238,.22), rgba(163,230,53,.16)); border-color: rgba(34,211,238,.55); }
+              .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 34px 0; }
+              .card {
+                border: 1px solid var(--line);
+                background: var(--panel);
+                box-shadow: var(--shadow);
+                border-radius: 22px;
+                padding: 20px;
+                backdrop-filter: blur(16px);
+              }
+              .card strong { color: var(--text); }
+              .card p { color: var(--muted); line-height: 1.55; margin: 10px 0 0; }
+              .tag { color: var(--lime); font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; }
+              .terminal {
+                border: 1px solid rgba(34,211,238,.35);
+                border-radius: 22px;
+                overflow: hidden;
+                background: #05070b;
+                box-shadow: var(--shadow), 0 0 80px rgba(34,211,238,.10);
+                margin: 26px 0;
+              }
+              .bar { display: flex; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #0c111b; }
+              .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cyan); opacity: .8; }
+              pre {
+                margin: 0;
+                overflow-x: auto;
+                padding: 20px;
+                color: #d7fbe8;
+                font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              }
+              section { padding: 22px 0; }
+              h2 { font-size: clamp(28px, 4vw, 46px); letter-spacing: -.04em; margin: 0 0 14px; }
+              .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+              footer { color: var(--muted); border-top: 1px solid var(--line); padding: 30px 0 48px; margin-top: 30px; }
+              @media (max-width: 780px) { .split { grid-template-columns: 1fr; } header { padding-top: 34px; } }
+            </style>
+          </head>
+          <body>
+            <header class="wrap">
+              <span class="eyebrow">Import first. Serve fast.</span>
+              <h1>Import apt/yum repos into your own <span class="grad">signed static repo</span>.</h1>
+              <p class="lead">Start with packages you already publish, pull a bounded slice, regenerate apt/yum metadata under your key, and serve it from one static binary.</p>
+              <div class="actions">
+                <a class="btn primary" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
+                <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
+                <a class="btn" href="https://github.com/${{ github.repository }}">GitHub</a>
+              </div>
+            </header>
+
+            <main class="wrap">
+              <section>
+                <div class="terminal">
+                  <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                  <pre># GitHub Pages repo currently publishes the amd64 arx package.
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL ${REPO_URL}/public.asc | sudo tee /etc/apt/keyrings/arx.asc >/dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/arx.asc] ${REPO_URL}/apt stable main" | sudo tee /etc/apt/sources.list.d/arx.list
+          sudo apt-get update
+          sudo apt-get install arx</pre>
+                </div>
+              </section>
+
+              <section class="grid">
+                <article class="card"><span class="tag">Import</span><p><strong>Migrate existing repos.</strong> Pull from apt Packages metadata or yum repodata, then publish your own signed repo.</p></article>
+                <article class="card"><span class="tag">Publish</span><p><strong>Atomic metadata.</strong> Build in staging, sign, then flip the live repo state without half-written indexes.</p></article>
+                <article class="card"><span class="tag">Rollback</span><p><strong>Bad release?</strong> Keep published states and return clients to a previous repo snapshot.</p></article>
+                <article class="card"><span class="tag">CI</span><p><strong>Push from pipelines.</strong> Upload packages to <code>arx serve</code> with a token or GitHub OIDC.</p></article>
+              </section>
+
+              <section class="split">
+                <div class="card">
+                  <h2>Import an upstream repo</h2>
+                  <p>Start with the packages you already publish elsewhere. Filter by name, limit the first migration, then regenerate metadata under your own stable signing key.</p>
+                  <div class="terminal"><pre>arx init ./repo
+          arx import https://packages.example.com --apt --dist stable --component main --match-name myapp --limit 20
+          arx publish --root ./repo
+          arx serve --root ./repo</pre></div>
+                </div>
+                <div class="card">
+                  <h2>Build packages too</h2>
+                  <p>Use a standalone manifest or Cargo.toml to produce .deb, .rpm, and .apk artifacts, then publish them into the same repo.</p>
+                  <div class="terminal"><pre>arx pack ./Cargo.toml --out dist
+          arx add dist/*.deb dist/*.rpm --root ./repo
+          arx publish --root ./repo</pre></div>
+                </div>
+              </section>
+            </main>
+
+            <footer class="wrap">
+              <p>ArtifactX: one static binary for importing, packaging, signing, serving, promoting, pruning, and rolling back Linux package repositories.</p>
+            </footer>
+          </body>
+          </html>
           HTML
 
       - uses: actions/upload-pages-artifact@v3

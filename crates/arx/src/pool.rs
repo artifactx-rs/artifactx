@@ -39,7 +39,12 @@ pub struct Entry {
 
 impl Entry {
     fn group_key(&self) -> (Kind, String, String, String) {
-        (self.kind, self.scope.clone(), self.name.clone(), self.arch.clone())
+        (
+            self.kind,
+            self.scope.clone(),
+            self.name.clone(),
+            self.arch.clone(),
+        )
     }
 
     /// A serialisable, path-free view for the HTTP API.
@@ -112,7 +117,10 @@ fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
             continue;
         }
         let scope = comp.file_name().to_string_lossy().into_owned();
-        for entry in walkdir::WalkDir::new(comp.path()).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(comp.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
                 let control = arx_debrepo::deb::read_control(p)
@@ -146,7 +154,10 @@ fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
             continue;
         }
         let scope = repo.file_name().to_string_lossy().into_owned();
-        for entry in walkdir::WalkDir::new(repo.path()).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(repo.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "rpm").unwrap_or(false) {
                 let mut reader = createrepo_rs::rpm::RpmReader::open(p)
@@ -199,8 +210,7 @@ pub fn remove(
         .filter(|e| e.name == name && version.is_none_or(|v| e.version == v))
         .collect();
     for e in &matches {
-        std::fs::remove_file(&e.path)
-            .with_context(|| format!("removing {}", e.path.display()))?;
+        std::fs::remove_file(&e.path).with_context(|| format!("removing {}", e.path.display()))?;
     }
     Ok(matches)
 }
@@ -227,7 +237,10 @@ fn referenced_apt_files(root: &Path) -> std::collections::HashSet<String> {
     if !states.is_dir() {
         return set;
     }
-    for entry in walkdir::WalkDir::new(&states).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(&states)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let p = entry.path();
         if p.is_file() && p.file_name().map(|n| n == "Packages").unwrap_or(false) {
             if let Ok(text) = std::fs::read_to_string(p) {
@@ -250,7 +263,10 @@ fn referenced_yum_files(root: &Path) -> std::collections::HashSet<PathBuf> {
     if !yum.is_dir() {
         return set;
     }
-    for entry in walkdir::WalkDir::new(&yum).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(&yum)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let p = entry.path();
         let is_primary = p
             .file_name()

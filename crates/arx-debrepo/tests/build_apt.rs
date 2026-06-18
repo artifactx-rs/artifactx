@@ -37,7 +37,10 @@ fn write_deb(path: &Path, control_text: &str) {
     let file = std::fs::File::create(path).unwrap();
     let mut builder = ar::Builder::new(file);
     builder
-        .append(&ar::Header::new(b"debian-binary".to_vec(), 4), &b"2.0\n"[..])
+        .append(
+            &ar::Header::new(b"debian-binary".to_vec(), 4),
+            &b"2.0\n"[..],
+        )
         .unwrap();
     builder
         .append(
@@ -74,8 +77,14 @@ fn builds_packages_and_release() {
     let pool = apt.join("pool/main");
     std::fs::create_dir_all(&pool).unwrap();
 
-    write_deb(&pool.join("foo_1.0_amd64.deb"), &control("foo", "1.0", "amd64"));
-    write_deb(&pool.join("bar_2.0_amd64.deb"), &control("bar", "2.0", "amd64"));
+    write_deb(
+        &pool.join("foo_1.0_amd64.deb"),
+        &control("foo", "1.0", "amd64"),
+    );
+    write_deb(
+        &pool.join("bar_2.0_amd64.deb"),
+        &control("bar", "2.0", "amd64"),
+    );
 
     let meta = ReleaseMeta::new("TestOrigin", "TestLabel", "Test repo", "stable");
     let build = build_dist(&apt, "stable", &meta).unwrap();
@@ -121,7 +130,10 @@ fn valid_until_emitted_when_configured() {
     let apt = tmp.path().join("apt");
     let pool = apt.join("pool/main");
     std::fs::create_dir_all(&pool).unwrap();
-    write_deb(&pool.join("foo_1.0_amd64.deb"), &control("foo", "1.0", "amd64"));
+    write_deb(
+        &pool.join("foo_1.0_amd64.deb"),
+        &control("foo", "1.0", "amd64"),
+    );
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable").with_valid_days(7);
     build_dist(&apt, "stable", &meta).unwrap();
@@ -136,7 +148,10 @@ fn valid_until_emitted_when_configured() {
         .find_map(|l| l.strip_prefix("Valid-Until: "))
         .expect("Release has Valid-Until when valid_days > 0");
     // apt requires the same RFC822 shape as Date; the window is non-empty.
-    assert!(valid.ends_with(" UTC"), "Valid-Until is RFC822 UTC: {valid}");
+    assert!(
+        valid.ends_with(" UTC"),
+        "Valid-Until is RFC822 UTC: {valid}"
+    );
     assert_eq!(
         date.split(' ').count(),
         valid.split(' ').count(),
@@ -152,7 +167,10 @@ fn skips_unreadable_deb_and_indexes_the_rest() {
     let pool = apt.join("pool/main");
     std::fs::create_dir_all(&pool).unwrap();
 
-    write_deb(&pool.join("good_1.0_amd64.deb"), &control("good", "1.0", "amd64"));
+    write_deb(
+        &pool.join("good_1.0_amd64.deb"),
+        &control("good", "1.0", "amd64"),
+    );
     // Not a valid ar archive → unreadable; must be skipped, not fatal.
     std::fs::write(pool.join("broken_1.0_amd64.deb"), b"this is not a .deb").unwrap();
 
@@ -161,9 +179,7 @@ fn skips_unreadable_deb_and_indexes_the_rest() {
 
     assert_eq!(staged.packages, 1, "the good package is still indexed");
     assert_eq!(staged.skipped.len(), 1, "the broken package is skipped");
-    assert!(staged.skipped[0]
-        .path
-        .ends_with("broken_1.0_amd64.deb"));
+    assert!(staged.skipped[0].path.ends_with("broken_1.0_amd64.deb"));
 }
 
 #[test]
@@ -182,7 +198,10 @@ fn identical_duplicate_is_indexed_once_not_skipped() {
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
     let staged = arx_debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
-    assert_eq!(staged.packages, 1, "identical duplicate collapses to one stanza");
+    assert_eq!(
+        staged.packages, 1,
+        "identical duplicate collapses to one stanza"
+    );
     assert!(
         staged.skipped.is_empty(),
         "an identical re-add is idempotent, not a skip: {:?}",
@@ -224,7 +243,10 @@ fn architecture_all_lands_in_each_concrete_arch() {
     let pool = apt.join("pool/main");
     std::fs::create_dir_all(&pool).unwrap();
 
-    write_deb(&pool.join("native_1_amd64.deb"), &control("native", "1", "amd64"));
+    write_deb(
+        &pool.join("native_1_amd64.deb"),
+        &control("native", "1", "amd64"),
+    );
     write_deb(&pool.join("docs_1_all.deb"), &control("docs", "1", "all"));
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
@@ -286,22 +308,34 @@ fn states_and_rollback() {
     build_dist(&apt, "stable", &meta).unwrap();
 
     // dists/stable is a symlink; two states exist; the newest is current.
-    assert!(std::fs::symlink_metadata(apt.join("dists/stable")).unwrap().file_type().is_symlink());
+    assert!(std::fs::symlink_metadata(apt.join("dists/stable"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
     let states = arx_debrepo::list_states(&apt, "stable").unwrap();
     assert_eq!(states.len(), 2);
     assert_eq!(states.iter().filter(|s| s.current).count(), 1);
     assert!(states.last().unwrap().current); // newest is current
 
     // Current Release lists both packages.
-    let pkgs = std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
+    let pkgs =
+        std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
     assert!(pkgs.contains("Package: foo") && pkgs.contains("Package: bar"));
 
     // Roll back → previous state becomes current, Release loses bar.
     let to = arx_debrepo::rollback(&apt, "stable", None).unwrap();
     assert_eq!(to, "000001");
-    let pkgs = std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
+    let pkgs =
+        std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
     assert!(pkgs.contains("Package: foo") && !pkgs.contains("Package: bar"));
-    assert!(arx_debrepo::list_states(&apt, "stable").unwrap().iter().find(|s| s.id == "000001").unwrap().current);
+    assert!(
+        arx_debrepo::list_states(&apt, "stable")
+            .unwrap()
+            .iter()
+            .find(|s| s.id == "000001")
+            .unwrap()
+            .current
+    );
 }
 
 #[test]
@@ -311,14 +345,23 @@ fn multiple_components_share_one_release() {
     std::fs::create_dir_all(apt.join("pool/main")).unwrap();
     std::fs::create_dir_all(apt.join("pool/contrib")).unwrap();
 
-    write_deb(&apt.join("pool/main/foo_1_amd64.deb"), &control("foo", "1", "amd64"));
-    write_deb(&apt.join("pool/contrib/bar_1_amd64.deb"), &control("bar", "1", "amd64"));
+    write_deb(
+        &apt.join("pool/main/foo_1_amd64.deb"),
+        &control("foo", "1", "amd64"),
+    );
+    write_deb(
+        &apt.join("pool/contrib/bar_1_amd64.deb"),
+        &control("bar", "1", "amd64"),
+    );
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
     let build = build_dist(&apt, "stable", &meta).unwrap();
 
     assert_eq!(build.packages, 2);
-    assert_eq!(build.components, vec!["contrib".to_string(), "main".to_string()]);
+    assert_eq!(
+        build.components,
+        vec!["contrib".to_string(), "main".to_string()]
+    );
 
     // A single Release must cover BOTH components (the P0 fix: no overwrite).
     let release = std::fs::read_to_string(apt.join("dists/stable/Release")).unwrap();
@@ -328,7 +371,9 @@ fn multiple_components_share_one_release() {
 
     // Both component indices exist on disk.
     assert!(apt.join("dists/stable/main/binary-amd64/Packages").exists());
-    assert!(apt.join("dists/stable/contrib/binary-amd64/Packages").exists());
+    assert!(apt
+        .join("dists/stable/contrib/binary-amd64/Packages")
+        .exists());
 }
 
 #[test]
@@ -366,13 +411,31 @@ fn read_data_paths_extracts_installed_files() {
     let data_gz = gzip(&data_tar);
     let file = std::fs::File::create(&deb).unwrap();
     let mut builder = ar::Builder::new(file);
-    builder.append(&ar::Header::new(b"debian-binary".to_vec(), 4), &b"2.0\n"[..]).unwrap();
-    builder.append(&ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64), control_gz.as_slice()).unwrap();
-    builder.append(&ar::Header::new(b"data.tar.gz".to_vec(), data_gz.len() as u64), data_gz.as_slice()).unwrap();
+    builder
+        .append(
+            &ar::Header::new(b"debian-binary".to_vec(), 4),
+            &b"2.0\n"[..],
+        )
+        .unwrap();
+    builder
+        .append(
+            &ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64),
+            control_gz.as_slice(),
+        )
+        .unwrap();
+    builder
+        .append(
+            &ar::Header::new(b"data.tar.gz".to_vec(), data_gz.len() as u64),
+            data_gz.as_slice(),
+        )
+        .unwrap();
 
     let paths = arx_debrepo::deb::read_data_paths(&deb).unwrap();
     assert!(!paths.is_empty(), "must find at least one file in data.tar");
-    assert!(paths.iter().any(|p| p.contains("usr/bin/foo")), "must contain the installed file: {paths:?}");
+    assert!(
+        paths.iter().any(|p| p.contains("usr/bin/foo")),
+        "must contain the installed file: {paths:?}"
+    );
 }
 
 #[test]
@@ -380,7 +443,10 @@ fn writes_by_hash_and_sets_acquire_by_hash() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");
     std::fs::create_dir_all(apt.join("pool/main")).unwrap();
-    write_deb(&apt.join("pool/main/foo_1_amd64.deb"), &control("foo", "1", "amd64"));
+    write_deb(
+        &apt.join("pool/main/foo_1_amd64.deb"),
+        &control("foo", "1", "amd64"),
+    );
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
     build_dist(&apt, "stable", &meta).unwrap();
@@ -399,7 +465,11 @@ fn writes_by_hash_and_sets_acquire_by_hash() {
     let by_hash = apt
         .join("dists/stable/main/binary-amd64/by-hash/SHA256")
         .join(&sha);
-    assert!(by_hash.exists(), "missing by-hash copy at {}", by_hash.display());
+    assert!(
+        by_hash.exists(),
+        "missing by-hash copy at {}",
+        by_hash.display()
+    );
 }
 
 #[test]
@@ -408,13 +478,19 @@ fn republish_atomically_replaces_previous_dist() {
     let apt = tmp.path().join("apt");
     std::fs::create_dir_all(apt.join("pool/main")).unwrap();
 
-    write_deb(&apt.join("pool/main/foo_1_amd64.deb"), &control("foo", "1", "amd64"));
+    write_deb(
+        &apt.join("pool/main/foo_1_amd64.deb"),
+        &control("foo", "1", "amd64"),
+    );
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
     build_dist(&apt, "stable", &meta).unwrap();
 
     // Add a second package and republish; the new dist must reflect both and
     // leave no staging/backup dirs behind.
-    write_deb(&apt.join("pool/main/bar_1_amd64.deb"), &control("bar", "1", "amd64"));
+    write_deb(
+        &apt.join("pool/main/bar_1_amd64.deb"),
+        &control("bar", "1", "amd64"),
+    );
     let build = build_dist(&apt, "stable", &meta).unwrap();
     assert_eq!(build.packages, 2);
 

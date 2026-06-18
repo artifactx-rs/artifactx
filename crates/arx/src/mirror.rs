@@ -25,8 +25,12 @@ struct FileEntry {
 
 /// Sync apt packages from upstream. Returns (downloaded, removed, total).
 pub fn mirror_apt(
-    root: &Path, cfg: &Config, base_url: &str,
-    dist: &str, component: &str, arch: &str,
+    root: &Path,
+    cfg: &Config,
+    base_url: &str,
+    dist: &str,
+    component: &str,
+    arch: &str,
     prune: bool,
 ) -> Result<(usize, usize, usize)> {
     let base = base_url.trim_end_matches('/');
@@ -37,12 +41,16 @@ pub fn mirror_apt(
     let text = match client.get(&packages_gz).send() {
         Ok(resp) if resp.status().is_success() => {
             let body = resp.bytes().context("reading Packages.gz")?;
-            let xml = createrepo_rs::compression::gzip_decompress(&body)
-                .context("decompressing")?;
+            let xml =
+                createrepo_rs::compression::gzip_decompress(&body).context("decompressing")?;
             String::from_utf8_lossy(&xml).into_owned()
         }
-        _ => client.get(&packages_plain).send()
-            .context("fetching Packages")?.error_for_status()?.text()?,
+        _ => client
+            .get(&packages_plain)
+            .send()
+            .context("fetching Packages")?
+            .error_for_status()?
+            .text()?,
     };
 
     // Parse upstream Packages index: split by paragraph (blank line separator),
@@ -53,9 +61,15 @@ pub fn mirror_apt(
         let mut size: u64 = 0;
         let mut sha = String::new();
         for line in stanza.lines() {
-            if let Some(f) = line.strip_prefix("Filename: ") { file = f.trim().to_string(); }
-            if let Some(s) = line.strip_prefix("Size: ") { size = s.trim().parse().unwrap_or(0); }
-            if let Some(s) = line.strip_prefix("SHA256: ") { sha = s.trim().to_string(); }
+            if let Some(f) = line.strip_prefix("Filename: ") {
+                file = f.trim().to_string();
+            }
+            if let Some(s) = line.strip_prefix("Size: ") {
+                size = s.trim().parse().unwrap_or(0);
+            }
+            if let Some(s) = line.strip_prefix("SHA256: ") {
+                sha = s.trim().to_string();
+            }
         }
         if !file.is_empty() && !sha.is_empty() {
             upstream.push((file, size, sha));
@@ -83,10 +97,18 @@ pub fn mirror_apt(
     let mut upstream_names: HashSet<String> = HashSet::new();
 
     for (filename, size, sha256) in &upstream {
-        let name = Path::new(filename).file_name()
-            .and_then(|n| n.to_str()).unwrap_or(filename);
+        let name = Path::new(filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(filename);
         upstream_names.insert(name.to_string());
-        next.files.insert(name.to_string(), FileEntry { size: *size, sha256: sha256.clone() });
+        next.files.insert(
+            name.to_string(),
+            FileEntry {
+                size: *size,
+                sha256: sha256.clone(),
+            },
+        );
 
         let dest = pool_dir.join(name);
         let need_download = match state.files.get(name) {
@@ -95,7 +117,9 @@ pub fn mirror_apt(
         };
         if need_download && !dest.exists() {
             let url = format!("{base}/{filename}");
-            let resp = client.get(&url).send()
+            let resp = client
+                .get(&url)
+                .send()
                 .with_context(|| format!("downloading {url}"))?;
             let body = resp.bytes()?;
             std::fs::write(&dest, &body)?;
@@ -111,7 +135,9 @@ pub fn mirror_apt(
         for entry in std::fs::read_dir(&pool_dir)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with(".arx-") { continue; }
+            if name.starts_with(".arx-") {
+                continue;
+            }
             if !upstream_names.contains(&name) && entry.path().is_file() {
                 std::fs::remove_file(entry.path())?;
                 println!("pruned {name}");

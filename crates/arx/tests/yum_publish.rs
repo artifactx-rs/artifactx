@@ -6,14 +6,11 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::process::Command;
+
+mod common;
 
 fn arx(args: &[&str]) -> bool {
-    Command::new(env!("CARGO_BIN_EXE_arx"))
-        .args(args)
-        .status()
-        .unwrap()
-        .success()
+    common::arx_command().args(args).status().unwrap().success()
 }
 
 fn find_with_suffix(dir: &Path, suffix: &str) -> Option<std::path::PathBuf> {
@@ -34,10 +31,7 @@ fn yum_publish_builds_valid_signed_repodata() {
     let root = tmp.path();
 
     // init with a signing key (default) so we also exercise repomd.xml.asc.
-    assert!(
-        arx(&["init", root.to_str().unwrap()]),
-        "arx init failed"
-    );
+    assert!(arx(&["init", root.to_str().unwrap()]), "arx init failed");
 
     // Build a real .rpm with `arx pack`, dropped straight into the yum arch dir.
     let payload = root.join("payload");
@@ -96,8 +90,8 @@ fn yum_publish_builds_valid_signed_repodata() {
     }
 
     // primary.xml.gz must list the package we packed.
-    let primary_gz = find_with_suffix(&repodata, "primary.xml.gz")
-        .expect("primary.xml.gz must exist");
+    let primary_gz =
+        find_with_suffix(&repodata, "primary.xml.gz").expect("primary.xml.gz must exist");
     let gz = std::fs::read(&primary_gz).unwrap();
     let mut xml = String::new();
     flate2::read::GzDecoder::new(&gz[..])

@@ -7,3 +7,5 @@
 
 # OS cruft
 .DS_Store
+# Local agent/code graph cache
+.codebase-memory/

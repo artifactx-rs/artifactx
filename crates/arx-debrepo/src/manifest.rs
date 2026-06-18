@@ -39,8 +39,8 @@ impl FileManifest {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let text =
-            std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
@@ -55,7 +55,9 @@ impl FileManifest {
     /// Look up a file by its current on-disk (mtime, size). Returns `Some` with
     /// the cached entry when both match; `None` if the file changed or is new.
     pub fn lookup(&self, filename: &str, mtime: u64, size: u64) -> Option<&CachedPackage> {
-        self.files.get(filename).filter(|c| c.mtime == mtime && c.size == size)
+        self.files
+            .get(filename)
+            .filter(|c| c.mtime == mtime && c.size == size)
     }
 
     /// Insert or replace a cache entry.

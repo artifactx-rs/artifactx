@@ -58,7 +58,10 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("creating output dir {}", out_dir.display()))?;
-    let out_path = out_dir.join(format!("{}_{}_{}.deb", manifest.name, manifest.version, arch));
+    let out_path = out_dir.join(format!(
+        "{}_{}_{}.deb",
+        manifest.name, manifest.version, arch
+    ));
     let file = std::fs::File::create(&out_path)
         .with_context(|| format!("creating {}", out_path.display()))?;
 
@@ -209,7 +212,12 @@ fn build_data_tar(staged: &[StagedFile], epoch: u32) -> Result<Vec<u8>> {
 }
 
 /// Build `control.tar.gz` containing `control`, `md5sums`, and any scripts.
-fn build_control_tar(manifest: &Manifest, control: &str, md5sums: &str, epoch: u32) -> Result<Vec<u8>> {
+fn build_control_tar(
+    manifest: &Manifest,
+    control: &str,
+    md5sums: &str,
+    epoch: u32,
+) -> Result<Vec<u8>> {
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut tar = tar::Builder::new(gz);
     tar.mode(tar::HeaderMode::Deterministic);
@@ -226,8 +234,8 @@ fn build_control_tar(manifest: &Manifest, control: &str, md5sums: &str, epoch: u
     ];
     for (name, path) in scripts {
         if let Some(path) = path {
-            let body = std::fs::read(path)
-                .with_context(|| format!("reading maintainer script {path}"))?;
+            let body =
+                std::fs::read(path).with_context(|| format!("reading maintainer script {path}"))?;
             append_bytes(&mut tar, name, &body, 0o755, epoch)?;
         }
     }
@@ -267,7 +275,12 @@ fn append_bytes<W: Write>(
 }
 
 /// Append a member to the outer `ar` archive with deterministic metadata.
-fn append_ar<W: Write>(builder: &mut ar::Builder<W>, name: &str, data: &[u8], epoch: u32) -> Result<()> {
+fn append_ar<W: Write>(
+    builder: &mut ar::Builder<W>,
+    name: &str,
+    data: &[u8],
+    epoch: u32,
+) -> Result<()> {
     let mut header = ar::Header::new(name.as_bytes().to_vec(), data.len() as u64);
     header.set_mode(0o644);
     header.set_mtime(epoch as u64);

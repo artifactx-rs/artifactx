@@ -174,7 +174,9 @@ fn discover_components(apt_root: &Path, pool_subdir: &str) -> Result<Vec<String>
     let pool = apt_root.join(pool_subdir);
     let mut components = Vec::new();
     if pool.is_dir() {
-        for entry in std::fs::read_dir(&pool).with_context(|| format!("reading {}", pool.display()))? {
+        for entry in
+            std::fs::read_dir(&pool).with_context(|| format!("reading {}", pool.display()))?
+        {
             let entry = entry?;
             if entry.path().is_dir() {
                 components.push(entry.file_name().to_string_lossy().into_owned());
@@ -190,7 +192,10 @@ fn debs_in(apt_root: &Path, pool_subdir: &str, component: &str) -> Vec<PathBuf> 
     let pool = apt_root.join(pool_subdir).join(component);
     let mut debs = Vec::new();
     if pool.is_dir() {
-        for entry in walkdir::WalkDir::new(&pool).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&pool)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
                 debs.push(p.to_path_buf());
@@ -213,13 +218,11 @@ fn write_index(
     let arch_dir = comp_dir.join(format!("binary-{arch}"));
     std::fs::create_dir_all(&arch_dir)
         .with_context(|| format!("creating {}", arch_dir.display()))?;
-    std::fs::write(arch_dir.join(name), bytes)
-        .with_context(|| format!("writing {name}"))?;
+    std::fs::write(arch_dir.join(name), bytes).with_context(|| format!("writing {name}"))?;
 
     let sha256 = hex_sha256(bytes);
     let by_hash = arch_dir.join("by-hash").join("SHA256");
-    std::fs::create_dir_all(&by_hash)
-        .with_context(|| format!("creating {}", by_hash.display()))?;
+    std::fs::create_dir_all(&by_hash).with_context(|| format!("creating {}", by_hash.display()))?;
     std::fs::write(by_hash.join(&sha256), bytes).context("writing by-hash copy")?;
 
     index_files.push(IndexFile {
@@ -241,7 +244,13 @@ fn write_index(
 /// cached manifest (`.arx-manifest.toml` per pool component). A match reuses the
 /// cached `Packages` stanza + SHA256 without re-opening the file — O(changes).
 /// Set `incremental = false` (or pass `--full`) to rebuild everything from scratch.
-pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &ReleaseMeta, incremental: bool) -> Result<StagedDist> {
+pub fn stage_dist(
+    apt_root: &Path,
+    pool_subdir: &str,
+    dist: &str,
+    meta: &ReleaseMeta,
+    incremental: bool,
+) -> Result<StagedDist> {
     let dists = apt_root.join("dists");
     let final_dir = dists.join(dist);
     let staging_dir = dists.join(format!(".{dist}.staging"));
@@ -281,11 +290,7 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
         let mut on_disk: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for deb_path in debs_in(apt_root, pool_subdir, component) {
-            let fname = deb_path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+            let fname = deb_path.file_name().unwrap().to_string_lossy().to_string();
             on_disk.insert(fname.clone());
 
             // Stat for cache lookup.
@@ -294,11 +299,13 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
             // Fast path: (mtime, size) match → reuse cached stanza + sha256.
             // We still parse the control for dedup (it's just control.tar — cheap).
             let cache_hit = incremental
-                && mtime.zip(fsize).is_some_and(|(m, s)| {
-                    comp_manifest.lookup(&fname, m, s).is_some()
-                });
+                && mtime
+                    .zip(fsize)
+                    .is_some_and(|(m, s)| comp_manifest.lookup(&fname, m, s).is_some());
             let cached = if cache_hit {
-                comp_manifest.lookup(&fname, mtime.unwrap(), fsize.unwrap()).cloned()
+                comp_manifest
+                    .lookup(&fname, mtime.unwrap(), fsize.unwrap())
+                    .cloned()
             } else {
                 None
             };
@@ -401,7 +408,11 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
             seen.insert(key, (sha, deb_path.clone()));
 
             // Save Contents arch before arch is moved by the entry() call below.
-            let contents_arch = if arch == "all" { "all".to_string() } else { arch.clone() };
+            let contents_arch = if arch == "all" {
+                "all".to_string()
+            } else {
+                arch.clone()
+            };
 
             if arch == "all" {
                 all_stanzas.push(stanza);
@@ -421,7 +432,10 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
                     let pkg_line = name.clone();
                     for fp in paths {
                         let entry = format!("{}\t{pkg_line}\n", fp.trim_start_matches('/'));
-                        contents.entry(contents_arch.clone()).or_default().push_str(&entry);
+                        contents
+                            .entry(contents_arch.clone())
+                            .or_default()
+                            .push_str(&entry);
                     }
                 }
             }
@@ -448,9 +462,23 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
                 buf.push('\n');
             }
             let plain = buf.as_bytes();
-            write_index(&comp_dir, component, arch, "Packages", plain, &mut index_files)?;
+            write_index(
+                &comp_dir,
+                component,
+                arch,
+                "Packages",
+                plain,
+                &mut index_files,
+            )?;
             let gz = gzip(plain)?;
-            write_index(&comp_dir, component, arch, "Packages.gz", &gz, &mut index_files)?;
+            write_index(
+                &comp_dir,
+                component,
+                arch,
+                "Packages.gz",
+                &gz,
+                &mut index_files,
+            )?;
             all_arches.insert(arch.clone());
         }
     }
@@ -469,11 +497,9 @@ pub fn stage_dist(apt_root: &Path, pool_subdir: &str, dist: &str, meta: &Release
             let plain = cbody.as_bytes();
             let name = format!("Contents-{arch}");
             let name_gz = format!("Contents-{arch}.gz");
-            std::fs::write(staging_dir.join(&name), plain)
-                .context("writing Contents")?;
+            std::fs::write(staging_dir.join(&name), plain).context("writing Contents")?;
             let gz = gzip(plain)?;
-            std::fs::write(staging_dir.join(&name_gz), &gz)
-                .context("writing Contents.gz")?;
+            std::fs::write(staging_dir.join(&name_gz), &gz).context("writing Contents.gz")?;
             let sha256 = hex_sha256(plain);
             // Also write by-hash copies.
             let by_hash = staging_dir.join("by-hash").join("SHA256");

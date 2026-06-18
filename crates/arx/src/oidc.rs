@@ -59,8 +59,7 @@ fn fetch_jwks() -> Result<jsonwebtoken::jwk::JwkSet> {
         .error_for_status()
         .context("GitHub JWKS returned error")?;
     let body = resp.bytes().context("reading JWKS body")?;
-    let keys: jsonwebtoken::jwk::JwkSet =
-        serde_json::from_slice(&body).context("parsing JWKS")?;
+    let keys: jsonwebtoken::jwk::JwkSet = serde_json::from_slice(&body).context("parsing JWKS")?;
     let mut cache = JWKS_CACHE.write().unwrap();
     *cache = Some(JwksCache {
         keys: keys.clone(),
@@ -82,15 +81,14 @@ pub fn validate_github_oidc(token: &str, cfg: &OidcConfig) -> Result<()> {
     let jwks = fetch_jwks().context("fetching JWKS for OIDC validation")?;
 
     // Find the key that matches the JWT header's `kid`.
-    let header =
-        jsonwebtoken::decode_header(token).context("decoding JWT header")?;
+    let header = jsonwebtoken::decode_header(token).context("decoding JWT header")?;
     let kid = header.kid.as_deref().unwrap_or("");
     let jwk = jwks
         .find(kid)
         .ok_or_else(|| anyhow::anyhow!("JWT key id {kid:?} not found in GitHub JWKS"))?;
 
-    let decoding_key = jsonwebtoken::DecodingKey::from_jwk(jwk)
-        .context("converting JWK to decoding key")?;
+    let decoding_key =
+        jsonwebtoken::DecodingKey::from_jwk(jwk).context("converting JWK to decoding key")?;
 
     let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
     validation.set_issuer(&[GITHUB_ISSUER]);
@@ -101,11 +99,7 @@ pub fn validate_github_oidc(token: &str, cfg: &OidcConfig) -> Result<()> {
     let data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation)
         .context("validating JWT")?;
 
-    let repo = data
-        .claims
-        .repository
-        .as_deref()
-        .unwrap_or("");
+    let repo = data.claims.repository.as_deref().unwrap_or("");
     if repo.is_empty() {
         bail!("OIDC token missing 'repository' claim");
     }

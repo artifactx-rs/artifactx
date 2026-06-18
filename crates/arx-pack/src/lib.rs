@@ -82,7 +82,10 @@ pub fn validate_sources(manifest: &Manifest) -> Result<(), anyhow::Error> {
             );
         }
         if ft.is_dir() {
-            bail!("source {:?} is a directory, not a regular file", entry.source);
+            bail!(
+                "source {:?} is a directory, not a regular file",
+                entry.source
+            );
         }
         if !ft.is_file() {
             bail!(

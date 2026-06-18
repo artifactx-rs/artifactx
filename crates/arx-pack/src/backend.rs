@@ -71,11 +71,19 @@ impl Backend {
 }
 
 /// Real Docker backend: mount host arx + source files, build inside container.
-fn docker_build(manifest: &Manifest, format: Format, out_dir: &Path, image: &str) -> Result<PathBuf> {
+fn docker_build(
+    manifest: &Manifest,
+    format: Format,
+    out_dir: &Path,
+    image: &str,
+) -> Result<PathBuf> {
     // Find the host's arx binary.
     let arx_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("arx"));
     if !arx_bin.exists() {
-        bail!("Docker backend requires the arx binary at {} — build arx first", arx_bin.display());
+        bail!(
+            "Docker backend requires the arx binary at {} — build arx first",
+            arx_bin.display()
+        );
     }
 
     // Build a self-contained context directory with the manifest + source files.
@@ -109,12 +117,21 @@ fn docker_build(manifest: &Manifest, format: Format, out_dir: &Path, image: &str
     // Run: docker run --rm -v <context>:/build -v <arx>:/arx <image> /arx pack manifest.toml --out <container_out>
     let status = Command::new("docker")
         .args([
-            "run", "--rm",
-            "-v", &format!("{}:/build", context.path().display()),
-            "-v", &format!("{}:/arx", arx_bin.display()),
-            "-w", "/build",
+            "run",
+            "--rm",
+            "-v",
+            &format!("{}:/build", context.path().display()),
+            "-v",
+            &format!("{}:/arx", arx_bin.display()),
+            "-w",
+            "/build",
             image,
-            "/arx", "pack", "manifest.toml", fmt_flag, "--out", container_out,
+            "/arx",
+            "pack",
+            "manifest.toml",
+            fmt_flag,
+            "--out",
+            container_out,
         ])
         .status()
         .context("running docker — is Docker installed and running?")?;
@@ -142,10 +159,8 @@ fn docker_build(manifest: &Manifest, format: Format, out_dir: &Path, image: &str
     let artifact = found.context("no .deb/.rpm found in Docker build output")?;
     let name = artifact.file_name().unwrap().to_string_lossy().into_owned();
     let dest = out_dir.join(&name);
-    std::fs::create_dir_all(out_dir)
-        .with_context(|| format!("creating {}", out_dir.display()))?;
-    std::fs::copy(&artifact, &dest)
-        .with_context(|| format!("copying {name} from container"))?;
+    std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    std::fs::copy(&artifact, &dest).with_context(|| format!("copying {name} from container"))?;
 
     Ok(dest)
 }

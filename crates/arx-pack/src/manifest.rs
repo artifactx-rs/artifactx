@@ -129,14 +129,15 @@ impl Manifest {
             .to_string();
 
         let version = resolve_string(pkg, "version", &doc)
-            .ok_or_else(|| anyhow!(
-                "[package].version must be a literal string or {{ workspace = true }} \
+            .ok_or_else(|| {
+                anyhow!(
+                    "[package].version must be a literal string or {{ workspace = true }} \
                  (workspace-inherited versions need a [workspace.package.version])"
-            ))?
+                )
+            })?
             .to_string();
 
-        let description = resolve_string(pkg, "description", &doc)
-            .unwrap_or_else(|| name.clone());
+        let description = resolve_string(pkg, "description", &doc).unwrap_or_else(|| name.clone());
 
         let license = resolve_string(pkg, "license", &doc).unwrap_or_default();
 
@@ -162,10 +163,7 @@ impl Manifest {
             let target = resolve_target_dir(&ws_root);
             let base = target.join("release");
             // Use binary name, not package name, for the compiled artifact path.
-            let src = base
-                .join(&bin_name)
-                .to_string_lossy()
-                .into_owned();
+            let src = base.join(&bin_name).to_string_lossy().into_owned();
             vec![FileEntry {
                 source: src,
                 dest: format!("/usr/bin/{bin_name}"),
@@ -203,9 +201,7 @@ impl Manifest {
     /// The rpm `Group`, preferring an explicit [`group`](Self::group) and
     /// falling back to the deb [`section`](Self::section).
     pub fn rpm_group(&self) -> Option<&str> {
-        self.group
-            .as_deref()
-            .or(self.section.as_deref())
+        self.group.as_deref().or(self.section.as_deref())
     }
 }
 
@@ -216,7 +212,11 @@ impl Manifest {
 fn resolve_string(pkg: &toml::Table, key: &str, doc: &toml::Value) -> Option<String> {
     match pkg.get(key)? {
         toml::Value::String(s) => Some(s.clone()),
-        toml::Value::Table(t) if t.get("workspace").and_then(|v| v.as_bool()).unwrap_or(false) => {
+        toml::Value::Table(t)
+            if t.get("workspace")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false) =>
+        {
             doc.get("workspace")?
                 .get("package")?
                 .get(key)?
@@ -236,7 +236,10 @@ fn resolve_authors(pkg: &toml::Table, doc: &toml::Value) -> Option<String> {
     }
     // `authors = { workspace = true }` — the inherited form.
     if let Some(t) = authors.as_table() {
-        if t.get("workspace").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if t.get("workspace")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             return doc
                 .get("workspace")?
                 .get("package")?
@@ -256,14 +259,13 @@ fn resolve_authors(pkg: &toml::Table, doc: &toml::Value) -> Option<String> {
 fn resolve_bin_name(doc: &toml::Value, package_name: &str) -> String {
     let bins = doc.get("bin").and_then(|v| v.as_array());
     match bins.map(|a| a.len()) {
-        Some(1) => {
-            bins.unwrap()
-                .first()
-                .and_then(|v| v.get("name"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| package_name.to_string())
-        }
+        Some(1) => bins
+            .unwrap()
+            .first()
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| package_name.to_string()),
         _ => package_name.to_string(),
     }
 }
@@ -277,7 +279,11 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
         if cargo.exists() {
             if let Ok(text) = std::fs::read_to_string(&cargo) {
                 if let Ok(doc) = text.parse::<toml::Value>() {
-                    if doc.get("workspace").and_then(|v| v.get("members")).is_some() {
+                    if doc
+                        .get("workspace")
+                        .and_then(|v| v.get("members"))
+                        .is_some()
+                    {
                         return Some(cur);
                     }
                 }
@@ -317,7 +323,11 @@ fn config_target_dir() -> Option<PathBuf> {
         if config.exists() {
             if let Ok(text) = std::fs::read_to_string(&config) {
                 if let Ok(doc) = text.parse::<toml::Value>() {
-                    if let Some(v) = doc.get("build").and_then(|b| b.get("target-dir")).and_then(|v| v.as_str()) {
+                    if let Some(v) = doc
+                        .get("build")
+                        .and_then(|b| b.get("target-dir"))
+                        .and_then(|v| v.as_str())
+                    {
                         return Some(PathBuf::from(v));
                     }
                 }

@@ -64,9 +64,7 @@ fn cargo_toml_derives_manifest() {
     // The bin name is the package name (no [[bin]] override in test input).
     assert_eq!(m.files.len(), 1);
     assert!(
-        m.files[0]
-            .source
-            .ends_with("target/release/greeter"),
+        m.files[0].source.ends_with("target/release/greeter"),
         "source should end with target/release/greeter, got: {}",
         m.files[0].source
     );
@@ -134,7 +132,10 @@ fn rpm_is_byte_reproducible_and_has_fixed_build_time() {
         .metadata
         .get_build_time()
         .expect("rpm must have a build_time header");
-    assert_eq!(build_time, 0, "rpm build_time must be 0 (SOURCE_DATE_EPOCH default)");
+    assert_eq!(
+        build_time, 0,
+        "rpm build_time must be 0 (SOURCE_DATE_EPOCH default)"
+    );
 }
 
 #[test]
@@ -287,7 +288,10 @@ fn backend_docker_builds_in_container() {
             assert!(deb_path.exists());
             // Verify the output is a valid .deb.
             let control = read_deb_control(&deb_path);
-            assert!(control.contains("Package: hello"), "container-built deb: {control}");
+            assert!(
+                control.contains("Package: hello"),
+                "container-built deb: {control}"
+            );
         }
         Err(e) => {
             // May fail if image not pulled, Docker not running, etc. Skip.
@@ -338,7 +342,9 @@ fn relationship_fields_and_scripts_in_deb() {
     // The maintainer script must be embedded in control.tar.gz.
     let names = read_control_tar_names(&deb);
     assert!(
-        names.iter().any(|n| n.trim_start_matches("./") == "postinst"),
+        names
+            .iter()
+            .any(|n| n.trim_start_matches("./") == "postinst"),
         "control.tar missing postinst: {names:?}"
     );
 }

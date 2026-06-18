@@ -224,7 +224,15 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
     }
     let blocking = move || -> Result<GcResult> {
         let _lock = crate::PublishLock::acquire(&st.root)?;
-        let report = pool::gc(&st.root, q.keep, q.keep_within_days, q.grace_days, q.apt, q.yum, q.dry_run)?;
+        let report = pool::gc(
+            &st.root,
+            q.keep,
+            q.keep_within_days,
+            q.grace_days,
+            q.apt,
+            q.yum,
+            q.dry_run,
+        )?;
         let pruned = report.pruned.iter().map(pool::Entry::info).collect();
         let published = if report.dry_run || report.pruned.is_empty() {
             None
@@ -259,7 +267,10 @@ async fn upload_handler(State(st): State<AppState>, headers: HeaderMap, body: By
     let filename = match header(&headers, "x-arx-filename").and_then(safe_filename) {
         Some(f) => f,
         None => {
-            return (StatusCode::BAD_REQUEST, "missing or unsafe X-Arx-Filename header\n")
+            return (
+                StatusCode::BAD_REQUEST,
+                "missing or unsafe X-Arx-Filename header\n",
+            )
                 .into_response()
         }
     };
@@ -273,52 +284,82 @@ async fn upload_handler(State(st): State<AppState>, headers: HeaderMap, body: By
 // --- API parity handlers (ADR: REST API = CLI first-class citizen) ---
 
 #[derive(Serialize)]
-struct PublishResult { apt: String, yum: String }
+struct PublishResult {
+    apt: String,
+    yum: String,
+}
 
 async fn publish_handler(State(st): State<AppState>) -> Response {
-    if let Some(resp) = st.write_forbidden() { return resp; }
-    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
-    let key = st.key.clone(); let passphrase = Arc::clone(&st.passphrase);
+    if let Some(resp) = st.write_forbidden() {
+        return resp;
+    }
+    let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
+    let key = st.key.clone();
+    let passphrase = Arc::clone(&st.passphrase);
     let blocking = move || -> Result<PublishResult> {
         let _lock = crate::PublishLock::acquire(&root)?;
         let k = key.as_deref();
         let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true)?;
         let yum = crate::publish_yum(&root, &cfg, k, &passphrase, true)?;
-        Ok(PublishResult { apt: apt.summary, yum })
+        Ok(PublishResult {
+            apt: apt.summary,
+            yum,
+        })
     };
     run_blocking(blocking).await
 }
 
 #[derive(Serialize)]
-struct HistoryItem { id: String, current: bool }
+struct HistoryItem {
+    id: String,
+    current: bool,
+}
 
 async fn history_handler(State(st): State<AppState>, AxPath(target): AxPath<String>) -> Response {
     let root = st.root.clone();
     let blocking = move || -> Result<Vec<HistoryItem>> {
         let link = crate::target_link(&root, &target);
         let entries = arx_debrepo::statedir::list(&link).context("listing states")?;
-        Ok(entries.into_iter().map(|s| HistoryItem { id: s.id, current: s.current }).collect())
+        Ok(entries
+            .into_iter()
+            .map(|s| HistoryItem {
+                id: s.id,
+                current: s.current,
+            })
+            .collect())
     };
     run_blocking(blocking).await
 }
 
 #[derive(Deserialize)]
-struct RollbackQuery { to: Option<String> }
+struct RollbackQuery {
+    to: Option<String>,
+}
 
 #[derive(Serialize)]
-struct RollbackResult { previous: String, current: String }
+struct RollbackResult {
+    previous: String,
+    current: String,
+}
 
 async fn rollback_handler(
-    State(st): State<AppState>, AxPath(target): AxPath<String>,
+    State(st): State<AppState>,
+    AxPath(target): AxPath<String>,
     Query(q): Query<RollbackQuery>,
 ) -> Response {
-    if let Some(resp) = st.write_forbidden() { return resp; }
+    if let Some(resp) = st.write_forbidden() {
+        return resp;
+    }
     let root = st.root.clone();
     let blocking = move || -> Result<RollbackResult> {
         let link = crate::target_link(&root, &target);
-        let id = arx_debrepo::statedir::rollback(&link, q.to.as_deref())
-            .context("rollback failed")?;
-        Ok(RollbackResult { previous: target, current: id })
+        let id =
+            arx_debrepo::statedir::rollback(&link, q.to.as_deref()).context("rollback failed")?;
+        Ok(RollbackResult {
+            previous: target,
+            current: id,
+        })
     };
     run_blocking(blocking).await
 }
@@ -326,31 +367,52 @@ async fn rollback_handler(
 #[derive(Deserialize)]
 struct ApiImportQuery {
     url: String,
-    #[serde(default)] apt: bool,
-    #[serde(default)] yum: bool,
-    #[serde(default)] dist: Option<String>,
-    #[serde(default)] component: Option<String>,
-    #[serde(default = "default_arch_str")] arch: String,
-    #[serde(default)] limit: Option<usize>,
-    #[serde(default)] match_name: Option<String>,
+    #[serde(default)]
+    apt: bool,
+    #[serde(default)]
+    yum: bool,
+    #[serde(default)]
+    dist: Option<String>,
+    #[serde(default)]
+    component: Option<String>,
+    #[serde(default = "default_arch_str")]
+    arch: String,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    match_name: Option<String>,
 }
-fn default_arch_str() -> String { "amd64".into() }
+fn default_arch_str() -> String {
+    "amd64".into()
+}
 
 #[derive(Serialize)]
-struct ImportResult { imported: usize }
+struct ImportResult {
+    imported: usize,
+}
 
 async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQuery>) -> Response {
-    if let Some(resp) = st.write_forbidden() { return resp; }
-    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
+    if let Some(resp) = st.write_forbidden() {
+        return resp;
+    }
+    let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
     let blocking = move || -> Result<ImportResult> {
-        let do_apt = q.apt || !q.yum; let do_yum = q.yum || !q.apt; let mut imported = 0usize;
+        let do_apt = q.apt || !q.yum;
+        let do_yum = q.yum || !q.apt;
+        let mut imported = 0usize;
         if do_apt {
             let dist = q.dist.as_deref().unwrap_or(&cfg.apt.dist);
             let comp = q.component.as_deref().unwrap_or(&cfg.apt.component);
             imported += crate::import::import_apt(&crate::import::ImportOpts {
-                root: &root, cfg: &cfg, base_url: &q.url,
-                dist, component: comp, arch: &q.arch,
-                match_name: q.match_name.as_deref(), limit: q.limit,
+                root: &root,
+                cfg: &cfg,
+                base_url: &q.url,
+                dist,
+                component: comp,
+                arch: &q.arch,
+                match_name: q.match_name.as_deref(),
+                limit: q.limit,
             })?;
         }
         if do_yum {
@@ -363,44 +425,93 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
 }
 
 #[derive(Deserialize)]
-struct ApiPromoteQuery { name: String, from: String, to: String, #[serde(default)] version: Option<String>, #[serde(default)] apt: bool, #[serde(default)] yum: bool }
+struct ApiPromoteQuery {
+    name: String,
+    from: String,
+    to: String,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    apt: bool,
+    #[serde(default)]
+    yum: bool,
+}
 
 #[derive(Serialize)]
-struct PromoteResult { moved: usize }
+struct PromoteResult {
+    moved: usize,
+}
 
 async fn promote_handler(State(st): State<AppState>, Query(q): Query<ApiPromoteQuery>) -> Response {
-    if let Some(resp) = st.write_forbidden() { return resp; }
-    let root = st.root.clone(); let cfg = Arc::clone(&st.cfg);
+    if let Some(resp) = st.write_forbidden() {
+        return resp;
+    }
+    let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
     let blocking = move || -> Result<PromoteResult> {
-        let do_apt = q.apt || !q.yum; let do_yum = q.yum || !q.apt; let mut moved = 0usize;
+        let do_apt = q.apt || !q.yum;
+        let do_yum = q.yum || !q.apt;
+        let mut moved = 0usize;
         if do_apt {
-            moved += promote_files(&cfg.apt_pool_root(&root), &q.from, &q.to, &q.name, q.version.as_deref(), "deb")?;
+            moved += promote_files(
+                &cfg.apt_pool_root(&root),
+                &q.from,
+                &q.to,
+                &q.name,
+                q.version.as_deref(),
+                "deb",
+            )?;
         }
         if do_yum {
-            moved += promote_files(&cfg.yum_base(&root), &q.from, &q.to, &q.name, q.version.as_deref(), "rpm")?;
+            moved += promote_files(
+                &cfg.yum_base(&root),
+                &q.from,
+                &q.to,
+                &q.name,
+                q.version.as_deref(),
+                "rpm",
+            )?;
         }
         Ok(PromoteResult { moved })
     };
     run_blocking(blocking).await
 }
 
-fn promote_files(base: &Path, from: &str, to: &str, name: &str, version: Option<&str>, ext: &str) -> Result<usize> {
-    let src = base.join(from); let dst = base.join(to); let mut moved = 0usize;
-    if !src.is_dir() { return Ok(0); }
+fn promote_files(
+    base: &Path,
+    from: &str,
+    to: &str,
+    name: &str,
+    version: Option<&str>,
+    ext: &str,
+) -> Result<usize> {
+    let src = base.join(from);
+    let dst = base.join(to);
+    let mut moved = 0usize;
+    if !src.is_dir() {
+        return Ok(0);
+    }
     for entry in WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
         let p = entry.path();
-        if !p.is_file() || p.extension().map(|e| e != ext).unwrap_or(true) { continue; }
+        if !p.is_file() || p.extension().map(|e| e != ext).unwrap_or(true) {
+            continue;
+        }
         let matches = if ext == "deb" {
-            let ctrl = arx_debrepo::deb::read_control(p).with_context(|| format!("reading {}", p.display()))?;
+            let ctrl = arx_debrepo::deb::read_control(p)
+                .with_context(|| format!("reading {}", p.display()))?;
             (ctrl.package().ok() == Some(name))
                 && version.is_none_or(|v| ctrl.version().ok() == Some(v))
         } else {
-            let mut r = createrepo_rs::rpm::RpmReader::open(p).with_context(|| format!("opening {}", p.display()))?;
+            let mut r = createrepo_rs::rpm::RpmReader::open(p)
+                .with_context(|| format!("opening {}", p.display()))?;
             let pkg = r.read_package().context("reading rpm")?;
             pkg.name == name && version.is_none_or(|v| pkg.version == v)
         };
         if matches {
-            let name = p.file_name().and_then(|n| n.to_str()).context("invalid filename")?;
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .context("invalid filename")?;
             std::fs::create_dir_all(&dst)?;
             std::fs::rename(p, dst.join(name))?;
             moved += 1;
@@ -453,7 +564,14 @@ fn safe_filename(name: &str) -> Option<String> {
 /// (a skipped package → error) is governed by the server's `[apt].strict`.
 fn publish_both(st: &AppState) -> Result<String> {
     let key = st.key.as_deref();
-    let apt = crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict, true)?;
+    let apt = crate::publish_apt(
+        &st.root,
+        &st.cfg,
+        key,
+        &st.passphrase,
+        st.cfg.apt.strict,
+        true,
+    )?;
     let yum = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
     Ok(format!("{}; {yum}", apt.summary))
 }
@@ -479,8 +597,14 @@ fn ingest(
             let dir = st.cfg.apt_pool_root(&st.root).join(&comp);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(dir.join(filename), &body).context("writing uploaded .deb")?;
-            let published =
-                crate::publish_apt(&st.root, &st.cfg, key, &st.passphrase, st.cfg.apt.strict, true)?;
+            let published = crate::publish_apt(
+                &st.root,
+                &st.cfg,
+                key,
+                &st.passphrase,
+                st.cfg.apt.strict,
+                true,
+            )?;
             Ok(PushResult {
                 stored: format!("apt/{comp}/{filename}"),
                 published: published.summary,
@@ -494,8 +618,8 @@ fn ingest(
             let tmp = yum.join(format!(".incoming-{filename}"));
             std::fs::write(&tmp, &body).context("writing uploaded .rpm")?;
             let arch = {
-                let mut r = createrepo_rs::rpm::RpmReader::open(&tmp)
-                    .context("opening uploaded .rpm")?;
+                let mut r =
+                    createrepo_rs::rpm::RpmReader::open(&tmp).context("opening uploaded .rpm")?;
                 r.read_package().context("reading uploaded .rpm")?.arch
             };
             let dir = yum.join(&repo).join(&arch);

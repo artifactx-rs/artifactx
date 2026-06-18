@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 pub const CONFIG_FILE: &str = "arx.toml";
 
 /// Top-level repository configuration, persisted as `arx.toml`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Human-facing repository identity (used in apt `Release: Origin`/`Label`).
     #[serde(default)]
@@ -185,7 +184,6 @@ impl Default for Yum {
         }
     }
 }
-
 
 impl Config {
     /// Load `arx.toml` from a repository root directory.

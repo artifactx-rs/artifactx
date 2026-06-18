@@ -20,7 +20,12 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     let arch = rpm_arch(&manifest.arch)?;
 
     // rpm wants a one-line summary; reuse the first line of the description.
-    let summary = manifest.description.lines().next().unwrap_or("").to_string();
+    let summary = manifest
+        .description
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
 
     // Deterministic build: feed the shared epoch to the rpm crate so BUILDTIME,
     // payload file mtimes, and signature timestamp are all clamped — no wall-clock
@@ -86,7 +91,10 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("creating output dir {}", out_dir.display()))?;
-    let out_path = out_dir.join(format!("{}-{}-1.{}.rpm", manifest.name, manifest.version, arch));
+    let out_path = out_dir.join(format!(
+        "{}-{}-1.{}.rpm",
+        manifest.name, manifest.version, arch
+    ));
     package
         .write_file(&out_path)
         .with_context(|| format!("writing {}", out_path.display()))?;

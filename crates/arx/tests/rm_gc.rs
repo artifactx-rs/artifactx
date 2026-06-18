@@ -2,7 +2,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+mod common;
 
 /// Build a minimal `.deb` (ar + control.tar.gz + empty data.tar.gz).
 fn write_deb(path: &Path, name: &str, version: &str, arch: &str) {
@@ -28,7 +28,11 @@ fn write_deb(path: &Path, name: &str, version: &str, arch: &str) {
 
     let file = std::fs::File::create(path).unwrap();
     let mut b = ar::Builder::new(file);
-    b.append(&ar::Header::new(b"debian-binary".to_vec(), 4), &b"2.0\n"[..]).unwrap();
+    b.append(
+        &ar::Header::new(b"debian-binary".to_vec(), 4),
+        &b"2.0\n"[..],
+    )
+    .unwrap();
     b.append(
         &ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64),
         &control_gz[..],
@@ -50,7 +54,7 @@ fn gzip(data: &[u8]) -> Vec<u8> {
 }
 
 fn arx(root: &Path, args: &[&str]) {
-    let status = Command::new(env!("CARGO_BIN_EXE_arx"))
+    let status = common::arx_command()
         .args(args)
         .arg("--root")
         .arg(root)
@@ -91,7 +95,10 @@ fn gc_keeps_newest_n() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(remaining.len(), 2, "got {remaining:?}");
-    assert!(!remaining.iter().any(|f| f.contains("1.0")), "oldest should be pruned: {remaining:?}");
+    assert!(
+        !remaining.iter().any(|f| f.contains("1.0")),
+        "oldest should be pruned: {remaining:?}"
+    );
     assert!(remaining.iter().any(|f| f.contains("3.0")));
 }
 
@@ -113,8 +120,18 @@ fn rm_by_name_and_version() {
     let root = tmp.path();
     let pool = root.join("apt/pool/main");
     std::fs::create_dir_all(&pool).unwrap();
-    write_deb(&pool.join("hello_1.0-1_amd64.deb"), "hello", "1.0-1", "amd64");
-    write_deb(&pool.join("hello_2.0-1_amd64.deb"), "hello", "2.0-1", "amd64");
+    write_deb(
+        &pool.join("hello_1.0-1_amd64.deb"),
+        "hello",
+        "1.0-1",
+        "amd64",
+    );
+    write_deb(
+        &pool.join("hello_2.0-1_amd64.deb"),
+        "hello",
+        "2.0-1",
+        "amd64",
+    );
 
     // Remove only version 1.0-1.
     arx(root, &["rm", "hello", "--version", "1.0-1", "--apt"]);
@@ -136,10 +153,25 @@ fn promote_moves_between_components() {
     let src = root.join("apt/pool/main");
     let dst = root.join("apt/pool/stable");
     std::fs::create_dir_all(&src).unwrap();
-    write_deb(&src.join("hello_1.0-1_amd64.deb"), "hello", "1.0-1", "amd64");
+    write_deb(
+        &src.join("hello_1.0-1_amd64.deb"),
+        "hello",
+        "1.0-1",
+        "amd64",
+    );
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
-        .args(["promote", "hello", "--from", "main", "--to", "stable", "--apt", "--root", root.to_str().unwrap()])
+    let output = common::arx_command()
+        .args([
+            "promote",
+            "hello",
+            "--from",
+            "main",
+            "--to",
+            "stable",
+            "--apt",
+            "--root",
+            root.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -155,7 +187,7 @@ fn key_rotate_backs_up_and_replaces() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     // init with a key.
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+    let status = common::arx_command()
         .args(["init", root.to_str().unwrap()])
         .status()
         .unwrap();
@@ -163,20 +195,26 @@ fn key_rotate_backs_up_and_replaces() {
     assert!(root.join("keys/private.asc").exists());
 
     // Rotate.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+    let output = common::arx_command()
         .args(["key", "rotate", "--root", root.to_str().unwrap()])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "rotate failed: {stdout}");
-    assert!(root.join("keys/private.asc.old").exists(), "old key must be backed up");
+    assert!(
+        root.join("keys/private.asc.old").exists(),
+        "old key must be backed up"
+    );
     assert!(root.join("keys/private.asc").exists(), "new key must exist");
 
     // Revoke.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_arx"))
+    let output = common::arx_command()
         .args(["key", "revoke", "--root", root.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(!root.join("keys/private.asc.old").exists(), "old key must be deleted");
+    assert!(
+        !root.join("keys/private.asc.old").exists(),
+        "old key must be deleted"
+    );
 }

@@ -4,12 +4,13 @@
 //! dumping) and replicates the orchestration that its binary performs in
 //! `src/main.rs`, then PGP-signs `repomd.xml` into `repomd.xml.asc`.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use createrepo_rs::compression::gzip_compress;
 use createrepo_rs::pool::{Job, ProcessingResult, WorkerPool};
-use createrepo_rs::types::{Repomd, RepomdRecord};
+use createrepo_rs::types::{Package, Repomd, RepomdRecord};
 use createrepo_rs::walk::DirectoryWalker;
 use createrepo_rs::xml::dump;
 use sha2::{Digest, Sha256};
@@ -58,8 +59,8 @@ fn write_stream(
 ) -> Result<RepomdRecord> {
     let open_checksum = sha256_hex(xml);
     let filename = format!("{CHECKSUM_TYPE}-{record_type}.xml.gz");
-    let compressed = gzip_compress(xml, GZIP_LEVEL)
-        .with_context(|| format!("gzip {record_type}.xml"))?;
+    let compressed =
+        gzip_compress(xml, GZIP_LEVEL).with_context(|| format!("gzip {record_type}.xml"))?;
     let checksum = sha256_hex(&compressed);
     std::fs::write(repodata.join(&filename), &compressed)
         .with_context(|| format!("writing {filename}"))?;
@@ -89,36 +90,63 @@ pub fn build_repodata(
     passphrase: &str,
     incremental: bool,
 ) -> Result<usize> {
-    let rpms = DirectoryWalker::new(dir)
-        .with_context(|| format!("scanning {}", dir.display()))?
-        .collect();
+    let rpms = scan_rpms(dir)?;
 
-    // Fast path: nothing changed since last publish → skip entirely.
-    if incremental && !rpms.is_empty() {
-        let manifest = arx_debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
-        let mut all_match = !manifest.files.is_empty(); // must have a manifest to trust
-        let mut on_disk = std::collections::HashSet::new();
-        for rpm in &rpms {
-            if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
-                on_disk.insert(fname.to_string());
-                if all_match {
-                    let (mtime, size) = stat_mtime_size(rpm);
-                    all_match = mtime
-                        .zip(size)
-                        .is_some_and(|(m, s)| manifest.lookup(fname, m, s).is_some());
-                }
+    if incremental && cache_is_fresh(dir, &rpms)? {
+        return Ok(rpms.len());
+    }
+
+    let packages = parse_rpms(&rpms)?;
+    let repodata = prepare_staging_dir(dir)?;
+    write_repodata(&repodata, packages.as_slice(), key, passphrase)?;
+    commit_repodata(dir, &repodata)?;
+
+    if incremental {
+        save_yum_manifest(dir, &rpms);
+    }
+
+    Ok(packages.len())
+}
+
+fn scan_rpms(dir: &Path) -> Result<Vec<PathBuf>> {
+    Ok(DirectoryWalker::new(dir)
+        .with_context(|| format!("scanning {}", dir.display()))?
+        .collect())
+}
+
+fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
+    if rpms.is_empty() {
+        return Ok(false);
+    }
+
+    let manifest = arx_debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
+    let mut all_match = !manifest.files.is_empty(); // must have a manifest to trust
+    let mut on_disk = HashSet::new();
+    for rpm in rpms {
+        if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
+            on_disk.insert(fname.to_string());
+            if all_match {
+                let (mtime, size) = stat_mtime_size(rpm);
+                all_match = mtime
+                    .zip(size)
+                    .is_some_and(|(m, s)| manifest.lookup(fname, m, s).is_some());
             }
-        }
-        if all_match && on_disk.len() == manifest.files.len() {
-            // Everything unchanged → nothing to do. (Still clean stale manifest
-            // entries from deleted files.)
-            let mut fresh = manifest;
-            fresh.retain(&on_disk);
-            let _ = fresh.save(dir);
-            return Ok(rpms.len());
         }
     }
 
+    if all_match && on_disk.len() == manifest.files.len() {
+        // Everything unchanged → nothing to do. Still clean stale manifest
+        // entries from deleted files.
+        let mut fresh = manifest;
+        fresh.retain(&on_disk);
+        let _ = fresh.save(dir);
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn parse_rpms(rpms: &[PathBuf]) -> Result<Vec<Package>> {
     // Parse RPMs via createrepo_rs's worker pool, which yields fully-populated
     // `types::Package` values (the conversion the library performs internally).
     let workers = std::thread::available_parallelism()
@@ -126,7 +154,7 @@ pub fn build_repodata(
         .unwrap_or(4);
     let (pool, receiver) = WorkerPool::new(workers);
     let mut submitted = 0usize;
-    for rpm in &rpms {
+    for rpm in rpms {
         if pool.submit(Job::ProcessPackage(rpm.clone())) {
             submitted += 1;
         }
@@ -134,13 +162,19 @@ pub fn build_repodata(
 
     let mut packages = Vec::with_capacity(submitted);
     for _ in 0..submitted {
-        match receiver.recv().context("worker pool channel closed early")? {
+        match receiver
+            .recv()
+            .context("worker pool channel closed early")?
+        {
             ProcessingResult::Success(_, pkg) => packages.push(pkg),
             ProcessingResult::Error(path, err) => bail!("processing {}: {err}", path.display()),
         }
     }
     pool.join();
+    Ok(packages)
+}
 
+fn prepare_staging_dir(dir: &Path) -> Result<PathBuf> {
     // Build into a staging dir, then atomically flip `repodata` (a symlink) to a
     // new immutable state — mirrors the apt side for rollback.
     let repodata = dir.join(".repodata.staging");
@@ -149,20 +183,27 @@ pub fn build_repodata(
     }
     std::fs::create_dir_all(&repodata)
         .with_context(|| format!("creating {}", repodata.display()))?;
+    Ok(repodata)
+}
 
+fn write_repodata(
+    repodata: &Path,
+    packages: &[Package],
+    key: Option<&pgp::composed::SignedSecretKey>,
+    passphrase: &str,
+) -> Result<()> {
     let revision = now_unix();
 
-    let primary_xml = dump::primary::dump_primary_xml(packages.as_slice(), true)
-        .context("generating primary.xml")?;
-    let filelists_xml = dump::filelists::dump_filelists_xml(packages.as_slice(), false, true)
+    let primary_xml =
+        dump::primary::dump_primary_xml(packages, true).context("generating primary.xml")?;
+    let filelists_xml = dump::filelists::dump_filelists_xml(packages, false, true)
         .context("generating filelists.xml")?;
-    let other_xml =
-        dump::other::dump_other_xml(packages.as_slice(), true).context("generating other.xml")?;
+    let other_xml = dump::other::dump_other_xml(packages, true).context("generating other.xml")?;
 
     let records = vec![
-        write_stream(&repodata, "primary", &primary_xml, revision)?,
-        write_stream(&repodata, "filelists", &filelists_xml, revision)?,
-        write_stream(&repodata, "other", &other_xml, revision)?,
+        write_stream(repodata, "primary", &primary_xml, revision)?,
+        write_stream(repodata, "filelists", &filelists_xml, revision)?,
+        write_stream(repodata, "other", &other_xml, revision)?,
     ];
 
     let repomd = Repomd {
@@ -177,37 +218,52 @@ pub fn build_repodata(
     dump::repomd::dump_repomd(&repomd, &repomd_path, true).context("writing repomd.xml")?;
 
     if let Some(key) = key {
-        let repomd_bytes = std::fs::read(&repomd_path).context("re-reading repomd.xml")?;
-        let armored = signing::detached_sign(key, passphrase, &repomd_bytes)?;
-        std::fs::write(repodata.join("repomd.xml.asc"), armored)
-            .context("writing repomd.xml.asc")?;
+        sign_repomd(repodata, &repomd_path, key, passphrase)?;
     }
+    Ok(())
+}
 
+fn sign_repomd(
+    repodata: &Path,
+    repomd_path: &Path,
+    key: &pgp::composed::SignedSecretKey,
+    passphrase: &str,
+) -> Result<()> {
+    let repomd_bytes = std::fs::read(repomd_path).context("re-reading repomd.xml")?;
+    let armored = signing::detached_sign(key, passphrase, &repomd_bytes)?;
+    std::fs::write(repodata.join("repomd.xml.asc"), armored).context("writing repomd.xml.asc")?;
+    Ok(())
+}
+
+fn commit_repodata(dir: &Path, repodata: &Path) -> Result<()> {
     // Atomic flip: `<arch>/repodata` → `.states/repodata/<id>`.
-    arx_debrepo::statedir::commit(&repodata, &dir.join("repodata"), arx_debrepo::DEFAULT_KEEP_STATES)
-        .context("committing repodata state")?;
+    arx_debrepo::statedir::commit(
+        repodata,
+        &dir.join("repodata"),
+        arx_debrepo::DEFAULT_KEEP_STATES,
+    )
+    .context("committing repodata state")?;
+    Ok(())
+}
 
+fn save_yum_manifest(dir: &Path, rpms: &[PathBuf]) {
     // Save the file manifest for the NEXT incremental publish.
-    if incremental {
-        let mut m = arx_debrepo::manifest::FileManifest::default();
-        for rpm in &rpms {
-            if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
-                let (mtime, size) = stat_mtime_size(rpm);
-                if let (Some(mt), Some(sz)) = (mtime, size) {
-                    m.insert(
-                        fname.to_string(),
-                        arx_debrepo::manifest::CachedPackage {
-                            mtime: mt,
-                            size: sz,
-                            sha256: String::new(),  // yum side: not used for cache lookups
-                            stanza: String::new(),   // yum side: not used for cache lookups
-                        },
-                    );
-                }
+    let mut manifest = arx_debrepo::manifest::FileManifest::default();
+    for rpm in rpms {
+        if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
+            let (mtime, size) = stat_mtime_size(rpm);
+            if let (Some(mt), Some(sz)) = (mtime, size) {
+                manifest.insert(
+                    fname.to_string(),
+                    arx_debrepo::manifest::CachedPackage {
+                        mtime: mt,
+                        size: sz,
+                        sha256: String::new(), // yum side: not used for cache lookups
+                        stanza: String::new(), // yum side: not used for cache lookups
+                    },
+                );
             }
         }
-        let _ = m.save(dir);
     }
-
-    Ok(packages.len())
+    let _ = manifest.save(dir);
 }

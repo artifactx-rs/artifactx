@@ -87,7 +87,12 @@ fn simple_manifest(dir: &Path) -> Manifest {
 fn multi_file_manifest(dir: &Path) -> Manifest {
     write_file(dir, "app", b"#!/bin/sh\necho app\n", true);
     write_file(dir, "lib.so", b"shared-object-data", false);
-    write_file(dir, "readme.txt", b"This is a readme\nBuilt by arx\n", false);
+    write_file(
+        dir,
+        "readme.txt",
+        b"This is a readme\nBuilt by arx\n",
+        false,
+    );
     Manifest::from_toml_str(&format!(
         "name = 'multi'\n\
          version = '2.0'\n\
@@ -118,7 +123,12 @@ fn multi_file_manifest(dir: &Path) -> Manifest {
 
 fn scripted_manifest(dir: &Path) -> Manifest {
     write_file(dir, "app", b"#!/bin/sh\necho app\n", true);
-    write_file(dir, "postinst", b"#!/bin/sh\nset -e\necho installed\n", true);
+    write_file(
+        dir,
+        "postinst",
+        b"#!/bin/sh\nset -e\necho installed\n",
+        true,
+    );
     write_file(dir, "prerm", b"#!/bin/sh\nset -e\necho removing\n", true);
     Manifest::from_toml_str(&format!(
         "name = 'scripted'\n\
@@ -163,10 +173,22 @@ fn dpkg_deb_validates_single_file_package() {
         .unwrap();
     assert!(info.status.success(), "dpkg-deb --info failed");
     let info = String::from_utf8_lossy(&info.stdout);
-    assert!(info.contains("Package: hello"), "--info missing Package:\n{info}");
-    assert!(info.contains("Version: 1.0"), "--info missing Version:\n{info}");
-    assert!(info.contains("Architecture: amd64"), "--info missing Arch:\n{info}");
-    assert!(info.contains("Depends: bash"), "--info missing Depends:\n{info}");
+    assert!(
+        info.contains("Package: hello"),
+        "--info missing Package:\n{info}"
+    );
+    assert!(
+        info.contains("Version: 1.0"),
+        "--info missing Version:\n{info}"
+    );
+    assert!(
+        info.contains("Architecture: amd64"),
+        "--info missing Arch:\n{info}"
+    );
+    assert!(
+        info.contains("Depends: bash"),
+        "--info missing Depends:\n{info}"
+    );
 
     let contents = Command::new("dpkg-deb")
         .args(["--contents", deb.to_str().unwrap()])
@@ -175,7 +197,10 @@ fn dpkg_deb_validates_single_file_package() {
     assert!(contents.status.success(), "dpkg-deb --contents failed");
     let c = String::from_utf8_lossy(&contents.stdout);
     // dpkg-deb --contents shows mode, owner, size, date, path.
-    assert!(c.contains("usr/bin/hello"), "--contents missing the file:\n{c}");
+    assert!(
+        c.contains("usr/bin/hello"),
+        "--contents missing the file:\n{c}"
+    );
 }
 
 #[test]
@@ -197,7 +222,10 @@ fn dpkg_deb_validates_multi_file_package() {
     assert!(contents.status.success());
     let c = String::from_utf8_lossy(&contents.stdout);
     assert!(c.contains("usr/bin/app"), "--contents missing app:\n{c}");
-    assert!(c.contains("usr/lib/lib.so"), "--contents missing lib.so:\n{c}");
+    assert!(
+        c.contains("usr/lib/lib.so"),
+        "--contents missing lib.so:\n{c}"
+    );
     assert!(
         c.contains("usr/share/doc/multi/readme.txt"),
         "--contents missing readme.txt:\n{c}"
@@ -208,8 +236,14 @@ fn dpkg_deb_validates_multi_file_package() {
         .output()
         .unwrap();
     let info = String::from_utf8_lossy(&info.stdout);
-    assert!(info.contains("Conflicts: old-multi"), "--info missing Conflicts:\n{info}");
-    assert!(info.contains("Provides: multi"), "--info missing Provides:\n{info}");
+    assert!(
+        info.contains("Conflicts: old-multi"),
+        "--info missing Conflicts:\n{info}"
+    );
+    assert!(
+        info.contains("Provides: multi"),
+        "--info missing Provides:\n{info}"
+    );
 }
 
 #[test]
@@ -249,7 +283,12 @@ fn rpm_validates_single_file_package() {
     let rpm = arx_pack::build_rpm(&m, &out).unwrap();
 
     let info = Command::new("rpm")
-        .args(["-qp", "--queryformat", "%{NAME} %{VERSION} %{ARCH} %{SUMMARY}", rpm.to_str().unwrap()])
+        .args([
+            "-qp",
+            "--queryformat",
+            "%{NAME} %{VERSION} %{ARCH} %{SUMMARY}",
+            rpm.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(info.status.success(), "rpm -qp failed");
@@ -264,5 +303,8 @@ fn rpm_validates_single_file_package() {
         .unwrap();
     assert!(files.status.success(), "rpm -qlp failed");
     let f = String::from_utf8_lossy(&files.stdout);
-    assert!(f.contains("/usr/bin/hello"), "rpm -qlp missing the file:\n{f}");
+    assert!(
+        f.contains("/usr/bin/hello"),
+        "rpm -qlp missing the file:\n{f}"
+    );
 }

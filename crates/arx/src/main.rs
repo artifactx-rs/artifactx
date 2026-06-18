@@ -49,8 +49,13 @@ async fn main() -> Result<()> {
         Command::History(args) => cmd_history(&args),
         Command::Push(args) => cmd_push(&args).await,
         Command::Rm(args) => {
-            let removed =
-                pool::remove(&args.root, &args.name, args.version.as_deref(), args.apt, args.yum)?;
+            let removed = pool::remove(
+                &args.root,
+                &args.name,
+                args.version.as_deref(),
+                args.apt,
+                args.yum,
+            )?;
             if removed.is_empty() {
                 println!("No packages matched {}.", args.name);
             } else {
@@ -68,16 +73,35 @@ async fn main() -> Result<()> {
         Command::Import(args) => cmd_import(&args),
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
-            let report = pool::gc(&args.root, args.keep, args.keep_within, args.grace, args.apt, args.yum, args.dry_run)?;
+            let report = pool::gc(
+                &args.root,
+                args.keep,
+                args.keep_within,
+                args.grace,
+                args.apt,
+                args.yum,
+                args.dry_run,
+            )?;
             for e in &report.pruned {
-                let tag = if report.dry_run { "[dry-run] would prune" } else { "Pruned" };
+                let tag = if report.dry_run {
+                    "[dry-run] would prune"
+                } else {
+                    "Pruned"
+                };
                 println!("{tag} {} {} ({})", e.name, e.version, e.path.display());
             }
-            if report.pruned.is_empty() && report.retained_for_rollback == 0 && report.deferred == 0 {
-                println!("Nothing to prune (every package has <= {} version(s)).", args.keep);
+            if report.pruned.is_empty() && report.retained_for_rollback == 0 && report.deferred == 0
+            {
+                println!(
+                    "Nothing to prune (every package has <= {} version(s)).",
+                    args.keep
+                );
             } else if !report.pruned.is_empty() && !report.dry_run {
-                println!("\nPruned {} file(s) ({}). Run `arx publish` to update metadata.",
-                    report.pruned.len(), human_bytes(report.bytes_freed));
+                println!(
+                    "\nPruned {} file(s) ({}). Run `arx publish` to update metadata.",
+                    report.pruned.len(),
+                    human_bytes(report.bytes_freed)
+                );
             } else if !report.pruned.is_empty() && report.dry_run {
                 println!("\nWould free {}.", human_bytes(report.bytes_freed));
             }
@@ -117,8 +141,8 @@ fn load_key(root: &Path, cfg: &Config) -> Result<Option<SignedSecretKey>> {
             path.display()
         );
     }
-    let armored = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let armored =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     Ok(Some(signing::load_secret_key(&armored)?))
 }
 
@@ -164,9 +188,13 @@ async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
     let pool = cfg.apt_pool_root(root);
     let keys = cfg.keys_dir(root);
     let yum = cfg.yum_base(root);
-    for dir in [pool.as_path(), &root.join("apt/dists"), yum.as_path(), keys.as_path()] {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("creating {}", dir.display()))?;
+    for dir in [
+        pool.as_path(),
+        &root.join("apt/dists"),
+        yum.as_path(),
+        keys.as_path(),
+    ] {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
 
     // New repos are secure-by-default: expire the apt Release 7 days out so a
@@ -193,8 +221,7 @@ fn generate_and_store_key(root: &Path, cfg: &Config, passphrase: &str) -> Result
     std::fs::create_dir_all(cfg.private_key_path(root).parent().unwrap()).ok();
     std::fs::write(cfg.private_key_path(root), &key.private_armored)
         .context("writing private key")?;
-    std::fs::write(cfg.public_key_path(root), &key.public_armored)
-        .context("writing public key")?;
+    std::fs::write(cfg.public_key_path(root), &key.public_armored).context("writing public key")?;
     Ok(())
 }
 
@@ -227,14 +254,16 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             cfg.signing.encrypted = !passphrase.is_empty();
             cfg.save(root)?;
             warn_if_unencrypted(&passphrase);
-            println!("Key rotated — new public key at {}", cfg.public_key_path(root).display());
+            println!(
+                "Key rotated — new public key at {}",
+                cfg.public_key_path(root).display()
+            );
             println!("Old key backed up to {old}");
         }
         KeyAction::Revoke => {
             let old = format!("{}.old", cfg.private_key_path(root).display());
             if std::path::Path::new(&old).exists() {
-                std::fs::remove_file(&old)
-                    .with_context(|| format!("removing old key {old}"))?;
+                std::fs::remove_file(&old).with_context(|| format!("removing old key {old}"))?;
                 println!("Revoked old key ({old} deleted)");
             } else {
                 println!("No old key found at {old} — nothing to revoke");
@@ -255,7 +284,10 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             cfg.signing.enabled = true;
             cfg.signing.encrypted = !passphrase.is_empty();
             cfg.save(root)?;
-            println!("Imported key, wrote {}", cfg.public_key_path(root).display());
+            println!(
+                "Imported key, wrote {}",
+                cfg.public_key_path(root).display()
+            );
         }
         KeyAction::Export => {
             let path = cfg.public_key_path(root);
@@ -269,7 +301,13 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
 
 /// Copy one `.deb`/`.rpm` into the pool, returning its destination path.
 /// `.deb` goes to `apt/pool/<component>`; `.rpm` to `yum/<repo>/<arch>`.
-fn add_to_pool(root: &Path, cfg: &Config, pkg: &Path, component: &str, repo: &str) -> Result<PathBuf> {
+fn add_to_pool(
+    root: &Path,
+    cfg: &Config,
+    pkg: &Path,
+    component: &str,
+    repo: &str,
+) -> Result<PathBuf> {
     let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
     let dest_dir = match ext {
         "deb" => cfg.apt_pool_root(root).join(component),
@@ -318,9 +356,7 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     if path.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
-        let crate_root = path
-            .parent()
-            .expect("Cargo.toml has a parent directory");
+        let crate_root = path.parent().expect("Cargo.toml has a parent directory");
         arx_pack::Manifest::from_cargo_toml_at(&text, crate_root)
             .with_context(|| format!("from {}", path.display()))
     } else {
@@ -337,7 +373,9 @@ fn cmd_mirror(args: &cli::MirrorArgs) -> Result<()> {
         &args.root, &cfg, &args.url, dist, comp, &args.arch, args.prune,
     )?;
 
-    println!("Mirror sync complete: {downloaded} downloaded, {removed} pruned, {total} total upstream");
+    println!(
+        "Mirror sync complete: {downloaded} downloaded, {removed} pruned, {total} total upstream"
+    );
     if args.publish {
         let key = load_key(&args.root, &cfg)?;
         let passphrase = resolve_passphrase(None)?.unwrap_or_default();
@@ -358,9 +396,14 @@ fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
         let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
         let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
         let n = import::import_apt(&import::ImportOpts {
-            root: &args.root, cfg: &cfg, base_url: &args.url,
-            dist, component: comp, arch: &args.arch,
-            match_name: args.match_name.as_deref(), limit: args.limit,
+            root: &args.root,
+            cfg: &cfg,
+            base_url: &args.url,
+            dist,
+            component: comp,
+            arch: &args.arch,
+            match_name: args.match_name.as_deref(),
+            limit: args.limit,
         })?;
         total += n;
     }
@@ -384,22 +427,22 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
         let src = cfg.apt_pool_root(&args.root).join(&args.from);
         let dst = cfg.apt_pool_root(&args.root).join(&args.to);
         if src.is_dir() {
-            for entry in walkdir::WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
+            for entry in walkdir::WalkDir::new(&src)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 let p = entry.path();
                 if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
                     let ctrl = arx_debrepo::deb::read_control(p)
                         .with_context(|| format!("reading {}", p.display()))?;
                     let name = ctrl.package()?;
                     let version = ctrl.version()?;
-                    if name == args.name
-                        && args.version.as_deref().is_none_or(|v| version == v)
-                    {
+                    if name == args.name && args.version.as_deref().is_none_or(|v| version == v) {
                         let dest = dst.join(p.file_name().unwrap());
                         std::fs::create_dir_all(&dst)?;
                         std::fs::rename(p, &dest)
                             .with_context(|| format!("promoting {}", p.display()))?;
-                        println!("Promoted {name} {version} {} → {}",
-                            args.from, args.to);
+                        println!("Promoted {name} {version} {} → {}", args.from, args.to);
                         moved += 1;
                     }
                 }
@@ -408,7 +451,10 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
     }
     if do_yum {
         let yum_base = cfg.yum_base(&args.root);
-        for entry in walkdir::WalkDir::new(&yum_base).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&yum_base)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "rpm").unwrap_or(false) {
                 let mut reader = createrepo_rs::rpm::RpmReader::open(p)
@@ -416,12 +462,18 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
                 let pkg = reader.read_package()?;
                 if pkg.name == args.name
                     && args.version.as_deref().is_none_or(|v| pkg.version == v)
-                    && p.parent().and_then(|pp| pp.file_name()).map(|n| n.to_string_lossy()) == Some(args.from.as_str().into())
+                    && p.parent()
+                        .and_then(|pp| pp.file_name())
+                        .map(|n| n.to_string_lossy())
+                        == Some(args.from.as_str().into())
                 {
                     let dst = yum_base.join(&args.to).join(&pkg.arch);
                     std::fs::create_dir_all(&dst)?;
                     std::fs::rename(p, dst.join(p.file_name().unwrap()))?;
-                    println!("Promoted {} {} {} → {}", pkg.name, pkg.version, args.from, args.to);
+                    println!(
+                        "Promoted {} {} {} → {}",
+                        pkg.name, pkg.version, args.from, args.to
+                    );
                     moved += 1;
                 }
             }
@@ -537,10 +589,18 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
-            lines.push(publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict, incremental)?.summary);
+            lines.push(
+                publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict, incremental)?.summary,
+            );
         }
         if do_yum {
-            lines.push(publish_yum(&root, &cfg, key.as_ref(), &passphrase, incremental)?);
+            lines.push(publish_yum(
+                &root,
+                &cfg,
+                key.as_ref(),
+                &passphrase,
+                incremental,
+            )?);
         }
         Ok(lines.join("\n"))
     })
@@ -554,7 +614,11 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
 /// Print a loud, human-visible summary of skipped packages to stderr so a
 /// forgiving publish can't silently drop a package behind a green exit code.
 /// Fetch a GitHub Actions OIDC JWT. (ADR-0014.)
-async fn fetch_oidc_token(request_url: &str, request_token: &str, audience: &str) -> Result<String> {
+async fn fetch_oidc_token(
+    request_url: &str,
+    request_token: &str,
+    audience: &str,
+) -> Result<String> {
     let client = reqwest::Client::new();
     let resp = client
         .get(format!("{request_url}&audience={audience}"))
@@ -656,7 +720,13 @@ fn publish_apt(
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
-    let staged = arx_debrepo::stage_dist(&apt_root, &cfg.apt.pool_dir, &cfg.apt.dist, &meta, incremental)?;
+    let staged = arx_debrepo::stage_dist(
+        &apt_root,
+        &cfg.apt.pool_dir,
+        &cfg.apt.dist,
+        &meta,
+        incremental,
+    )?;
 
     // A forgiving default must still be observable: never let a skipped package
     // pass silently behind an exit-0 publish. Under strict, refuse to commit.
@@ -707,7 +777,13 @@ fn publish_apt(
     })
 }
 
-fn publish_yum(root: &Path, cfg: &Config, key: Option<&SignedSecretKey>, passphrase: &str, incremental: bool) -> Result<String> {
+fn publish_yum(
+    root: &Path,
+    cfg: &Config,
+    key: Option<&SignedSecretKey>,
+    passphrase: &str,
+    incremental: bool,
+) -> Result<String> {
     let yum_root = cfg.yum_base(root);
     let mut total = 0usize;
     let mut repos = 0usize;
@@ -727,7 +803,9 @@ fn publish_yum(root: &Path, cfg: &Config, key: Option<&SignedSecretKey>, passphr
             }
         }
     }
-    Ok(format!("yum: indexed {total} package(s) across {repos} repo/arch dir(s)"))
+    Ok(format!(
+        "yum: indexed {total} package(s) across {repos} repo/arch dir(s)"
+    ))
 }
 
 async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
@@ -735,7 +813,9 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
     let addr = args.addr.clone().unwrap_or_else(|| cfg.server.addr.clone());
     let handle = observability::init_metrics()?;
     // Optional bearer-token auth; unset means public reads, writes disabled.
-    let token = std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty());
+    let token = std::env::var("ARX_SERVE_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty());
     // Context for accepting & publishing pushes. A missing key must NOT stop
     // read-only serving — only pushes need it (they'd then publish unsigned).
     let key = match load_key(&args.root, &cfg) {
@@ -836,13 +916,20 @@ async fn cmd_watch(args: &cli::WatchArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let interval = std::time::Duration::from_secs(args.interval);
-    println!("Watching {} (polling every {}s)...", args.dir.display(), args.interval);
+    println!(
+        "Watching {} (polling every {}s)...",
+        args.dir.display(),
+        args.interval
+    );
     loop {
         let dir = args.dir.clone();
         let root = args.root.clone();
         let cfg = cfg.clone();
         let mut added = 0usize;
-        for entry in walkdir::WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             let p = entry.path().to_path_buf();
             if p.is_file()
                 && (p.extension().map(|e| e == "deb").unwrap_or(false)
@@ -879,62 +966,88 @@ fn cmd_publish_static(root: &Path, cfg: &Config) -> Result<String> {
     Ok(format!("{}; {yum}", apt.summary))
 }
 
-async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
+async fn resolve_push_token(args: &cli::PushArgs) -> Result<String> {
     // Token resolution: explicit --token → ARX_SERVE_TOKEN → GitHub OIDC.
-    let token = match args.token.clone() {
-        Some(t) => t,
-        None => match std::env::var("ARX_SERVE_TOKEN").ok().filter(|s| !s.is_empty()) {
-            Some(t) => t,
-            None => {
-                // Try GitHub Actions OIDC (ADR-0014).
-                let request_url =
-                    std::env::var("ACTIONS_ID_TOKEN_REQUEST_URL").ok().filter(|s| !s.is_empty());
-                let request_token =
-                    std::env::var("ACTIONS_ID_TOKEN_REQUEST_TOKEN").ok().filter(|s| !s.is_empty());
-                match (request_url, request_token) {
-                    (Some(url), Some(rt)) => {
-                        let audience = args
-                            .oidc_audience
-                            .as_deref()
-                            .unwrap_or("arx");
-                        fetch_oidc_token(&url, &rt, audience).await?
-                    }
-                    _ => {
-                        bail!("no token: pass --token, set ARX_SERVE_TOKEN, or run in GitHub Actions (OIDC)")
-                    }
-                }
-            }
-        },
-    };
+    if let Some(token) = args.token.clone() {
+        return Ok(token);
+    }
+    if let Some(token) = std::env::var("ARX_SERVE_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(token);
+    }
+
+    // Try GitHub Actions OIDC (ADR-0014).
+    let request_url = std::env::var("ACTIONS_ID_TOKEN_REQUEST_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let request_token = std::env::var("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty());
+    match (request_url, request_token) {
+        (Some(url), Some(rt)) => {
+            let audience = args.oidc_audience.as_deref().unwrap_or("arx");
+            fetch_oidc_token(&url, &rt, audience).await
+        }
+        _ => bail!("no token: pass --token, set ARX_SERVE_TOKEN, or run in GitHub Actions (OIDC)"),
+    }
+}
+
+async fn push_one_package(
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    pkg: &Path,
+    component: Option<&str>,
+    repo: Option<&str>,
+) -> Result<()> {
+    let filename = pkg
+        .file_name()
+        .and_then(|f| f.to_str())
+        .context("package path has no filename")?
+        .to_string();
+    let body = std::fs::read(pkg).with_context(|| format!("reading {}", pkg.display()))?;
+    let mut req = client
+        .post(endpoint)
+        .bearer_auth(token)
+        .header("X-Arx-Filename", &filename)
+        .body(body);
+    if let Some(c) = component {
+        req = req.header("X-Arx-Component", c);
+    }
+    if let Some(r) = repo {
+        req = req.header("X-Arx-Repo", r);
+    }
+    let resp = req
+        .send()
+        .await
+        .with_context(|| format!("POST {endpoint}"))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("push {filename} failed ({status}): {}", text.trim());
+    }
+    println!("✓ pushed {filename}");
+    tracing::debug!(%filename, response = %text.trim(), "push ok");
+    Ok(())
+}
+
+async fn cmd_push(args: &cli::PushArgs) -> Result<()> {
+    let token = resolve_push_token(args).await?;
     let endpoint = format!("{}/api/v1/packages", args.url.trim_end_matches('/'));
     let client = reqwest::Client::new();
 
     for pkg in &args.packages {
-        let filename = pkg
-            .file_name()
-            .and_then(|f| f.to_str())
-            .context("package path has no filename")?
-            .to_string();
-        let body = std::fs::read(pkg).with_context(|| format!("reading {}", pkg.display()))?;
-        let mut req = client
-            .post(&endpoint)
-            .bearer_auth(&token)
-            .header("X-Arx-Filename", &filename)
-            .body(body);
-        if let Some(c) = &args.component {
-            req = req.header("X-Arx-Component", c);
-        }
-        if let Some(r) = &args.repo {
-            req = req.header("X-Arx-Repo", r);
-        }
-        let resp = req.send().await.with_context(|| format!("POST {endpoint}"))?;
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            bail!("push {filename} failed ({status}): {}", text.trim());
-        }
-        println!("✓ pushed {filename}");
-        tracing::debug!(%filename, response = %text.trim(), "push ok");
+        push_one_package(
+            &client,
+            &endpoint,
+            &token,
+            pkg,
+            args.component.as_deref(),
+            args.repo.as_deref(),
+        )
+        .await?;
     }
     Ok(())
 }

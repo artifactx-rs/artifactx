@@ -42,18 +42,36 @@ pub fn build_apk(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 
     // .PKGINFO — the only mandatory metadata file.
     let pkinfo = render_pkinfo(manifest, arch);
-    append_text(&mut tar, ".PKGINFO", &pkinfo, 0o644, crate::resolve_source_epoch())?;
+    append_text(
+        &mut tar,
+        ".PKGINFO",
+        &pkinfo,
+        0o644,
+        crate::resolve_source_epoch(),
+    )?;
 
     // Maintainer scripts.
     if let Some(path) = &manifest.scripts.postinst {
-        let body = std::fs::read_to_string(path)
-            .with_context(|| format!("reading postinst {path}"))?;
-        append_text(&mut tar, ".post-install", &body, 0o755, crate::resolve_source_epoch())?;
+        let body =
+            std::fs::read_to_string(path).with_context(|| format!("reading postinst {path}"))?;
+        append_text(
+            &mut tar,
+            ".post-install",
+            &body,
+            0o755,
+            crate::resolve_source_epoch(),
+        )?;
     }
     if let Some(path) = &manifest.scripts.preinst {
-        let body = std::fs::read_to_string(path)
-            .with_context(|| format!("reading preinst {path}"))?;
-        append_text(&mut tar, ".pre-install", &body, 0o755, crate::resolve_source_epoch())?;
+        let body =
+            std::fs::read_to_string(path).with_context(|| format!("reading preinst {path}"))?;
+        append_text(
+            &mut tar,
+            ".pre-install",
+            &body,
+            0o755,
+            crate::resolve_source_epoch(),
+        )?;
     }
 
     // Payload files.
@@ -76,8 +94,7 @@ pub fn build_apk(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     // APK naming: <name>-<version>-r0.<arch>.apk
     let filename = format!("{}-{}-r0.{}.apk", manifest.name, manifest.version, arch);
     let out_path = out_dir.join(&filename);
-    std::fs::write(&out_path, &body)
-        .with_context(|| format!("writing {}", out_path.display()))?;
+    std::fs::write(&out_path, &body).with_context(|| format!("writing {}", out_path.display()))?;
     Ok(out_path)
 }
 
@@ -91,7 +108,10 @@ fn render_pkinfo(manifest: &Manifest, arch: &str) -> String {
     let mut s = String::new();
     s.push_str(&format!("pkgname = {}\n", manifest.name));
     s.push_str(&format!("pkgver = {}\n", manifest.version));
-    s.push_str(&format!("pkgdesc = {}\n", manifest.description.lines().next().unwrap_or("")));
+    s.push_str(&format!(
+        "pkgdesc = {}\n",
+        manifest.description.lines().next().unwrap_or("")
+    ));
     s.push_str(&format!("arch = {arch}\n"));
     s.push_str(&format!("license = {}\n", manifest.license));
     s.push_str(&format!("maintainer = {}\n", manifest.maintainer));

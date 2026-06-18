@@ -32,14 +32,14 @@ pub fn generate(_root: &Path, out_dir: &Path, addr: &str) -> Result<()> {
     std::fs::create_dir_all(out_dir).context("creating output dir")?;
     let yml = compose_yml(addr);
     std::fs::write(out_dir.join("Dockerfile"), DOCKERFILE).context("writing Dockerfile")?;
-    std::fs::write(out_dir.join("docker-compose.yml"), yml).context("writing docker-compose.yml")?;
+    std::fs::write(out_dir.join("docker-compose.yml"), yml)
+        .context("writing docker-compose.yml")?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn generates_dockerfile_and_compose() {
@@ -56,7 +56,10 @@ mod tests {
         assert!(compose.exists(), "docker-compose.yml should exist");
 
         let df = std::fs::read_to_string(&dockerfile).unwrap();
-        assert!(df.contains("ghcr.io"), "Dockerfile should reference GHCR image");
+        assert!(
+            df.contains("ghcr.io"),
+            "Dockerfile should reference GHCR image"
+        );
         assert!(df.contains("arx"), "Dockerfile should reference arx");
 
         let cy = std::fs::read_to_string(&compose).unwrap();

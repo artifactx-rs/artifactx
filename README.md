@@ -1,39 +1,119 @@
-# ArtifactX — Build Once. Package Once. Publish Everywhere.
+# ArtifactX — import existing apt/yum repos into a signed static repo
 
-**One static binary.** apt + yum repository manager with PGP signing.
-Pure-Rust `.deb` / `.rpm` / `.apk` packager.
-Built-in HTTP server. Zero dependencies, zero daemons.
+**Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.**
 
-[![ci](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml)
-[![v0.1.0](https://img.shields.io/badge/version-latest-blue)](https://github.com/artifactx-rs/artifactx/releases/latest)
-[![Project](https://img.shields.io/badge/project-Done%3A24%20%2F%20Todo%3A0-green)](https://github.com/orgs/artifactx-rs/projects/1)
+ArtifactX (`arx`) is a small Rust tool for teams that ship Linux packages but do not want to operate Nexus, aptly, Pulp, S3 glue scripts, custom signing jobs, and a web server just to let users run `apt install` or `dnf install`.
 
 ```bash
-# 1 minute from zero to signed repo
+# Migrate a slice of an existing repo, then serve it
+arx init ./repo
+arx import https://packages.example.com --apt --dist stable --component main --match-name myapp
+arx publish --root ./repo
+arx serve --root ./repo --addr 0.0.0.0:8080
+```
+
+What users get:
+
+```bash
+sudo apt-get update && sudo apt-get install myapp
+# or
+sudo dnf install myapp
+```
+
+## Why ArtifactX
+
+Most package repo setups become a pile of special cases: one path for `.deb`, another for `.rpm`, a signing key somewhere else, a CI upload script, a separate server, and no easy rollback.
+
+ArtifactX keeps the package repository as a directory you can inspect, back up, move, and rebuild:
+
+- **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
+- **One binary** — pack, add, import, publish, serve, push, promote, GC, rollback.
+- **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
+- **Atomic publish** — build metadata in staging, then flip the live state.
+- **Rollbackable** — keep published states and flip back when a bad release escapes.
+- **CI-friendly** — `arx push` uploads to `arx serve`; token or GitHub OIDC auth.
+- **No daemon required** — static binary, Docker image, or GitHub Pages-hosted repo. Public Pages repos should use a stable imported signing key.
+
+## The migration path: import, publish, serve
+
+Use `import` when you already have packages somewhere and want a cleaner repo in front of them.
+
+### Import from apt
+
+```bash
+arx init ./repo
+
+arx import https://packages.example.com \
+  --root ./repo \
+  --apt \
+  --dist stable \
+  --component main \
+  --arch amd64 \
+  --match-name myapp \
+  --limit 20
+
+arx publish --root ./repo
+arx serve --root ./repo --addr 0.0.0.0:8080
+```
+
+ArtifactX reads `Packages.gz` or `Packages`, downloads matching `.deb` files into the pool, then regenerates signed apt metadata under `apt/dists/<dist>`.
+
+### Import from yum/dnf
+
+```bash
+arx init ./repo
+
+arx import https://packages.example.com/yum/x86_64 \
+  --root ./repo \
+  --yum \
+  --component myrepo \
+  --limit 20
+
+arx publish --root ./repo
+arx serve --root ./repo --addr 0.0.0.0:8080
+```
+
+ArtifactX reads `repodata/repomd.xml`, follows the primary metadata stream, downloads `.rpm` files, then regenerates signed yum repodata.
+
+## Build your own packages too
+
+ArtifactX is not only a repo importer. It can build packages from a standalone manifest or directly from a Rust `Cargo.toml`:
+
+```bash
+arx pack ./Cargo.toml --out dist
+arx add dist/*.deb dist/*.rpm --root ./repo
+arx publish --root ./repo
+```
+
+From zero to a signed repo:
+
+```bash
 arx init                              # create repo + signing key
-arx pack ./Cargo.toml                 # build .deb .rpm .apk from Cargo.toml
+arx pack ./Cargo.toml                 # build .deb .rpm .apk
 arx publish                           # sign + index
 arx serve                             # HTTP server on :8080
 ```
 
-## Install
+## Install arx
 
 ### Download static binary
+
 ```bash
-curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/latest/arx-latest-amd64
-sudo install -m 755 arx-amd64 /usr/local/bin/arx
+curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/latest/download/arx-latest-amd64
+sudo install -m 755 arx-latest-amd64 /usr/local/bin/arx
 arx --version
 ```
 
 ### Docker
+
 ```bash
 docker run --rm -v $(pwd)/repo:/repo -p 8080:8080 \
   ghcr.io/artifactx-rs/arx:latest serve --root /repo --addr 0.0.0.0:8080
 ```
 
 ### Docker Compose
+
 ```yaml
-# docker-compose.yml
 services:
   arx:
     image: ghcr.io/artifactx-rs/arx:latest
@@ -41,66 +121,107 @@ services:
     volumes: ['./repo:/repo']
     command: serve --root /repo --addr 0.0.0.0:8080
 ```
+
 ```bash
 docker compose up -d
 ```
 
 ### Build from source
+
 ```bash
 git clone https://github.com/artifactx-rs/artifactx.git && cd artifactx
 cargo build --release
 ./target/release/arx --version
 ```
 
-## What it does
+## Commands
 
-| Command | Purpose |
+| Command | Why you use it |
 |---|---|
-| `arx init` | Scaffold a repository + generate PGP signing key |
-| `arx pack` | Build `.deb` / `.rpm` / `.apk` from a Cargo.toml or manifest |
-| `arx publish` | Sign and index all metadata (atomic staging → symlink flip) |
-| `arx serve` | HTTP server (apt/dnf-compatible + REST API + `/metrics`) |
-| `arx push` | Upload + publish to a remote `arx serve` (OIDC or static token) |
+| `arx init` | Create repository layout, config, and signing key |
+| `arx import` | Migrate packages from an existing apt/yum repo into ArtifactX |
+| `arx pack` | Build `.deb`, `.rpm`, `.apk` from a manifest or `Cargo.toml` |
+| `arx add` | Put existing `.deb` / `.rpm` files into the pool |
+| `arx publish` | Generate and sign apt + yum metadata atomically |
+| `arx serve` | Serve apt/dnf-compatible repo + REST API + `/metrics` |
+| `arx push` | Upload packages to a remote `arx serve` from CI |
+| `arx promote` | Move packages between staging/prod components or repos |
 | `arx rm` | Yank a package from the pool |
-| `arx gc` | Prune old versions (EVR-aware, `--keep-within`, `--grace`, bytes-freed) |
-| `arx rollback` | Flip back to the previous published state (apt + yum) |
-| `arx history` | List retained published states |
-| `arx promote` | Move packages between components/repos (staging→prod) |
-| `arx import` | Migrate packages from an existing apt/yum repo |
-| `arx watch` | Poll a directory for new packages, auto-add + publish |
-| `arx key` | Generate / import / rotate / revoke signing keys |
+| `arx gc` | Prune old versions with version-aware retention |
+| `arx rollback` | Restore a previous published state |
+| `arx history` | Inspect retained published states |
+| `arx watch` | Watch a directory and auto-add + publish new packages |
+| `arx key` | Generate, import, rotate, revoke, or export signing keys |
 
-## Verified
+## Client setup
 
-- **58 tests** across 4 workspace crates, all green, clippy clean.
-- **Real apt-get** install on Debian bookworm-slim (Docker).
-- **Real dnf install** on Fedora 44 (Docker).
-- **Reproducible builds** — `SOURCE_DATE_EPOCH` support, deterministic .deb/.rpm output.
+### apt
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL http://REPO_HOST:8080/keys/public.asc \
+  | sudo tee /etc/apt/keyrings/arx.asc >/dev/null
+
+echo "deb [signed-by=/etc/apt/keyrings/arx.asc] http://REPO_HOST:8080/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/arx.list
+
+sudo apt-get update
+sudo apt-get install myapp
+```
+
+### dnf/yum
+
+ArtifactX signs yum repository metadata (`repomd.xml.asc`). It does not re-sign individual `.rpm` packages; keep package signing in your build pipeline if you require `gpgcheck=1`.
+
+```ini
+# /etc/yum.repos.d/arx.repo
+[arx]
+name=ArtifactX
+baseurl=http://REPO_HOST:8080/yum/myrepo/$basearch
+enabled=1
+gpgcheck=0
+repo_gpgcheck=1
+gpgkey=http://REPO_HOST:8080/keys/public.asc
+```
+
+```bash
+sudo dnf install myapp
+```
 
 ## Repository layout
 
-```
-repo/                  # `arx init` creates this
-  arx.toml             # config (Origin, signing, apt/yum defaults)
-  keys/                # PGP private + public key
+```text
+repo/
+  arx.toml
+  keys/
+    private.asc
+    public.asc
   apt/
-    pool/<component>/  # .deb packages + .arx-manifest.toml (incremental cache)
-    dists/<dist>/      # generated: Release, InRelease, Packages, Contents-<arch>
+    pool/<component>/
+    dists/<dist>/
   yum/
-    <repo>/<arch>/     # .rpm packages + repodata/ (repomd.xml + .xml.gz streams)
+    <repo>/<arch>/
+      repodata/
 ```
 
-Back it up with `tar`. Restore by extracting. Metadata is deterministic — if lost, `arx publish` rebuilds it.
+Back it up with `tar`. Restore by extracting. Metadata is deterministic; if generated files are lost, run `arx publish` again.
 
-## Project
+## Verified
 
-- [Roadmap](ROADMAP.md) — what's next (v0.2.0 → v0.3.0)
-- [ADR index](docs/adr/README.md) — 15 architecture decisions
-- [Operations guide](docs/OPERATIONS.md) — backup, restore, rollback
+- Workspace tests pass with `cargo test --workspace`.
+- `cargo clippy --workspace --all-targets -- -D warnings` is clean.
+- Real apt/dnf flows are covered by integration tests where host tools are available.
+- Package output is deterministic with `SOURCE_DATE_EPOCH` support.
+
+## Project links
+
+- [Roadmap](ROADMAP.md)
+- [Operations guide](docs/OPERATIONS.md)
+- [ADR index](docs/adr/README.md)
 - [Competitive analysis](COMPETITORS.md)
 - [Wiki](https://github.com/artifactx-rs/artifactx/wiki)
-- [Kanban](https://github.com/orgs/artifactx-rs/projects/1) — Done:24 Todo:0
 
 ## License
 
-`crates/arx` (CLI): GPL-2.0-or-later · `crates/debrepo` + `crates/pack`: MIT OR Apache-2.0
+- `crates/arx` CLI: GPL-2.0-or-later
+- `crates/arx-debrepo` and `crates/arx-pack`: MIT OR Apache-2.0

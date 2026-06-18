@@ -128,8 +128,9 @@ pub fn detached_sign(key: &SignedSecretKey, passphrase: &str, data: &[u8]) -> Re
 /// Used for apt `InRelease`. The signature version adapts to the key version
 /// (v4 key → v4 signature), keeping it gpg/apt-compatible.
 pub fn clearsign(key: &SignedSecretKey, passphrase: &str, text: &str) -> Result<String> {
-    let msg = CleartextSignedMessage::sign(rand::thread_rng(), text, key, || passphrase.to_string())
-        .context("creating cleartext signature (wrong passphrase?)")?;
+    let msg =
+        CleartextSignedMessage::sign(rand::thread_rng(), text, key, || passphrase.to_string())
+            .context("creating cleartext signature (wrong passphrase?)")?;
     msg.to_armored_string(ArmorOptions::default())
         .context("armoring cleartext signature")
 }
@@ -178,7 +179,9 @@ mod tests {
 
     #[test]
     fn load_roundtrip() {
-        let armored = test_key().to_armored_string(ArmorOptions::default()).unwrap();
+        let armored = test_key()
+            .to_armored_string(ArmorOptions::default())
+            .unwrap();
         let loaded = load_secret_key(&armored).unwrap();
         let sig = detached_sign(&loaded, "", b"data").unwrap();
         assert!(sig.contains("BEGIN PGP SIGNATURE"));

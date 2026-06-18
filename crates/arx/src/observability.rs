@@ -17,7 +17,9 @@ pub fn init_tracing(format: LogFormat) {
     let registry = tracing_subscriber::registry().with(filter);
     match format {
         LogFormat::Json => {
-            registry.with(tracing_subscriber::fmt::layer().json()).init();
+            registry
+                .with(tracing_subscriber::fmt::layer().json())
+                .init();
         }
         LogFormat::Text => {
             registry.with(tracing_subscriber::fmt::layer()).init();

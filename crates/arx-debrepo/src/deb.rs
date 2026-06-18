@@ -212,7 +212,8 @@ mod tests {
 
     #[test]
     fn stops_at_blank_line() {
-        let c = parse_control("Package: foo\nVersion: 1\nArchitecture: all\n\nPackage: bar\n").unwrap();
+        let c =
+            parse_control("Package: foo\nVersion: 1\nArchitecture: all\n\nPackage: bar\n").unwrap();
         assert_eq!(c.package().unwrap(), "foo");
         // The second paragraph must not leak in.
         assert_eq!(c.fields().len(), 3);
