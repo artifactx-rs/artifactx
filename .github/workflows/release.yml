@@ -451,6 +451,7 @@ jobs:
                   <a class="btn primary" href="${REPO_URL}/install.sh">Install arx</a>
                   <a class="btn" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
                   <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
+                  <a class="btn" href="https://github.com/${REPOSITORY}/blob/main/docs/README.md">Docs</a>
                   <a class="btn" href="https://github.com/${REPOSITORY}">GitHub</a>
                 </div>
               </div>
@@ -523,7 +524,7 @@ jobs:
             </main>
 
             <footer class="wrap">
-              <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary.</p>
+              <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary. Need production details? Read the <a href="https://github.com/${REPOSITORY}/blob/main/docs/README.md">docs</a>.</p>
             </footer>
           </body>
           </html>
