@@ -81,3 +81,11 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
   `crates/arx-pack` (packaging lib, MIT/Apache).
 - `cargo test --workspace` and `cargo clippy --workspace` must stay green.
 - git/GitHub identity: `jamesarch` / `han.shan@live.cn`.
+
+## Project code-intelligence routing
+
+- 当前项目 ArtifactX 的 codebase-memory 索引名是 `Users-joe-code-artifactx`；先用 `index_status(project="Users-joe-code-artifactx")` 确认 ready，缺失/过期才 `index_repository(repo_path="/Users/joe/code/artifactx")`。
+- 做项目理解、架构梳理、符号定位、调用链、影响分析时，默认使用 Project Summary + Tree-sitter Code Index / `codebase-memory-mcp`，不要一上来全仓 `cat`/读大文件。
+- 推荐顺序：Project Summary → Tree-sitter Code Index / `codebase-memory-mcp` 图谱状态 → `search_graph`/`trace_path`/`get_code_snippet`/`detect_changes` → 精确 `rg`/文件读取 → 必要时才做全量扫描。
+- 对外报告时说明实际用了哪些索引/工具；只有真实调用 `codebase-memory-mcp` 图谱工具才算“用了 codebase memory”。
+
