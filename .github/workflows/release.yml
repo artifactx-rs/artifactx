@@ -159,7 +159,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: arx-bin }
       - run: |
           chmod +x arx-latest-amd64
