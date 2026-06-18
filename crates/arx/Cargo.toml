@@ -33,7 +33,7 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 
 # OIDC JWT validation + GitHub JWKS
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 serde_json = "1"
 
 # observability
