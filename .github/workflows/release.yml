@@ -208,6 +208,7 @@ jobs:
           test -s public/public.asc
           test ! -e public/keys/private.asc
           OWNER="$GITHUB_REPOSITORY_OWNER"
+          REPOSITORY="$GITHUB_REPOSITORY"
           REPO="$PAGES_REPOSITORY_NAME"
           if [ -n "$PAGES_BASE_URL" ]; then
             REPO_URL="${PAGES_BASE_URL%/}"
@@ -450,7 +451,7 @@ jobs:
                   <a class="btn primary" href="${REPO_URL}/install.sh">Install arx</a>
                   <a class="btn" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
                   <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
-                  <a class="btn" href="https://github.com/${{ github.repository }}">GitHub</a>
+                  <a class="btn" href="https://github.com/${REPOSITORY}">GitHub</a>
                 </div>
               </div>
               <aside class="hero-panel" aria-label="ArtifactX quick path">
