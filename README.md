@@ -1,5 +1,9 @@
 # ArtifactX — import existing apt/yum repos into a signed static repo
 
+<p align="center">
+  <img src="res/logo.svg" alt="ArtifactX logo" width="720">
+</p>
+
 [![CI](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml) [![Release](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/artifactx-rs/artifactx)](https://github.com/artifactx-rs/artifactx/releases/latest)
 
 **Import first. Cut over when ready.** Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.
@@ -31,6 +35,12 @@ sudo apt-get update && sudo apt-get install myapp
 # or
 sudo dnf install myapp
 ```
+
+## How ArtifactX works
+
+<p align="center">
+  <img src="res/readme-architecture.svg" alt="ArtifactX import, sign, publish, and static hosting architecture">
+</p>
 
 ## Why ArtifactX
 
