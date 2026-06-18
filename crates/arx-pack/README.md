@@ -1,9 +1,9 @@
-# pack
+# arx-pack
 
 **Pure-Rust packager: build `.deb` and `.rpm` from a single TOML manifest — no native toolchain required for the common case.**
 
-`pack` is the *Package* pillar of ArtifactX. You describe a package once — its
-metadata and the files it installs — and `pack` emits both a Debian `.deb` and
+`arx-pack` is the *Package* pillar of ArtifactX. You describe a package once — its
+metadata and the files it installs — and `arx-pack` emits both a Debian `.deb` and
 an RPM `.rpm`. No `dpkg-deb`, no `rpmbuild`, no root, and no container runtime
 needed for ordinary "stage these files at these paths with this metadata"
 packaging. The same code runs identically on a developer laptop and in CI.
@@ -86,14 +86,14 @@ arx pack            # reads ./Cargo.toml → greeter_0.3.0_amd64.deb + .rpm
 ## Usage
 
 ```rust
-use pack::{Manifest, Backend, Format};
+use arx_pack::{Manifest, Backend, Format};
 use std::path::Path;
 
 let manifest = Manifest::from_toml_str(toml_str)?;
 
 // Direct, format-specific builders:
-let deb = pack::build_deb(&manifest, Path::new("dist"))?; // dist/hello_1.2.3_amd64.deb
-let rpm = pack::build_rpm(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1.x86_64.rpm
+let deb = arx_pack::build_deb(&manifest, Path::new("dist"))?; // dist/hello_1.2.3_amd64.deb
+let rpm = arx_pack::build_rpm(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1.x86_64.rpm
 
 // Or via the backend abstraction:
 let backend = Backend::Native;
@@ -106,14 +106,14 @@ let deb = backend.build(&manifest, Format::Deb, Path::new("dist"))?;
 | Item | Description |
 | --- | --- |
 | `Manifest::from_toml_str(&str) -> Result<Manifest>` | Parse a manifest from TOML. |
-| `pack::build_deb(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.deb`, return its path. |
-| `pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
+| `arx_pack::build_deb(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.deb`, return its path. |
+| `arx_pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
 | `Backend::{Native, Docker { image }}` | Build backend. `Native` is implemented; `Docker` is a stub. |
 | `Backend::build(&Manifest, Format, out_dir) -> Result<PathBuf>` | Dispatch a build through a backend. |
 | `Format::{Deb, Rpm}` | Output format selector. |
 
 Errors are `anyhow::Result`. The crate is designed to be embeddable —
-`cargo add pack` and call the builders directly from another Rust tool.
+`cargo add arx-pack` and call the builders directly from another Rust tool.
 
 ## How it works
 

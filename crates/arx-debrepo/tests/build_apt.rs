@@ -1,4 +1,4 @@
-//! Integration tests for `debrepo::build_apt`.
+//! Integration tests for `arx_debrepo::build_apt`.
 //!
 //! Synthesizes minimal `.deb` files (ar + control.tar.gz) on disk, runs the
 //! generator, and asserts the produced `Packages`/`Release` content.
@@ -6,7 +6,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use debrepo::{build_dist, ReleaseMeta};
+use arx_debrepo::{build_dist, ReleaseMeta};
 
 /// Write a minimal but valid `.deb` (ar archive: debian-binary + control.tar.gz
 /// + empty data.tar.gz) whose control paragraph is `control_text`.
@@ -157,7 +157,7 @@ fn skips_unreadable_deb_and_indexes_the_rest() {
     std::fs::write(pool.join("broken_1.0_amd64.deb"), b"this is not a .deb").unwrap();
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
+    let staged = arx_debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "the good package is still indexed");
     assert_eq!(staged.skipped.len(), 1, "the broken package is skipped");
@@ -180,7 +180,7 @@ fn identical_duplicate_is_indexed_once_not_skipped() {
     write_deb(&pool.join("dup-again_1.0_amd64.deb"), &ctl);
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
+    let staged = arx_debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "identical duplicate collapses to one stanza");
     assert!(
@@ -206,7 +206,7 @@ fn same_identity_different_content_is_a_collision() {
     write_deb(&pool.join("clash-b_1.0_amd64.deb"), b);
 
     let meta = ReleaseMeta::new("O", "L", "D", "stable");
-    let staged = debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
+    let staged = arx_debrepo::stage_dist(&apt, "pool", "stable", &meta, false).unwrap();
 
     assert_eq!(staged.packages, 1, "first by sorted path wins");
     assert_eq!(staged.skipped.len(), 1, "the colliding package is skipped");
@@ -287,7 +287,7 @@ fn states_and_rollback() {
 
     // dists/stable is a symlink; two states exist; the newest is current.
     assert!(std::fs::symlink_metadata(apt.join("dists/stable")).unwrap().file_type().is_symlink());
-    let states = debrepo::list_states(&apt, "stable").unwrap();
+    let states = arx_debrepo::list_states(&apt, "stable").unwrap();
     assert_eq!(states.len(), 2);
     assert_eq!(states.iter().filter(|s| s.current).count(), 1);
     assert!(states.last().unwrap().current); // newest is current
@@ -297,11 +297,11 @@ fn states_and_rollback() {
     assert!(pkgs.contains("Package: foo") && pkgs.contains("Package: bar"));
 
     // Roll back → previous state becomes current, Release loses bar.
-    let to = debrepo::rollback(&apt, "stable", None).unwrap();
+    let to = arx_debrepo::rollback(&apt, "stable", None).unwrap();
     assert_eq!(to, "000001");
     let pkgs = std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
     assert!(pkgs.contains("Package: foo") && !pkgs.contains("Package: bar"));
-    assert!(debrepo::list_states(&apt, "stable").unwrap().iter().find(|s| s.id == "000001").unwrap().current);
+    assert!(arx_debrepo::list_states(&apt, "stable").unwrap().iter().find(|s| s.id == "000001").unwrap().current);
 }
 
 #[test]
@@ -370,7 +370,7 @@ fn read_data_paths_extracts_installed_files() {
     builder.append(&ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64), control_gz.as_slice()).unwrap();
     builder.append(&ar::Header::new(b"data.tar.gz".to_vec(), data_gz.len() as u64), data_gz.as_slice()).unwrap();
 
-    let paths = debrepo::deb::read_data_paths(&deb).unwrap();
+    let paths = arx_debrepo::deb::read_data_paths(&deb).unwrap();
     assert!(!paths.is_empty(), "must find at least one file in data.tar");
     assert!(paths.iter().any(|p| p.contains("usr/bin/foo")), "must contain the installed file: {paths:?}");
 }

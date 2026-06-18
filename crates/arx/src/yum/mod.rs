@@ -95,7 +95,7 @@ pub fn build_repodata(
 
     // Fast path: nothing changed since last publish → skip entirely.
     if incremental && !rpms.is_empty() {
-        let manifest = debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
+        let manifest = arx_debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
         let mut all_match = !manifest.files.is_empty(); // must have a manifest to trust
         let mut on_disk = std::collections::HashSet::new();
         for rpm in &rpms {
@@ -184,19 +184,19 @@ pub fn build_repodata(
     }
 
     // Atomic flip: `<arch>/repodata` → `.states/repodata/<id>`.
-    debrepo::statedir::commit(&repodata, &dir.join("repodata"), debrepo::DEFAULT_KEEP_STATES)
+    arx_debrepo::statedir::commit(&repodata, &dir.join("repodata"), arx_debrepo::DEFAULT_KEEP_STATES)
         .context("committing repodata state")?;
 
     // Save the file manifest for the NEXT incremental publish.
     if incremental {
-        let mut m = debrepo::manifest::FileManifest::default();
+        let mut m = arx_debrepo::manifest::FileManifest::default();
         for rpm in &rpms {
             if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
                 let (mtime, size) = stat_mtime_size(rpm);
                 if let (Some(mt), Some(sz)) = (mtime, size) {
                     m.insert(
                         fname.to_string(),
-                        debrepo::manifest::CachedPackage {
+                        arx_debrepo::manifest::CachedPackage {
                             mtime: mt,
                             size: sz,
                             sha256: String::new(),  // yum side: not used for cache lookups

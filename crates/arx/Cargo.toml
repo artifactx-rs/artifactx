@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
 license = "GPL-2.0-or-later"
-repository = "https://github.com/jamesarch/artifactx"
+repository = "https://github.com/artifactx-rs/artifactx"
 
 [[bin]]
 name = "arx"
@@ -13,8 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 # apt repo generation + packaging (in-house, permissively licensed sibling crates)
-debrepo = { path = "../debrepo" }
-pack = { path = "../pack" }
+arx-debrepo = { version = "0.1.2", path = "../arx-debrepo" }
+arx-pack = { version = "0.1.2", path = "../arx-pack" }
 
 # yum: reuse our own createrepo_rs library
 createrepo_rs = "0.1.9"

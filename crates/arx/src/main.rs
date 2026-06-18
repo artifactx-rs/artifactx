@@ -304,7 +304,7 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     Ok(())
 }
 
-fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
+fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
     let path = match path {
         Some(p) => p.to_path_buf(),
         None => {
@@ -321,10 +321,10 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<pack::Manifest> {
         let crate_root = path
             .parent()
             .expect("Cargo.toml has a parent directory");
-        pack::Manifest::from_cargo_toml_at(&text, crate_root)
+        arx_pack::Manifest::from_cargo_toml_at(&text, crate_root)
             .with_context(|| format!("from {}", path.display()))
     } else {
-        pack::Manifest::from_toml_str(&text)
+        arx_pack::Manifest::from_toml_str(&text)
     }
 }
 
@@ -387,7 +387,7 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
             for entry in walkdir::WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
                 let p = entry.path();
                 if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
-                    let ctrl = debrepo::deb::read_control(p)
+                    let ctrl = arx_debrepo::deb::read_control(p)
                         .with_context(|| format!("reading {}", p.display()))?;
                     let name = ctrl.package()?;
                     let version = ctrl.version()?;
@@ -446,13 +446,13 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
     let do_apk = args.apk || all;
     let mut built = Vec::new();
     if do_deb {
-        built.push(pack::build_deb(&manifest, &args.out).context("building .deb")?);
+        built.push(arx_pack::build_deb(&manifest, &args.out).context("building .deb")?);
     }
     if do_rpm {
-        built.push(pack::build_rpm(&manifest, &args.out).context("building .rpm")?);
+        built.push(arx_pack::build_rpm(&manifest, &args.out).context("building .rpm")?);
     }
     if do_apk {
-        built.push(pack::build_apk(&manifest, &args.out).context("building .apk")?);
+        built.push(arx_pack::build_apk(&manifest, &args.out).context("building .apk")?);
     }
     for p in &built {
         println!("Built {}", p.display());
@@ -601,7 +601,7 @@ mod tests {
     }
 }
 
-fn report_skipped(skipped: &[debrepo::SkippedDeb]) {
+fn report_skipped(skipped: &[arx_debrepo::SkippedDeb]) {
     eprintln!("WARNING: skipped {} package(s):", skipped.len());
     for s in skipped {
         eprintln!("  - {}: {}", s.path.display(), s.reason);
@@ -647,7 +647,7 @@ fn publish_apt(
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
 
-    let meta = debrepo::ReleaseMeta::new(
+    let meta = arx_debrepo::ReleaseMeta::new(
         cfg.repo.origin.as_str(),
         cfg.repo.label.as_str(),
         cfg.repo.description.as_str(),
@@ -656,7 +656,7 @@ fn publish_apt(
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
-    let staged = debrepo::stage_dist(&apt_root, &cfg.apt.pool_dir, &cfg.apt.dist, &meta, incremental)?;
+    let staged = arx_debrepo::stage_dist(&apt_root, &cfg.apt.pool_dir, &cfg.apt.dist, &meta, incremental)?;
 
     // A forgiving default must still be observable: never let a skipped package
     // pass silently behind an exit-0 publish. Under strict, refuse to commit.
@@ -691,7 +691,7 @@ fn publish_apt(
     let skipped = staged.skipped.len();
     // Atomic symlink flip into place — clients never see a half-written dist,
     // and the previous state is retained for rollback.
-    debrepo::commit_dist(&staged, debrepo::DEFAULT_KEEP_STATES)?;
+    arx_debrepo::commit_dist(&staged, arx_debrepo::DEFAULT_KEEP_STATES)?;
 
     metrics::histogram!("arx_publish_apt_seconds").record(start.elapsed().as_secs_f64());
     let tail = if skipped > 0 {
@@ -793,7 +793,7 @@ fn all_targets(root: &Path) -> Vec<String> {
 }
 
 fn print_states(target: &str, link: &Path) -> Result<()> {
-    let states = debrepo::statedir::list(link)?;
+    let states = arx_debrepo::statedir::list(link)?;
     if states.is_empty() {
         return Ok(());
     }
@@ -808,7 +808,7 @@ fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let target = args.dist.clone().unwrap_or(cfg.apt.dist);
     let link = target_link(&args.root, &target);
-    let id = debrepo::statedir::rollback(&link, args.to.as_deref())?;
+    let id = arx_debrepo::statedir::rollback(&link, args.to.as_deref())?;
     println!("Rolled back '{target}' to state {id}.");
     println!("(The next `arx publish` regenerates metadata from the current pool.)");
     Ok(())

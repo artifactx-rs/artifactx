@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use pack::Manifest;
+use arx_pack::Manifest;
 
 // ---------------------------------------------------------------------------
 // tool-gating helpers
@@ -155,7 +155,7 @@ fn dpkg_deb_validates_single_file_package() {
     let m = simple_manifest(dir.path());
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
-    let deb = pack::build_deb(&m, &out).unwrap();
+    let deb = arx_pack::build_deb(&m, &out).unwrap();
 
     let info = Command::new("dpkg-deb")
         .args(["--info", deb.to_str().unwrap()])
@@ -188,7 +188,7 @@ fn dpkg_deb_validates_multi_file_package() {
     let m = multi_file_manifest(dir.path());
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
-    let deb = pack::build_deb(&m, &out).unwrap();
+    let deb = arx_pack::build_deb(&m, &out).unwrap();
 
     let contents = Command::new("dpkg-deb")
         .args(["--contents", deb.to_str().unwrap()])
@@ -222,7 +222,7 @@ fn dpkg_deb_validates_maintainer_scripts() {
     let m = scripted_manifest(dir.path());
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
-    let deb = pack::build_deb(&m, &out).unwrap();
+    let deb = arx_pack::build_deb(&m, &out).unwrap();
 
     // dpkg-deb --info lists the control tarball contents, including scripts.
     let info = Command::new("dpkg-deb")
@@ -246,7 +246,7 @@ fn rpm_validates_single_file_package() {
     let m = simple_manifest(dir.path());
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
-    let rpm = pack::build_rpm(&m, &out).unwrap();
+    let rpm = arx_pack::build_rpm(&m, &out).unwrap();
 
     let info = Command::new("rpm")
         .args(["-qp", "--queryformat", "%{NAME} %{VERSION} %{ARCH} %{SUMMARY}", rpm.to_str().unwrap()])

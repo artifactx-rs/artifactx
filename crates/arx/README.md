@@ -1,10 +1,10 @@
 # arx — ArtifactX CLI
 
-`arx` is the command-line repository manager for [ArtifactX](https://github.com/jamesarch/artifactx).
+`arx` is the command-line repository manager for [ArtifactX](https://github.com/artifactx-rs/artifactx).
 It turns a directory into a **signed apt + yum repository** that `apt-get` and
 `dnf` consume directly, and serves it over HTTP — from a single binary.
 
-- **apt** repositories via [`debrepo`](../debrepo) (in-house generator)
+- **apt** repositories via [`arx-debrepo`](../arx-debrepo) (in-house generator)
 - **yum/dnf** repodata via [`createrepo_rs`](https://crates.io/crates/createrepo_rs)
 - **PGP signing** (v4 RSA) via rpgp — `InRelease`/`Release.gpg` and `repomd.xml.asc`
 - **Built-in HTTP server** (axum) with a Prometheus `/metrics` endpoint

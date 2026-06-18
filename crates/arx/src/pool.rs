@@ -115,7 +115,7 @@ fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
         for entry in walkdir::WalkDir::new(comp.path()).into_iter().filter_map(|e| e.ok()) {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "deb").unwrap_or(false) {
-                let control = debrepo::deb::read_control(p)
+                let control = arx_debrepo::deb::read_control(p)
                     .with_context(|| format!("reading {}", p.display()))?;
                 out.push(Entry {
                     name: control.package()?.to_string(),

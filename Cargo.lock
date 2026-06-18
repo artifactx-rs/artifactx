@@ -178,18 +178,18 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "ar",
+ "arx-debrepo",
+ "arx-pack",
  "axum",
  "chrono",
  "clap",
  "createrepo_rs",
- "debrepo",
  "debversion",
  "flate2",
  "hex",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
- "pack",
  "pgp 0.14.2",
  "rand 0.8.6",
  "reqwest",
@@ -208,6 +208,42 @@ dependencies = [
  "vergen",
  "vergen-gix",
  "walkdir",
+]
+
+[[package]]
+name = "arx-debrepo"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "ar",
+ "chrono",
+ "flate2",
+ "hex",
+ "md-5",
+ "serde",
+ "sha1",
+ "sha2",
+ "tar",
+ "tempfile",
+ "toml",
+ "walkdir",
+ "xz2",
+ "zstd",
+]
+
+[[package]]
+name = "arx-pack"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "ar",
+ "flate2",
+ "md-5",
+ "rpm",
+ "serde",
+ "tar",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]
@@ -851,27 +887,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd2735a791158376708f9347fe8faba9667589d82427ef3aed6794a8981de3d9"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "debrepo"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "ar",
- "chrono",
- "flate2",
- "hex",
- "md-5",
- "serde",
- "sha1",
- "sha2",
- "tar",
- "tempfile",
- "toml",
- "walkdir",
- "xz2",
- "zstd",
 ]
 
 [[package]]
@@ -3246,21 +3261,6 @@ dependencies = [
  "primeorder",
  "rand_core 0.6.4",
  "sha2",
-]
-
-[[package]]
-name = "pack"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "ar",
- "flate2",
- "md-5",
- "rpm",
- "serde",
- "tar",
- "tempfile",
- "toml",
 ]
 
 [[package]]

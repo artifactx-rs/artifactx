@@ -1,14 +1,14 @@
-//! Integration tests for the `pack` crate.
+//! Integration tests for the `arx-pack` crate.
 //!
 //! These build real `.deb` and `.rpm` artifacts from a sample manifest and read
 //! them back to assert the metadata round-trips. The `.deb` is re-parsed inline
-//! with `ar` + `tar` + `flate2` (no dependency on the sibling `debrepo` crate)
+//! with `ar` + `tar` + `flate2` (no dependency on the sibling `arx-debrepo` crate)
 //! to keep this crate standalone.
 
 use std::io::Read;
 use std::path::Path;
 
-use pack::{Backend, Format, Manifest};
+use arx_pack::{Backend, Format, Manifest};
 
 /// Write a sample payload file and return a manifest referencing it.
 fn sample_manifest(dir: &Path) -> Manifest {
@@ -108,8 +108,8 @@ fn manifest_round_trip() {
 fn deb_is_byte_reproducible() {
     let dir = tempfile::tempdir().unwrap();
     let m = sample_manifest(dir.path());
-    let a = pack::build_deb(&m, &dir.path().join("a")).unwrap();
-    let b = pack::build_deb(&m, &dir.path().join("b")).unwrap();
+    let a = arx_pack::build_deb(&m, &dir.path().join("a")).unwrap();
+    let b = arx_pack::build_deb(&m, &dir.path().join("b")).unwrap();
     assert_eq!(
         std::fs::read(&a).unwrap(),
         std::fs::read(&b).unwrap(),
@@ -121,8 +121,8 @@ fn deb_is_byte_reproducible() {
 fn rpm_is_byte_reproducible_and_has_fixed_build_time() {
     let dir = tempfile::tempdir().unwrap();
     let m = sample_manifest(dir.path());
-    let a = pack::build_rpm(&m, &dir.path().join("a")).unwrap();
-    let b = pack::build_rpm(&m, &dir.path().join("b")).unwrap();
+    let a = arx_pack::build_rpm(&m, &dir.path().join("a")).unwrap();
+    let b = arx_pack::build_rpm(&m, &dir.path().join("b")).unwrap();
     assert_eq!(
         std::fs::read(&a).unwrap(),
         std::fs::read(&b).unwrap(),
@@ -146,12 +146,12 @@ fn unknown_arch_is_rejected_not_silently_defaulted() {
         "name='a'\nversion='1'\narch='bogus42'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[files]]\nsource='{}'\ndest='/x'\nmode='0644'\n",
         src.display()
     )).unwrap();
-    let err = pack::build_deb(&m, dir.path()).unwrap_err();
+    let err = arx_pack::build_deb(&m, dir.path()).unwrap_err();
     assert!(
         err.to_string().contains("unknown architecture"),
         "expected 'unknown architecture' error, got: {err}"
     );
-    let err = pack::build_rpm(&m, dir.path()).unwrap_err();
+    let err = arx_pack::build_rpm(&m, dir.path()).unwrap_err();
     assert!(
         err.to_string().contains("unknown architecture"),
         "expected 'unknown architecture' error, got: {err}"
@@ -167,7 +167,7 @@ fn non_regular_file_source_is_rejected() {
         "name='a'\nversion='1'\narch='amd64'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[files]]\nsource='{}'\ndest='/x'\nmode='0644'\n",
         sym.display()
     )).unwrap();
-    let err = pack::build_deb(&m, dir.path()).unwrap_err();
+    let err = arx_pack::build_deb(&m, dir.path()).unwrap_err();
     assert!(
         err.to_string().contains("symbolic link"),
         "expected 'symbolic link' error, got: {err}"
@@ -179,7 +179,7 @@ fn builds_and_reparses_deb() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
 
-    let deb_path = pack::build_deb(&manifest, dir.path()).expect("deb builds");
+    let deb_path = arx_pack::build_deb(&manifest, dir.path()).expect("deb builds");
     assert!(deb_path.exists());
     assert_eq!(
         deb_path.file_name().unwrap().to_str().unwrap(),
@@ -217,7 +217,7 @@ fn builds_and_reparses_rpm() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
 
-    let rpm_path = pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
+    let rpm_path = arx_pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
     assert!(rpm_path.exists());
 
     let pkg = rpm::Package::open(&rpm_path).expect("rpm re-opens");
@@ -230,7 +230,7 @@ fn builds_and_reparses_rpm() {
 fn builds_apk() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
-    let apk_path = pack::build_apk(&manifest, dir.path()).expect("apk builds");
+    let apk_path = arx_pack::build_apk(&manifest, dir.path()).expect("apk builds");
     assert!(apk_path.exists());
     // APK is a gzipped tar — verify the structure.
     let data = std::fs::read(&apk_path).unwrap();
@@ -328,7 +328,7 @@ fn relationship_fields_and_scripts_in_deb() {
         payload = dir.path().join("hello").display(),
     );
     let manifest = Manifest::from_toml_str(&toml).unwrap();
-    let deb = pack::build_deb(&manifest, dir.path()).unwrap();
+    let deb = arx_pack::build_deb(&manifest, dir.path()).unwrap();
 
     let control = read_deb_control(&deb);
     assert!(control.contains("Conflicts: hello-old"), "{control}");

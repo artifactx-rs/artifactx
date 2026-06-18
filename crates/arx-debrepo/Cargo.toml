@@ -1,11 +1,11 @@
 [package]
-name = "debrepo"
+name = "arx-debrepo"
 version = "0.1.2"
 edition.workspace = true
 authors.workspace = true
 description = "Lightweight pure-Rust Debian/apt repository generator: parse .deb packages and emit Packages/Release indices. Signing-agnostic."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/jamesarch/artifactx"
+repository = "https://github.com/artifactx-rs/artifactx"
 keywords = ["debian", "apt", "repository", "deb", "packages"]
 categories = ["development-tools::build-utils"]
 

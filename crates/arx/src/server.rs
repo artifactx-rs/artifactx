@@ -296,7 +296,7 @@ async fn history_handler(State(st): State<AppState>, AxPath(target): AxPath<Stri
     let root = st.root.clone();
     let blocking = move || -> Result<Vec<HistoryItem>> {
         let link = crate::target_link(&root, &target);
-        let entries = debrepo::statedir::list(&link).context("listing states")?;
+        let entries = arx_debrepo::statedir::list(&link).context("listing states")?;
         Ok(entries.into_iter().map(|s| HistoryItem { id: s.id, current: s.current }).collect())
     };
     run_blocking(blocking).await
@@ -316,7 +316,7 @@ async fn rollback_handler(
     let root = st.root.clone();
     let blocking = move || -> Result<RollbackResult> {
         let link = crate::target_link(&root, &target);
-        let id = debrepo::statedir::rollback(&link, q.to.as_deref())
+        let id = arx_debrepo::statedir::rollback(&link, q.to.as_deref())
             .context("rollback failed")?;
         Ok(RollbackResult { previous: target, current: id })
     };
@@ -391,7 +391,7 @@ fn promote_files(base: &Path, from: &str, to: &str, name: &str, version: Option<
         let p = entry.path();
         if !p.is_file() || p.extension().map(|e| e != ext).unwrap_or(true) { continue; }
         let matches = if ext == "deb" {
-            let ctrl = debrepo::deb::read_control(p).with_context(|| format!("reading {}", p.display()))?;
+            let ctrl = arx_debrepo::deb::read_control(p).with_context(|| format!("reading {}", p.display()))?;
             (ctrl.package().ok() == Some(name))
                 && version.is_none_or(|v| ctrl.version().ok() == Some(v))
         } else {

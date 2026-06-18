@@ -1,4 +1,4 @@
-//! `debrepo` — a lightweight, pure-Rust Debian/apt repository generator.
+//! `arx-debrepo` — a lightweight, pure-Rust Debian/apt repository generator.
 //!
 //! It parses `.deb` packages and emits `Packages`/`Packages.gz` per
 //! architecture/component plus a single `Release` index covering the whole
@@ -20,6 +20,8 @@ pub mod deb;
 pub mod manifest;
 pub mod statedir;
 
+pub use deb::Control;
+pub use manifest::{CachedPackage, FileManifest};
 pub use statedir::StateInfo;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

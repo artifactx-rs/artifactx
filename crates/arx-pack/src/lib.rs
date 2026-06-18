@@ -1,4 +1,4 @@
-//! `pack` — a pure-Rust packager that builds `.deb` and `.rpm` artifacts from a
+//! `arx-pack` — a pure-Rust packager that builds `.deb` and `.rpm` artifacts from a
 //! single TOML manifest, with **no native toolchain required** for the common
 //! case (no `dpkg-deb`, no `rpmbuild`, no container runtime).
 //!
@@ -6,7 +6,7 @@
 //!
 //! Most packaging needs are "take these files, put them at these paths, attach
 //! this metadata". That doesn't require a foreign toolchain — it requires
-//! correctly assembling two well-specified archive formats. `pack` does exactly
+//! correctly assembling two well-specified archive formats. `arx-pack` does exactly
 //! that in pure Rust, so the same code runs on a laptop and in CI, fast and
 //! dependency-light.
 //!
@@ -16,7 +16,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use pack::Manifest;
+//! use arx_pack::Manifest;
 //! use std::path::Path;
 //!
 //! let manifest = Manifest::from_toml_str(r#"
@@ -33,8 +33,8 @@
 //!     mode = "0755"
 //! "#).unwrap();
 //!
-//! let deb = pack::build_deb(&manifest, Path::new("dist")).unwrap();
-//! let rpm = pack::build_rpm(&manifest, Path::new("dist")).unwrap();
+//! let deb = arx_pack::build_deb(&manifest, Path::new("dist")).unwrap();
+//! let rpm = arx_pack::build_rpm(&manifest, Path::new("dist")).unwrap();
 //! ```
 
 mod apk;

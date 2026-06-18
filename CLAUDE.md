@@ -77,7 +77,7 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
 
 ## Engineering notes (subordinate to the charter)
 
-- Workspace: `crates/arx` (CLI, GPL) · `crates/debrepo` (apt lib, MIT/Apache) ·
-  `crates/pack` (packaging lib, MIT/Apache).
+- Workspace: `crates/arx` (CLI, GPL) · `crates/arx-debrepo` (apt lib, MIT/Apache) ·
+  `crates/arx-pack` (packaging lib, MIT/Apache).
 - `cargo test --workspace` and `cargo clippy --workspace` must stay green.
 - git/GitHub identity: `jamesarch` / `han.shan@live.cn`.
