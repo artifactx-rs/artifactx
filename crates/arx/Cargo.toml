@@ -67,7 +67,7 @@ flate2 = "1"
 # Build-time version stamping (git sha, build time, rustc) via pure-Rust gix.
 # Pin vergen to 9.0.x: vergen-gix 1.0.x expects vergen-lib 0.1.6, but vergen
 # 9.1.0 switched to an incompatible vergen-lib, breaking add_instructions().
-vergen = ">=9.0.5, <9.1.0"
+vergen = ">=9.0.5, <9.2.0"
 vergen-gix = { version = "1", features = ["build", "cargo", "rustc"] }
 
 # Cargo.toml-driven packaging (ADR-0010 / ADR-0012 §3 dogfood). [[bin]].name
