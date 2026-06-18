@@ -1,0 +1,34 @@
+title: "Import migration: "
+labels: [import]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for migration planning or sharing an import result. Use Issues only for reproducible defects.
+  - type: dropdown
+    id: repo-type
+    attributes:
+      label: Source repo type
+      options:
+        - apt
+        - yum/dnf
+        - both
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Migration goal
+      description: What are you trying to move behind ArtifactX?
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or planned command
+      render: shell
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Auth, signatures, architectures, package count, compliance, hosting target, or rollback needs.

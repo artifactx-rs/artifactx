@@ -1,0 +1,9 @@
+# Maintainer ownership for review routing
+* @jamesarch
+
+# Release and trust-boundary changes require maintainer attention
+.github/workflows/ @jamesarch
+.github/dependabot.yml @jamesarch
+SECURITY.md @jamesarch
+AI_RULES.md @jamesarch
+CLAUDE.md @jamesarch

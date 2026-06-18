@@ -1,13 +1,23 @@
 # ArtifactX — import existing apt/yum repos into a signed static repo
 
-**Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.**
+[![CI](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml) [![Release](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/artifactx-rs/artifactx)](https://github.com/artifactx-rs/artifactx/releases/latest)
+
+**Import first. Cut over when ready.** Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.
 
 ArtifactX (`arx`) is a small Rust tool for teams that ship Linux packages but do not want to operate Nexus, aptly, Pulp, S3 glue scripts, custom signing jobs, and a web server just to let users run `apt install` or `dnf install`.
 
 ```bash
-# Migrate a slice of an existing repo, then serve it
+# Path 1: migrate a slice of an existing repo, then serve it
 arx init ./repo
 arx import https://packages.example.com --apt --dist stable --component main --match-name myapp
+arx publish --root ./repo
+arx serve --root ./repo --addr 0.0.0.0:8080
+```
+
+```bash
+# Path 2: start a new repo from packages you already built
+arx init ./repo
+arx add dist/*.deb dist/*.rpm --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo --addr 0.0.0.0:8080
 ```
@@ -36,7 +46,7 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 
 ## The migration path: import, publish, serve
 
-Use `import` when you already have packages somewhere and want a cleaner repo in front of them.
+Use `import` when you already have packages somewhere and want a cleaner repo in front of them. Start with a bounded slice, verify clients, then cut over when the repo is boring.
 
 ### Import from apt
 
@@ -74,6 +84,20 @@ arx serve --root ./repo --addr 0.0.0.0:8080
 ```
 
 ArtifactX reads `repodata/repomd.xml`, follows the primary metadata stream, downloads `.rpm` files, then regenerates signed yum repodata.
+
+## What import does — and does not do
+
+ArtifactX import is a migration path, not a magic mirror.
+
+- **It imports package files** from existing apt `Packages` metadata or yum/dnf `repodata`.
+- **It regenerates repository metadata** under your ArtifactX signing key, so clients trust your repo boundary.
+- **It is intentionally sliceable** with filters like `--match-name`, `--arch`, and `--limit` so the first migration is small and observable.
+- **It is not a bit-for-bit mirror** of the upstream repository metadata. Use mirroring when you need continuous upstream sync.
+- **It does not re-sign individual packages.** Keep package signing in your build pipeline if your clients enforce package-level signatures.
+
+## Current focus: feature freeze, polish the migration path
+
+The next work is not broad feature expansion. ArtifactX is in an import-first polish phase: make `import -> publish -> serve -> client install -> rollback` feel reliable, documented, and easy to verify before adding more package ecosystems or storage backends.
 
 ## Build your own packages too
 
@@ -217,9 +241,13 @@ Back it up with `tar`. Restore by extracting. Metadata is deterministic; if gene
 
 - [Roadmap](ROADMAP.md)
 - [Operations guide](docs/OPERATIONS.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [AI contributor rules](AI_RULES.md)
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
 - [ADR index](docs/adr/README.md)
 - [Competitive analysis](COMPETITORS.md)
-- [Wiki](https://github.com/artifactx-rs/artifactx/wiki)
 
 ## License
 

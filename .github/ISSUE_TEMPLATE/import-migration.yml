@@ -1,0 +1,39 @@
+name: Import migration report
+description: Share a real apt/yum migration result or blocker
+title: "import: "
+labels: [import, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ArtifactX is in import-first polish mode. Real migration reports are high signal.
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source repository type
+      options:
+        - apt
+        - yum/dnf
+        - both
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      render: shell
+      placeholder: arx import https://packages.example.com --apt --dist stable --component main --match-name myapp --limit 20
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: What worked, what failed, and what client command you verified.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Repository constraints
+      description: Auth, private network, unusual metadata, package signatures, architectures, size, or compliance requirements.

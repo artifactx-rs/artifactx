@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible ArtifactX defect
+title: "bug: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please include the smallest command sequence that reproduces the problem.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What broke for users or operators?
+      placeholder: apt update fails, dnf cannot verify metadata, publish produced unexpected layout...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Commands, input metadata/package shape, and observed output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: arx version
+      placeholder: arx --version
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - import apt
+        - import yum/dnf
+        - publish/signing
+        - serve/push API
+        - pack deb/rpm/apk
+        - CI/release
+        - docs
+        - other
+    validations:
+      required: true

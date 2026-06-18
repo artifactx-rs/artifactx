@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose an improvement without bypassing the feature freeze
+title: "proposal: "
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ArtifactX is currently feature-frozen around import-first polish. New features should explain why they improve the migration path now, or why they should stay parked.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user/operator problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: dropdown
+    id: timing
+    attributes:
+      label: Timing
+      options:
+        - Improves current import-first polish
+        - Park until after feature freeze
+        - Unsure
+    validations:
+      required: true

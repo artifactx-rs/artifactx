@@ -327,9 +327,9 @@ jobs:
           </head>
           <body>
             <header class="wrap">
-              <span class="eyebrow">Import first. Serve fast.</span>
-              <h1>Import apt/yum repos into your own <span class="grad">signed static repo</span>.</h1>
-              <p class="lead">Start with packages you already publish, pull a bounded slice, regenerate apt/yum metadata under your key, and serve it from one static binary.</p>
+              <span class="eyebrow">Import first. Cut over when ready.</span>
+              <h1>Import or create apt/yum repos, then serve a <span class="grad">signed static repo</span>.</h1>
+              <p class="lead">Start with packages you already publish, or create a repo from local .deb/.rpm files. Publish signed apt/yum metadata, verify clients, then cut over when the repo is boring.</p>
               <div class="actions">
                 <a class="btn primary" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
                 <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
@@ -351,8 +351,8 @@ jobs:
               </section>
 
               <section class="grid">
-                <article class="card"><span class="tag">Import</span><p><strong>Migrate existing repos.</strong> Pull from apt Packages metadata or yum repodata, then publish your own signed repo.</p></article>
-                <article class="card"><span class="tag">Publish</span><p><strong>Atomic metadata.</strong> Build in staging, sign, then flip the live repo state without half-written indexes.</p></article>
+                <article class="card"><span class="tag">Import</span><p><strong>Migrate existing repos.</strong> Pull from apt Packages metadata or yum repodata, then publish your own signed repo. It is a controlled migration path, not a blind mirror.</p></article>
+                <article class="card"><span class="tag">Create</span><p><strong>Start from local packages too.</strong> Run <code>arx init</code>, add .deb/.rpm files, publish, and serve from the same binary.</p></article>
                 <article class="card"><span class="tag">Rollback</span><p><strong>Bad release?</strong> Keep published states and return clients to a previous repo snapshot.</p></article>
                 <article class="card"><span class="tag">CI</span><p><strong>Push from pipelines.</strong> Upload packages to <code>arx serve</code> with a token or GitHub OIDC.</p></article>
               </section>
@@ -360,18 +360,19 @@ jobs:
               <section class="split">
                 <div class="card">
                   <h2>Import an upstream repo</h2>
-                  <p>Start with the packages you already publish elsewhere. Filter by name, limit the first migration, then regenerate metadata under your own stable signing key.</p>
+                  <p>Start with the packages you already publish elsewhere. Filter by name, limit the first migration, verify apt/dnf clients, then regenerate metadata under your own stable signing key.</p>
                   <div class="terminal"><pre>arx init ./repo
           arx import https://packages.example.com --apt --dist stable --component main --match-name myapp --limit 20
           arx publish --root ./repo
           arx serve --root ./repo</pre></div>
                 </div>
                 <div class="card">
-                  <h2>Build packages too</h2>
-                  <p>Use a standalone manifest or Cargo.toml to produce .deb, .rpm, and .apk artifacts, then publish them into the same repo.</p>
-                  <div class="terminal"><pre>arx pack ./Cargo.toml --out dist
+                  <h2>Create and serve a new repo</h2>
+                  <p>Use packages you already built, or package from a manifest or Cargo.toml, then publish them into a repo served by <code>arx serve</code>.</p>
+                  <div class="terminal"><pre>arx init ./repo
           arx add dist/*.deb dist/*.rpm --root ./repo
-          arx publish --root ./repo</pre></div>
+          arx publish --root ./repo
+          arx serve --root ./repo</pre></div>
                 </div>
               </section>
             </main>
