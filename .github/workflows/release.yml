@@ -384,7 +384,7 @@ jobs:
           </html>
           HTML
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with: { path: public }
       - id: deployment
         uses: actions/deploy-pages@v4
