@@ -271,7 +271,7 @@ jobs:
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>ArtifactX — import apt/yum repos into a signed static repo</title>
+            <title>ArtifactX — publish package repos like a static blog</title>
             <style>
               :root {
                 color-scheme: dark;
@@ -443,21 +443,22 @@ jobs:
           <body>
             <header class="wrap">
               <div>
-                <span class="eyebrow">Import first. Cut over when ready.</span>
-                <h1>Import or create apt/yum repos. Serve a <span class="grad">signed static repo</span>.</h1>
-                <p class="lead">Start with packages you already publish, or create a repo from local .deb/.rpm files. Publish signed apt/yum metadata, verify clients, then cut over.</p>
+                <span class="eyebrow">Static hosting for package repos.</span>
+                <h1>Publish package repos like a <span class="grad">static blog</span>.</h1>
+                <p class="lead">Import an existing apt/yum repo or start from local .deb/.rpm files. ArtifactX signs the metadata and emits static files you can host on Pages, S3, nginx, or <code>arx serve</code>.</p>
                 <div class="actions">
-                  <a class="btn primary" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
+                  <a class="btn primary" href="${REPO_URL}/install.sh">Install arx</a>
+                  <a class="btn" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
                   <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
                   <a class="btn" href="https://github.com/${{ github.repository }}">GitHub</a>
                 </div>
               </div>
               <aside class="hero-panel" aria-label="ArtifactX quick path">
-                <h2>Two boring paths to production</h2>
+                <h2>From packages to static hosting</h2>
                 <div class="steps">
-                  <div class="step"><span class="num">01</span><span><strong>Import</strong>Pull a bounded slice from an existing apt/yum repo.</span></div>
-                  <div class="step"><span class="num">02</span><span><strong>Create</strong>Add local .deb/.rpm files or package from Cargo.toml.</span></div>
-                  <div class="step"><span class="num">03</span><span><strong>Serve</strong>Publish signed metadata and serve with one static binary.</span></div>
+                  <div class="step"><span class="num">01</span><span><strong>Bring packages</strong>Import upstream metadata or add local .deb/.rpm files.</span></div>
+                  <div class="step"><span class="num">02</span><span><strong>Publish</strong>Generate signed apt/yum metadata under your own key.</span></div>
+                  <div class="step"><span class="num">03</span><span><strong>Host</strong>Upload static files or run the same binary as a server.</span></div>
                 </div>
               </aside>
             </header>
@@ -478,13 +479,13 @@ jobs:
                 <article class="card"><span class="tag">Import</span><p><strong>Migrate existing repos.</strong> Pull from apt Packages metadata or yum repodata, then publish your own signed repo. It is a controlled migration path, not a blind mirror.</p></article>
                 <article class="card"><span class="tag">Create</span><p><strong>Start from local packages too.</strong> Run <code>arx init</code>, add .deb/.rpm files, publish, and serve from the same binary.</p></article>
                 <article class="card"><span class="tag">Rollback</span><p><strong>Bad release?</strong> Keep published states and return clients to a previous repo snapshot.</p></article>
-                <article class="card"><span class="tag">CI</span><p><strong>Push from pipelines.</strong> Upload packages to <code>arx serve</code> with a token or GitHub OIDC.</p></article>
+                <article class="card"><span class="tag">Static</span><p><strong>Host it like a blog.</strong> Publish signed repo files to GitHub Pages, S3, nginx, or serve them from the same <code>arx</code> binary.</p></article>
               </section>
 
               <section class="split">
                 <div class="card feature">
                   <h2>Import an upstream repo</h2>
-                  <p>Start with the packages you already publish elsewhere. Filter by name, limit the first migration, verify apt/dnf clients, then regenerate metadata under your own stable signing key.</p>
+                  <p>Start with packages you already publish elsewhere. Filter the first migration, verify apt/dnf clients, then regenerate static repo files under your own stable signing key.</p>
                   <div class="terminal"><pre>arx init ./repo
           arx import https://packages.example.com --apt \
             --dist stable --component main \
@@ -494,7 +495,7 @@ jobs:
                 </div>
                 <div class="card feature">
                   <h2>Create and serve a new repo</h2>
-                  <p>Use packages you already built, or package from a manifest or Cargo.toml, then publish them into a repo served by <code>arx serve</code>.</p>
+                  <p>Use packages you already built, or package from a manifest or Cargo.toml, then publish a signed repo you can host anywhere static files work.</p>
                   <div class="terminal"><pre>arx init ./repo
           arx add dist/*.deb dist/*.rpm --root ./repo
           arx publish --root ./repo
@@ -504,7 +505,7 @@ jobs:
             </main>
 
             <footer class="wrap">
-              <p>ArtifactX: one static binary for importing, packaging, signing, serving, promoting, pruning, and rolling back Linux package repositories.</p>
+              <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary.</p>
             </footer>
           </body>
           </html>
