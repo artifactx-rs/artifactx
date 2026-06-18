@@ -126,15 +126,17 @@ fn rpm_is_byte_reproducible_and_has_fixed_build_time() {
         std::fs::read(&b).unwrap(),
         ".rpm must be byte-for-byte reproducible across builds"
     );
-    // Verify the build time is the deterministic-epoch value (0), not wall-clock.
+    // Verify the build time is the deterministic epoch, not wall-clock. Nix and
+    // other reproducible-build environments may set SOURCE_DATE_EPOCH globally.
+    let expected_epoch = u64::from(arx_pack::resolve_source_epoch());
     let pkg = rpm::Package::open(&a).expect("rpm re-opens for timestamp check");
     let build_time = pkg
         .metadata
         .get_build_time()
         .expect("rpm must have a build_time header");
     assert_eq!(
-        build_time, 0,
-        "rpm build_time must be 0 (SOURCE_DATE_EPOCH default)"
+        build_time, expected_epoch,
+        "rpm build_time must follow SOURCE_DATE_EPOCH/default reproducibility epoch"
     );
 }
 
