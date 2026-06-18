@@ -31,21 +31,20 @@ jobs:
         run: |
           cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
           cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
-          V="${{ github.ref_name }}"; V="${V#v}"; cp target/x86_64-unknown-linux-musl/release/arx arx-${V}-amd64
-          cp target/aarch64-unknown-linux-musl/release/arx arx-${V}-arm64
+          cp target/x86_64-unknown-linux-musl/release/arx arx-${{ github.ref_name }}-amd64
+          cp target/aarch64-unknown-linux-musl/release/arx arx-${{ github.ref_name }}-arm64
           ls -la arx-*
 
       - name: Self-package — arx packages arx (.deb + .rpm)
         run: |
-          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
-          chmod +x arx-${V}-amd64
+          TAG="${{ github.ref_name }}"; PKGVER="${TAG#v}"; [ -z "$PKGVER" ] && PKGVER="0.1.0"
+          chmod +x arx-${TAG}-amd64
           for arch in amd64 arm64; do
             mkdir -p /tmp/pack/$arch
-            cp arx-${V}-$arch /tmp/pack/$arch/arx
-            # deb manifest
+            cp arx-${TAG}-$arch /tmp/pack/$arch/arx
             cat > /tmp/pack/$arch/arx-deb.toml << TOML
           name = "arx"
-          version = "$V"
+          version = "$PKGVER"
           arch = "$arch"
           maintainer = "ArtifactX <team@artifactx.rs>"
           description = "Cross-platform package repository manager — one static binary"
@@ -57,11 +56,10 @@ jobs:
           dest = "/usr/bin/arx"
           mode = "0755"
           TOML
-            # rpm manifest
             rpm_arch="x86_64"; [ "$arch" = "arm64" ] && rpm_arch="aarch64"
             cat > /tmp/pack/$arch/arx-rpm.toml << TOML
           name = "arx"
-          version = "$V"
+          version = "$PKGVER"
           arch = "$rpm_arch"
           maintainer = "ArtifactX <team@artifactx.rs>"
           description = "Cross-platform package repository manager — one static binary"
@@ -71,11 +69,10 @@ jobs:
           dest = "/usr/bin/arx"
           mode = "0755"
           TOML
-            ./arx-${V}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
-            ./arx-${V}-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
+            ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
+            ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
           done
-          # Also build native apk
-          ./arx-${V}-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
+          ./arx-${TAG}-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
           echo "=== self-packaged artifacts ==="
           ls -la dist/
 
@@ -87,17 +84,12 @@ jobs:
           body: |
             ## ArtifactX ${{ github.ref_name }}
             **Build Once. Package Once. Publish Everywhere.**
-            ### Download
-            | Arch | Binary | .deb | .rpm |
-            |---|---|---|---|
-            | amd64 | `arx-*-amd64` | `arx_*_amd64.deb` | `arx-*.x86_64.rpm` |
-            | arm64 | `arx-*-arm64` | `arx_*_arm64.deb` | `arx-*.aarch64.rpm` |
             ```bash
-            V="${{ github.ref_name }}"; V="${V#v}"
-            curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/${{ github.ref_name }}/arx-${V}-amd64
-            sudo install -m 755 arx-${V}-amd64 /usr/local/bin/arx
+            curl -fsSLO ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/arx-${{ github.ref_name }}-amd64
+            sudo install -m 755 arx-${{ github.ref_name }}-amd64 /usr/local/bin/arx
+            arx init && arx pack ./Cargo.toml && arx publish && arx serve
             ```
-            Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/artifactx-rs/arx:${{ github.ref_name }} serve`
+            Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/${{ github.repository_owner }}/arx:${{ github.ref_name }} serve`
           generate_release_notes: true
 
       - name: GHCR login
@@ -109,25 +101,25 @@ jobs:
 
       - name: GHCR multi-arch image
         run: |
-          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
+          TAG="${{ github.ref_name }}"; PKGVER="${TAG#v}"; [ -z "$PKGVER" ] && PKGVER="0.1.0"
           for arch in amd64 arm64; do
             mkdir -p /tmp/ghcr/$arch
-            cp arx-${V}-$arch /tmp/ghcr/$arch/arx
+            cp arx-${TAG}-$arch /tmp/ghcr/$arch/arx
             printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
-            docker build -t ghcr.io/artifactx-rs/arx:$V-$arch -f /tmp/ghcr/$arch/Dockerfile /tmp/ghcr/$arch
-            docker push ghcr.io/artifactx-rs/arx:$V-$arch
+            docker build -t ghcr.io/artifactx-rs/arx:${TAG}-$arch -f /tmp/ghcr/$arch/Dockerfile /tmp/ghcr/$arch
+            docker push ghcr.io/artifactx-rs/arx:${TAG}-$arch
           done
-          docker manifest create ghcr.io/artifactx-rs/arx:$V \
-            ghcr.io/artifactx-rs/arx:$V-amd64 \
-            ghcr.io/artifactx-rs/arx:$V-arm64
+          docker manifest create ghcr.io/artifactx-rs/arx:${TAG} \
+            ghcr.io/artifactx-rs/arx:${TAG}-amd64 \
+            ghcr.io/artifactx-rs/arx:${TAG}-arm64
           docker manifest create ghcr.io/artifactx-rs/arx:latest \
-            ghcr.io/artifactx-rs/arx:$V-amd64 \
-            ghcr.io/artifactx-rs/arx:$V-arm64
-          docker manifest push ghcr.io/artifactx-rs/arx:$V
+            ghcr.io/artifactx-rs/arx:${TAG}-amd64 \
+            ghcr.io/artifactx-rs/arx:${TAG}-arm64
+          docker manifest push ghcr.io/artifactx-rs/arx:${TAG}
           docker manifest push ghcr.io/artifactx-rs/arx:latest
 
       - uses: actions/upload-artifact@v4
-        with: { name: arx-bin, path: arx-*-amd64 }
+        with: { name: arx-bin, path: arx-v*-amd64 }
 
   pages:
     needs: release
@@ -140,8 +132,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: arx-bin }
       - run: |
-          V="${{ github.ref_name }}"; V="${V#v}"; [ -z "$V" ] && V="0.1.0"
-          chmod +x arx-${V}-amd64 && mkdir -p build && cp arx-${V}-amd64 build/arx
+          TAG="${{ github.ref_name }}"; [ -z "$TAG" ] && TAG="v0.1.0"
+          chmod +x arx-${TAG}-amd64 && mkdir -p build && cp arx-${TAG}-amd64 build/arx
 
       - name: Package arx for dogfood
         run: ./build/arx pack packaging/arx.toml --out dist
@@ -150,13 +142,13 @@ jobs:
         env:
           ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
         run: |
-          ./arx init public --no-key
+          ./build/arx init public --no-key
           if [ -n "${{ secrets.ARX_SIGNING_KEY }}" ]; then
             printf '%s' "${{ secrets.ARX_SIGNING_KEY }}" > /tmp/key.asc
-            ./arx key import /tmp/key.asc --root public
+            ./build/arx key import /tmp/key.asc --root public
           fi
-          ./arx add dist/*.deb dist/*.rpm --root public
-          ./arx publish --root public
+          ./build/arx add dist/*.deb dist/*.rpm --root public
+          ./build/arx publish --root public
           cp public/keys/public.asc public/public.asc 2>/dev/null || true
           cat > public/index.html <<'HTML'
           <!doctype html><meta charset=utf-8><title>ArifactX repo</title>
