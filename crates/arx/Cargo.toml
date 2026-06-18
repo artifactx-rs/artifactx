@@ -40,7 +40,7 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 metrics = "0.23"
-metrics-exporter-prometheus = { version = "0.15", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 
 # CLI / general
 clap = { version = "4", features = ["derive"] }
