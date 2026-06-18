@@ -17,6 +17,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - name: version sync
+        run: scripts/sync-version.py --check
       - name: install real-tool validators (dpkg-deb + rpm)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev rpm
       - name: clippy

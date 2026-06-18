@@ -19,13 +19,29 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Verify version pins are synchronized
+        run: scripts/sync-version.py --check
+
       - name: Resolve release metadata
         id: meta
         run: |
-          CRATE_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/arx/Cargo.toml | head -n1)"
+          CRATE_VERSION="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('crates/arx/Cargo.toml').read_text()
+          match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          if not match:
+              raise SystemExit('version field not found in crates/arx/Cargo.toml')
+          print(match.group(1))
+          PY
+          )"
           if [ "${{ github.ref_type }}" = "tag" ]; then
             TAG="${{ github.ref_name }}"
             VERSION="${TAG#v}"
+            if [ "$VERSION" != "$CRATE_VERSION" ]; then
+              echo "Tag $TAG does not match Cargo version $CRATE_VERSION" >&2
+              exit 1
+            fi
           else
             TAG="latest"
             VERSION="$CRATE_VERSION"
