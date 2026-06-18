@@ -6,6 +6,8 @@
 
 ArtifactX (`arx`) is a small Rust tool for teams that ship Linux packages but do not want to operate Nexus, aptly, Pulp, S3 glue scripts, custom signing jobs, and a web server just to let users run `apt install` or `dnf install`.
 
+Start with the [documentation map](docs/README.md) if you want the import tutorial, Docker/systemd guides, signing notes, or CLI/config reference.
+
 ```bash
 # Path 1: migrate a slice of an existing repo, then serve it
 arx init ./repo
@@ -382,6 +384,7 @@ Change `origin`, `label`, `description`, and `signing.user_id` before generating
 
 ## Project links
 
+- [Documentation](docs/README.md)
 - [Roadmap](ROADMAP.md)
 - [Operations guide](docs/OPERATIONS.md)
 - [Contributing](CONTRIBUTING.md)
