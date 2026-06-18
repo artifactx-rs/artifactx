@@ -5,7 +5,7 @@ Pure-Rust `.deb` / `.rpm` / `.apk` packager.
 Built-in HTTP server. Zero dependencies, zero daemons.
 
 [![ci](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml)
-[![v0.1.0](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/artifactx-rs/artifactx/releases/tag/v0.1.0)
+[![v0.1.0](https://img.shields.io/badge/version-latest-blue)](https://github.com/artifactx-rs/artifactx/releases/latest)
 [![Project](https://img.shields.io/badge/project-Done%3A24%20%2F%20Todo%3A0-green)](https://github.com/orgs/artifactx-rs/projects/1)
 
 ```bash
@@ -20,7 +20,7 @@ arx serve                             # HTTP server on :8080
 
 ### Download static binary
 ```bash
-curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/v0.1.0/arx-amd64
+curl -fsSLO https://github.com/artifactx-rs/artifactx/releases/download/latest/arx-latest-amd64
 sudo install -m 755 arx-amd64 /usr/local/bin/arx
 arx --version
 ```
@@ -28,7 +28,7 @@ arx --version
 ### Docker
 ```bash
 docker run --rm -v $(pwd)/repo:/repo -p 8080:8080 \
-  ghcr.io/artifactx-rs/arx:v0.1.0 serve --root /repo --addr 0.0.0.0:8080
+  ghcr.io/artifactx-rs/arx:latest serve --root /repo --addr 0.0.0.0:8080
 ```
 
 ### Docker Compose
@@ -36,7 +36,7 @@ docker run --rm -v $(pwd)/repo:/repo -p 8080:8080 \
 # docker-compose.yml
 services:
   arx:
-    image: ghcr.io/artifactx-rs/arx:v0.1.0
+    image: ghcr.io/artifactx-rs/arx:latest
     ports: ['8080:8080']
     volumes: ['./repo:/repo']
     command: serve --root /repo --addr 0.0.0.0:8080
@@ -72,7 +72,7 @@ cargo build --release
 
 ## Verified
 
-- **57 tests** across 4 workspace crates, all green, clippy clean.
+- **58 tests** across 4 workspace crates, all green, clippy clean.
 - **Real apt-get** install on Debian bookworm-slim (Docker).
 - **Real dnf install** on Fedora 44 (Docker).
 - **Reproducible builds** — `SOURCE_DATE_EPOCH` support, deterministic .deb/.rpm output.

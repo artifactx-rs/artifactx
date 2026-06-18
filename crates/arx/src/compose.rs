@@ -56,7 +56,7 @@ mod tests {
         assert!(compose.exists(), "docker-compose.yml should exist");
 
         let df = std::fs::read_to_string(&dockerfile).unwrap();
-        assert!(df.contains("FROM"), "Dockerfile should have FROM");
+        assert!(df.contains("ghcr.io"), "Dockerfile should reference GHCR image");
         assert!(df.contains("arx"), "Dockerfile should reference arx");
 
         let cy = std::fs::read_to_string(&compose).unwrap();
