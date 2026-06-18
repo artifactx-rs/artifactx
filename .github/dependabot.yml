@@ -19,6 +19,7 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      - dependency-name: "vergen"
   - package-ecosystem: github-actions
     directory: /
     schedule:
