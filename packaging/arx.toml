@@ -3,7 +3,7 @@
 # version from the git tag before running `arx pack packaging/arx.toml`.
 
 name = "arx"
-version = "0.1.2"
+version = "0.1.3"
 arch = "amd64" # `arx pack` maps this to x86_64 for the .rpm automatically
 maintainer = "ArtifactX <arx@artifactx-rs.github.io>"
 description = """ArtifactX — cross-platform package repository manager.
