@@ -70,7 +70,7 @@ jobs:
 
           crate_published() {
             local crate="$1" version="$2"
-            cargo search "$crate" --limit 1 | grep -Eq "^${crate} = \"${version}\""
+            CARGO_TERM_COLOR=never cargo search "$crate" --limit 1 | grep -Eq "^${crate} = \"${version}\""
           }
 
           publish_crate() {
