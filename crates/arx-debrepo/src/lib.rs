@@ -279,7 +279,7 @@ pub fn stage_dist(
     for component in &components {
         let mut by_arch: BTreeMap<String, String> = BTreeMap::new();
         let mut all_stanzas: Vec<String> = Vec::new();
-        let pool_comp = apt_root.join("pool").join(component);
+        let pool_comp = apt_root.join(pool_subdir).join(component);
         let comp_manifest = if incremental {
             manifest::FileManifest::load(&pool_comp).unwrap_or_default()
         } else {
@@ -371,7 +371,7 @@ pub fn stage_dist(
                     }
                 };
                 let sha = hex_sha256(&deb_bytes);
-                let rel = format!("pool/{component}/{fname}");
+                let rel = format!("{pool_subdir}/{component}/{fname}");
                 let s = package_stanza(&control, &rel, &deb_bytes);
                 // Store in the next manifest.
                 if incremental {

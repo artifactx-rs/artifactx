@@ -1,0 +1,913 @@
+//! Full CLI regression smoke tests for functionality not covered by narrower
+//! unit tests. These tests intentionally drive the built `arx` binary so the
+//! user-facing command wiring stays covered.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use sha2::{Digest, Sha256};
+
+mod common;
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+struct StaticServer {
+    base_url: String,
+    stop: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for StaticServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(self.base_url.trim_start_matches("http://"));
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn gzip(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut e = flate2::write::GzEncoder::new(&mut out, flate2::Compression::default());
+    e.write_all(data).unwrap();
+    e.finish().unwrap();
+    out
+}
+
+fn write_deb(path: &Path, name: &str, version: &str, arch: &str) {
+    let control = format!(
+        "Package: {name}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@localhost>\nDescription: test\n"
+    );
+    let mut control_tar = Vec::new();
+    {
+        let mut tb = tar::Builder::new(&mut control_tar);
+        let bytes = control.as_bytes();
+        let mut h = tar::Header::new_gnu();
+        h.set_path("./control").unwrap();
+        h.set_size(bytes.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        tb.append(&h, bytes).unwrap();
+        tb.finish().unwrap();
+    }
+    let control_gz = gzip(&control_tar);
+    let mut data_tar = Vec::new();
+    tar::Builder::new(&mut data_tar).finish().unwrap();
+    let data_gz = gzip(&data_tar);
+
+    let file = std::fs::File::create(path).unwrap();
+    let mut b = ar::Builder::new(file);
+    b.append(
+        &ar::Header::new(b"debian-binary".to_vec(), 4),
+        &b"2.0\n"[..],
+    )
+    .unwrap();
+    b.append(
+        &ar::Header::new(b"control.tar.gz".to_vec(), control_gz.len() as u64),
+        &control_gz[..],
+    )
+    .unwrap();
+    b.append(
+        &ar::Header::new(b"data.tar.gz".to_vec(), data_gz.len() as u64),
+        &data_gz[..],
+    )
+    .unwrap();
+}
+
+fn write_pack_manifest(path: &Path, payload: &Path, name: &str, version: &str) {
+    std::fs::write(
+        path,
+        format!(
+            "name = \"{name}\"\n\
+             version = \"{version}\"\n\
+             arch = \"x86_64\"\n\
+             maintainer = \"T <t@localhost>\"\n\
+             description = \"test package\"\n\
+             license = \"MIT\"\n\
+             [[files]]\n\
+             source = \"{}\"\n\
+             dest = \"/usr/bin/{name}\"\n\
+             mode = \"0755\"\n",
+            payload.display()
+        ),
+    )
+    .unwrap();
+}
+
+fn arx_output(args: &[&str]) -> std::process::Output {
+    common::arx_command().args(args).output().unwrap()
+}
+
+fn arx_ok(args: &[&str]) {
+    let output = arx_output(args);
+    assert!(
+        output.status.success(),
+        "arx {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn sha256_hex(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap();
+    hex::encode(Sha256::digest(&bytes))
+}
+
+fn start_static_server(root: PathBuf) -> StaticServer {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = Arc::clone(&stop);
+    let handle = thread::spawn(move || {
+        while !stop_thread.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => serve_one(&root, &mut stream),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    StaticServer {
+        base_url: format!("http://{addr}"),
+        stop,
+        handle: Some(handle),
+    }
+}
+
+fn serve_one(root: &Path, stream: &mut TcpStream) {
+    let mut buf = [0_u8; 4096];
+    let n = match stream.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return,
+    };
+    let request = String::from_utf8_lossy(&buf[..n]);
+    let Some(path) = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+    else {
+        return;
+    };
+    let rel = path.trim_start_matches('/');
+    if rel.contains("..") {
+        write_response(stream, 400, b"bad request");
+        return;
+    }
+    let file = root.join(rel);
+    match std::fs::read(&file) {
+        Ok(body) => write_response(stream, 200, &body),
+        Err(_) => write_response(stream, 404, b"not found"),
+    }
+}
+
+fn write_response(stream: &mut TcpStream, status: u16, body: &[u8]) {
+    let reason = if status == 200 { "OK" } else { "ERR" };
+    let header = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+}
+
+fn wait_for<F: Fn() -> bool>(label: &str, timeout: Duration, f: F) {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if f() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    panic!("timed out waiting for {label}");
+}
+
+#[test]
+fn every_cli_subcommand_is_wired_into_help() {
+    let output = arx_output(&["--help"]);
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    for cmd in [
+        "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
+        "gc", "promote", "serve", "mirror", "watch", "compose",
+    ] {
+        assert!(
+            help.contains(cmd),
+            "help output missing command {cmd}:\n{help}"
+        );
+    }
+}
+
+#[test]
+fn import_and_mirror_download_from_upstream_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let upstream = tmp.path().join("upstream");
+    let pool = upstream.join("pool/main");
+    let packages_dir = upstream.join("dists/stable/main/binary-amd64");
+    std::fs::create_dir_all(&pool).unwrap();
+    std::fs::create_dir_all(&packages_dir).unwrap();
+    let deb = pool.join("hello_1.0-1_amd64.deb");
+    write_deb(&deb, "hello", "1.0-1", "amd64");
+    let size = std::fs::metadata(&deb).unwrap().len();
+    let sha = sha256_hex(&deb);
+    std::fs::write(
+        packages_dir.join("Packages"),
+        format!(
+            "Package: hello\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/main/hello_1.0-1_amd64.deb\nSize: {size}\nSHA256: {sha}\n\n"
+        ),
+    )
+    .unwrap();
+    let server = start_static_server(upstream);
+
+    let import_root = tmp.path().join("import-root");
+    arx_ok(&["init", import_root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "import",
+        &server.base_url,
+        "--apt",
+        "--root",
+        import_root.to_str().unwrap(),
+        "--dist",
+        "stable",
+        "--component",
+        "main",
+        "--arch",
+        "amd64",
+    ]);
+    assert!(
+        import_root
+            .join("apt/pool/main/hello_1.0-1_amd64.deb")
+            .exists(),
+        "import should store downloaded .deb in the apt pool"
+    );
+
+    let mirror_root = tmp.path().join("mirror-root");
+    arx_ok(&["init", mirror_root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "mirror",
+        &server.base_url,
+        "--root",
+        mirror_root.to_str().unwrap(),
+        "--dist",
+        "stable",
+        "--component",
+        "main",
+        "--arch",
+        "amd64",
+    ]);
+    assert!(
+        mirror_root
+            .join("apt/pool/main/hello_1.0-1_amd64.deb")
+            .exists(),
+        "mirror should store synced .deb in the apt pool"
+    );
+    assert!(
+        mirror_root.join("apt/pool/main/.arx-mirror.toml").exists(),
+        "mirror should persist incremental state"
+    );
+}
+
+#[test]
+fn publish_history_and_rollback_cli_work_together() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let pkg1 = tmp.path().join("hello_1.0-1_amd64.deb");
+    let pkg2 = tmp.path().join("hello_2.0-1_amd64.deb");
+    write_deb(&pkg1, "hello", "1.0-1", "amd64");
+    write_deb(&pkg2, "hello", "2.0-1", "amd64");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        pkg1.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "main",
+    ]);
+    arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
+    let first_release = std::fs::read_to_string(root.join("apt/dists/stable/Release")).unwrap();
+
+    std::thread::sleep(Duration::from_millis(1100));
+    arx_ok(&[
+        "add",
+        pkg2.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "main",
+    ]);
+    arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
+    let second_release = std::fs::read_to_string(root.join("apt/dists/stable/Release")).unwrap();
+    assert_ne!(
+        first_release, second_release,
+        "second publish should update Release"
+    );
+
+    let history = arx_output(&["history", "stable", "--root", root.to_str().unwrap()]);
+    assert!(history.status.success());
+    let history_text = String::from_utf8_lossy(&history.stdout);
+    assert!(
+        history_text.contains("stable"),
+        "history output: {history_text}"
+    );
+
+    arx_ok(&["rollback", "stable", "--root", root.to_str().unwrap()]);
+    let rolled_back = std::fs::read_to_string(root.join("apt/dists/stable/Release")).unwrap();
+    assert_eq!(
+        rolled_back, first_release,
+        "rollback should restore previous state"
+    );
+}
+
+#[test]
+fn serve_and_push_round_trip_a_deb_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let pkg = tmp.path().join("hello_1.0-1_amd64.deb");
+    write_deb(&pkg, "hello", "1.0-1", "amd64");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    arx_ok(&[
+        "push",
+        pkg.to_str().unwrap(),
+        "--url",
+        &base,
+        "--token",
+        "test-token",
+        "--component",
+        "main",
+    ]);
+    assert!(root.join("apt/pool/main/hello_1.0-1_amd64.deb").exists());
+    assert!(root.join("apt/dists/stable/Release").exists());
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn serve_rejects_unauthenticated_write_when_token_is_configured() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let public_health = client.get(format!("{base}/api/v1/health")).send().unwrap();
+    assert_eq!(public_health.status(), reqwest::StatusCode::OK);
+
+    let unauthenticated_write = client.post(format!("{base}/api/v1/gc")).send().unwrap();
+    assert_eq!(
+        unauthenticated_write.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "token-configured writes must reject missing Authorization"
+    );
+
+    let wrong_token_write = client
+        .post(format!("{base}/api/v1/gc"))
+        .bearer_auth("wrong-token")
+        .send()
+        .unwrap();
+    assert_eq!(
+        wrong_token_write.status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+
+    let authed_write = client
+        .post(format!("{base}/api/v1/gc?dry_run=true"))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap();
+    assert!(
+        authed_write.status().is_success(),
+        "correct token should pass middleware, got {}",
+        authed_write.status()
+    );
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn serve_upload_response_uses_configured_storage_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let deb = tmp.path().join("stored_1.0-1_amd64.deb");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("stored-rpm.toml");
+    let out = tmp.path().join("dist");
+    write_deb(&deb, "stored", "1.0-1", "amd64");
+    std::fs::write(&payload, b"#!/bin/sh\necho stored\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "storedrpm", "1.0.0");
+
+    arx_ok(&[
+        "init",
+        root.to_str().unwrap(),
+        "--no-key",
+        "--pool-dir",
+        "pkgs",
+    ]);
+    let config_path = root.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("base_dir = \"yum\"", "base_dir = \"rpmrepos\""),
+    )
+    .unwrap();
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--rpm",
+    ]);
+    let rpm = out.join("storedrpm-1.0.0-1.x86_64.rpm");
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+    let client = reqwest::blocking::Client::new();
+
+    let deb_response: serde_json::Value = client
+        .post(format!("{base}/api/v1/packages"))
+        .bearer_auth("test-token")
+        .header("X-Arx-Filename", "stored_1.0-1_amd64.deb")
+        .header("X-Arx-Component", "main")
+        .body(std::fs::read(&deb).unwrap())
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(
+        deb_response["stored"],
+        "apt/pkgs/main/stored_1.0-1_amd64.deb"
+    );
+
+    let rpm_response: serde_json::Value = client
+        .post(format!("{base}/api/v1/packages"))
+        .bearer_auth("test-token")
+        .header("X-Arx-Filename", "storedrpm-1.0.0-1.x86_64.rpm")
+        .header("X-Arx-Repo", "custom")
+        .body(std::fs::read(&rpm).unwrap())
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(
+        rpm_response["stored"],
+        "rpmrepos/custom/x86_64/storedrpm-1.0.0-1.x86_64.rpm"
+    );
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn watch_imports_new_package_and_publishes_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let watch_dir = tmp.path().join("watch");
+    std::fs::create_dir_all(&watch_dir).unwrap();
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "watch",
+                watch_dir.to_str().unwrap(),
+                "--root",
+                root.to_str().unwrap(),
+                "--interval",
+                "1",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+
+    let pkg = watch_dir.join("watched_1.0-1_amd64.deb");
+    write_deb(&pkg, "watched", "1.0-1", "amd64");
+    wait_for("watch import", Duration::from_secs(10), || {
+        root.join("apt/pool/main/watched_1.0-1_amd64.deb").exists()
+            && root.join("apt/dists/stable/Release").exists()
+    });
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn compose_generates_deployment_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let out = tmp.path().join("compose-out");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "compose",
+        "--root",
+        root.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(out.join("docker-compose.yml").exists());
+    assert!(out.join("Dockerfile").exists());
+}
+
+#[test]
+fn pack_cli_flags_and_add_place_expected_artifacts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let out = tmp.path().join("dist");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("pkg.toml");
+    std::fs::write(&payload, b"#!/bin/sh\necho packed\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "packed", "1.0.0");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+    ]);
+    assert!(out.join("packed_1.0.0_amd64.deb").exists());
+    assert!(
+        !out.join("packed-1.0.0-1.x86_64.rpm").exists(),
+        "--deb should not emit rpm"
+    );
+
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--rpm",
+        "--apk",
+    ]);
+    assert!(out.join("packed-1.0.0-1.x86_64.rpm").exists());
+    assert!(out.join("packed-1.0.0-r0.x86_64.apk").exists());
+
+    let add_out = tmp.path().join("add-dist");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        add_out.to_str().unwrap(),
+        "--add",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(root.join("apt/pool/main/packed_1.0.0_amd64.deb").exists());
+    assert!(root
+        .join("yum/myrepo/x86_64/packed-1.0.0-1.x86_64.rpm")
+        .exists());
+}
+
+#[test]
+fn apt_rm_and_gc_respect_configured_pool_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&[
+        "init",
+        root.to_str().unwrap(),
+        "--no-key",
+        "--pool-dir",
+        "pkgs",
+    ]);
+
+    for version in ["1.0-1", "2.0-1", "3.0-1"] {
+        let pkg = tmp.path().join(format!("customapt_{version}_amd64.deb"));
+        write_deb(&pkg, "customapt", version, "amd64");
+        arx_ok(&[
+            "add",
+            pkg.to_str().unwrap(),
+            "--root",
+            root.to_str().unwrap(),
+            "--component",
+            "main",
+        ]);
+        std::thread::sleep(Duration::from_millis(1100));
+    }
+
+    assert!(root
+        .join("apt/pkgs/main/customapt_1.0-1_amd64.deb")
+        .exists());
+    assert!(
+        !root.join("apt/pool/main").exists(),
+        "custom apt pool must not fall back to apt/pool"
+    );
+
+    arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
+    let packages =
+        std::fs::read_to_string(root.join("apt/dists/stable/main/binary-amd64/Packages")).unwrap();
+    assert!(
+        packages.contains("Filename: pkgs/main/customapt_1.0-1_amd64.deb"),
+        "publish must reference the configured pool dir:\n{packages}"
+    );
+    assert!(
+        !packages.contains("Filename: pool/"),
+        "custom pool metadata must not fall back to pool/:\n{packages}"
+    );
+    assert!(root.join("apt/pkgs/main/.arx-manifest.toml").exists());
+
+    arx_ok(&[
+        "rm",
+        "customapt",
+        "--version",
+        "1.0-1",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!root
+        .join("apt/pkgs/main/customapt_1.0-1_amd64.deb")
+        .exists());
+
+    let gc_root = tmp.path().join("gc-repo");
+    arx_ok(&[
+        "init",
+        gc_root.to_str().unwrap(),
+        "--no-key",
+        "--pool-dir",
+        "pkgs",
+    ]);
+    for version in ["1.0-1", "2.0-1", "3.0-1"] {
+        let pkg = tmp.path().join(format!("customgc_{version}_amd64.deb"));
+        write_deb(&pkg, "customgc", version, "amd64");
+        arx_ok(&[
+            "add",
+            pkg.to_str().unwrap(),
+            "--root",
+            gc_root.to_str().unwrap(),
+            "--component",
+            "main",
+        ]);
+        std::thread::sleep(Duration::from_millis(1100));
+    }
+    arx_ok(&["gc", "--keep", "1", "--root", gc_root.to_str().unwrap()]);
+    assert!(!gc_root
+        .join("apt/pkgs/main/customgc_2.0-1_amd64.deb")
+        .exists());
+    assert!(gc_root
+        .join("apt/pkgs/main/customgc_3.0-1_amd64.deb")
+        .exists());
+}
+
+#[test]
+fn yum_add_promote_rm_and_gc_positive_paths_work() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let payload = tmp.path().join("payload.sh");
+    std::fs::write(&payload, b"#!/bin/sh\necho yum\n").unwrap();
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let mut rpm_paths = Vec::new();
+    for version in ["1.0.0", "2.0.0", "3.0.0"] {
+        let manifest = tmp.path().join(format!("yum-{version}.toml"));
+        let out = tmp.path().join(format!("dist-{version}"));
+        write_pack_manifest(&manifest, &payload, "yumthing", version);
+        arx_ok(&[
+            "pack",
+            manifest.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--rpm",
+        ]);
+        rpm_paths.push(out.join(format!("yumthing-{version}-1.x86_64.rpm")));
+    }
+
+    arx_ok(&[
+        "add",
+        rpm_paths[0].to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+        "--repo",
+        "staging",
+    ]);
+    assert!(root
+        .join("yum/staging/x86_64/yumthing-1.0.0-1.x86_64.rpm")
+        .exists());
+
+    arx_ok(&[
+        "promote",
+        "yumthing",
+        "--from",
+        "staging",
+        "--to",
+        "prod",
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(root
+        .join("yum/prod/x86_64/yumthing-1.0.0-1.x86_64.rpm")
+        .exists());
+    assert!(!root
+        .join("yum/staging/x86_64/yumthing-1.0.0-1.x86_64.rpm")
+        .exists());
+
+    arx_ok(&[
+        "rm",
+        "yumthing",
+        "--version",
+        "1.0.0",
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!root
+        .join("yum/prod/x86_64/yumthing-1.0.0-1.x86_64.rpm")
+        .exists());
+
+    for rpm in &rpm_paths[1..] {
+        arx_ok(&[
+            "add",
+            rpm.to_str().unwrap(),
+            "--root",
+            root.to_str().unwrap(),
+            "--repo",
+            "prod",
+        ]);
+        std::thread::sleep(Duration::from_millis(1100));
+    }
+    arx_ok(&[
+        "gc",
+        "--keep",
+        "1",
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!root
+        .join("yum/prod/x86_64/yumthing-2.0.0-1.x86_64.rpm")
+        .exists());
+    assert!(root
+        .join("yum/prod/x86_64/yumthing-3.0.0-1.x86_64.rpm")
+        .exists());
+}
+
+#[test]
+fn yum_rm_and_gc_respect_configured_base_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let payload = tmp.path().join("payload.sh");
+    std::fs::write(&payload, b"#!/bin/sh\necho custom yum\n").unwrap();
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let config_path = root.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("base_dir = \"yum\"", "base_dir = \"rpmrepos\""),
+    )
+    .unwrap();
+
+    let mut rpm_paths = Vec::new();
+    for version in ["1.0.0", "2.0.0", "3.0.0"] {
+        let manifest = tmp.path().join(format!("custom-yum-{version}.toml"));
+        let out = tmp.path().join(format!("custom-dist-{version}"));
+        write_pack_manifest(&manifest, &payload, "customyum", version);
+        arx_ok(&[
+            "pack",
+            manifest.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--rpm",
+        ]);
+        rpm_paths.push(out.join(format!("customyum-{version}-1.x86_64.rpm")));
+    }
+
+    for rpm in &rpm_paths {
+        arx_ok(&[
+            "add",
+            rpm.to_str().unwrap(),
+            "--root",
+            root.to_str().unwrap(),
+            "--repo",
+            "custom",
+        ]);
+        std::thread::sleep(Duration::from_millis(1100));
+    }
+
+    assert!(root
+        .join("rpmrepos/custom/x86_64/customyum-1.0.0-1.x86_64.rpm")
+        .exists());
+    assert!(!root.join("yum/custom/x86_64").exists());
+
+    arx_ok(&[
+        "rm",
+        "customyum",
+        "--version",
+        "1.0.0",
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!root
+        .join("rpmrepos/custom/x86_64/customyum-1.0.0-1.x86_64.rpm")
+        .exists());
+
+    arx_ok(&[
+        "gc",
+        "--keep",
+        "1",
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!root
+        .join("rpmrepos/custom/x86_64/customyum-2.0.0-1.x86_64.rpm")
+        .exists());
+    assert!(root
+        .join("rpmrepos/custom/x86_64/customyum-3.0.0-1.x86_64.rpm")
+        .exists());
+}

@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
+use crate::scope;
 
 /// Mirror state persisted between syncs: maps upstream filename → (mtime, size, sha256).
 /// After each sync, updated to reflect the current upstream state.
@@ -33,6 +34,9 @@ pub fn mirror_apt(
     arch: &str,
     prune: bool,
 ) -> Result<(usize, usize, usize)> {
+    let dist = scope::validate_scope_name(dist, "apt dist")?;
+    let component = scope::validate_scope_name(component, "apt component")?;
+    let arch = scope::validate_scope_name(arch, "apt arch")?;
     let base = base_url.trim_end_matches('/');
     let packages_gz = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages.gz");
     let packages_plain = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages");
@@ -77,7 +81,7 @@ pub fn mirror_apt(
     }
 
     // Load local state
-    let pool_dir = cfg.apt_pool_root(root).join(component);
+    let pool_dir = cfg.checked_apt_pool_root(root)?.join(component);
     std::fs::create_dir_all(&pool_dir)?;
     let state_path = pool_dir.join(".arx-mirror.toml");
     let state: MirrorState = if state_path.exists() {

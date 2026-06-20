@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
+use crate::scope;
 
 /// Import parameters bundled to keep clippy's `too_many_arguments` happy.
 pub struct ImportOpts<'a> {
@@ -31,6 +32,9 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
         match_name,
         limit,
     } = *opts;
+    let dist = scope::validate_scope_name(dist, "apt dist")?;
+    let component = scope::validate_scope_name(component, "apt component")?;
+    let arch = scope::validate_scope_name(arch, "apt arch")?;
     let base = base_url.trim_end_matches('/');
     let packages_gz = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages.gz");
     let packages_plain = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages");
@@ -72,7 +76,7 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
         bail!("no packages found");
     }
 
-    let dir = cfg.apt_pool_root(root).join(component);
+    let dir = cfg.checked_apt_pool_root(root)?.join(component);
     std::fs::create_dir_all(&dir)?;
     let mut imported = 0usize;
     for (_name, file) in &entries {
@@ -112,6 +116,7 @@ pub fn import_yum(
     repo: &str,
     limit: Option<usize>,
 ) -> Result<usize> {
+    let repo = scope::validate_scope_name(repo, "yum repo")?;
     let base = base_url.trim_end_matches('/');
     let repomd_url = format!("{base}/repodata/repomd.xml");
     let client = reqwest::blocking::Client::new();
@@ -159,7 +164,7 @@ pub fn import_yum(
         bail!("no packages found");
     }
 
-    let dir = cfg.yum_base(root).join(repo);
+    let dir = cfg.checked_yum_base(root)?.join(repo);
     std::fs::create_dir_all(&dir)?;
     let mut imported = 0usize;
     for href in &hrefs {

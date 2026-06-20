@@ -10,8 +10,8 @@
 //! | `DELETE /api/v1/packages/:name` | `arx rm` + `publish` | `?version=&apt=&yum=` |
 //! | `POST /api/v1/gc` | `arx gc` | `?keep=N&dry_run=&apt=&yum=` |
 //! | `POST /api/v1/publish` | `arx publish` | trigger apt+yum publish |
-//! | `POST /api/v1/rollback/:target` | `arx rollback` | atomic symlink flip |
-//! | `GET /api/v1/history/:target` | `arx history` | JSON list of published states |
+//! | `POST /api/v1/rollback/*target` | `arx rollback` | atomic symlink flip |
+//! | `GET /api/v1/history/*target` | `arx history` | JSON list of published states |
 //! | `POST /api/v1/import` | `arx import` | pull from upstream repo |
 //! | `POST /api/v1/promote` | `arx promote` | move packages between components |
 //!
@@ -26,7 +26,7 @@ use anyhow::{bail, Context, Result};
 use axum::{
     body::Bytes,
     extract::{Path as AxPath, Query, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -37,6 +37,9 @@ use pgp::composed::SignedSecretKey;
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+
+const ROLLBACK_ROUTE: &str = "/api/v1/rollback/*target";
+const HISTORY_ROUTE: &str = "/api/v1/history/*target";
 
 use crate::config::Config;
 use crate::pool;
@@ -51,6 +54,53 @@ struct AppState {
     cfg: Arc<Config>,
     key: Option<Arc<SignedSecretKey>>,
     passphrase: Arc<str>,
+}
+
+#[derive(Debug)]
+struct BadRequest(anyhow::Error);
+
+impl std::fmt::Display for BadRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for BadRequest {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+fn bad_request<E>(error: E) -> anyhow::Error
+where
+    E: Into<anyhow::Error>,
+{
+    BadRequest(error.into()).into()
+}
+
+fn client_scope_name<'a>(name: &'a str, field: &str) -> Result<&'a str> {
+    crate::scope::validate_scope_name(name, field).map_err(bad_request)
+}
+
+fn client_target_link(root: &Path, cfg: &Config, target: &str) -> Result<PathBuf> {
+    match target.split_once('/') {
+        Some((repo, arch)) if !arch.contains('/') => {
+            let repo = client_scope_name(repo, "yum repo")?;
+            let arch = client_scope_name(arch, "yum arch")?;
+            Ok(cfg
+                .checked_yum_base(root)?
+                .join(repo)
+                .join(arch)
+                .join("repodata"))
+        }
+        Some(_) => Err(bad_request(anyhow::anyhow!(
+            "invalid rollback target {target:?}: expected <repo>/<arch>"
+        ))),
+        None => {
+            let dist = client_scope_name(target, "apt dist")?;
+            Ok(root.join("apt/dists").join(dist))
+        }
+    }
 }
 
 impl AppState {
@@ -82,6 +132,11 @@ async fn metrics_handler(State(st): State<AppState>) -> String {
 /// Bearer-token gate: static `ARX_SERVE_TOKEN` OR OIDC JWT (ADR-0014).
 /// Unset token AND OIDC disabled = public reads, writes disabled.
 async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> Response {
+    let auth_configured = st.token.is_some() || st.cfg.oidc.enabled;
+    let safe_method = matches!(
+        *req.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
+    );
     let presented = req
         .headers()
         .get(axum::http::header::AUTHORIZATION)
@@ -113,8 +168,17 @@ async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> R
                 .into_response()
         }
         None => {
-            // No creds presented — pass through. Write handlers call
-            // `write_forbidden()` which enforces auth when configured.
+            if auth_configured && !safe_method {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
+                    "unauthorized\n",
+                )
+                    .into_response();
+            }
+            // No creds presented on public reads, or on a server with no auth
+            // configured. Write handlers still return 403 when writes are
+            // disabled by configuration.
             next.run(req).await
         }
     }
@@ -146,7 +210,15 @@ async fn health_handler() -> Json<Health> {
 }
 
 async fn list_handler(State(st): State<AppState>) -> Response {
-    match pool::list(&st.root, false, false) {
+    let apt_pool_root = match st.cfg.checked_apt_pool_root(&st.root) {
+        Ok(path) => path,
+        Err(e) => return err_response(&e),
+    };
+    let yum_base = match st.cfg.checked_yum_base(&st.root) {
+        Ok(path) => path,
+        Err(e) => return err_response(&e),
+    };
+    match pool::list(&apt_pool_root, &yum_base, false, false) {
         Ok(entries) => {
             let infos: Vec<pool::PackageInfo> = entries.iter().map(pool::Entry::info).collect();
             Json(infos).into_response()
@@ -180,7 +252,16 @@ async fn delete_handler(
     }
     let blocking = move || -> Result<DeleteResult> {
         let _lock = crate::PublishLock::acquire(&st.root)?;
-        let removed = pool::remove(&st.root, &name, q.version.as_deref(), q.apt, q.yum)?;
+        let apt_pool_root = st.cfg.checked_apt_pool_root(&st.root)?;
+        let yum_base = st.cfg.checked_yum_base(&st.root)?;
+        let removed = pool::remove(
+            &apt_pool_root,
+            &name,
+            q.version.as_deref(),
+            &yum_base,
+            q.apt,
+            q.yum,
+        )?;
         let infos = removed.iter().map(pool::Entry::info).collect();
         let published = publish_both(&st)?;
         Ok(DeleteResult {
@@ -224,14 +305,20 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
     }
     let blocking = move || -> Result<GcResult> {
         let _lock = crate::PublishLock::acquire(&st.root)?;
+        let apt_pool_root = st.cfg.checked_apt_pool_root(&st.root)?;
+        let yum_base = st.cfg.checked_yum_base(&st.root)?;
         let report = pool::gc(
             &st.root,
-            q.keep,
-            q.keep_within_days,
-            q.grace_days,
-            q.apt,
-            q.yum,
-            q.dry_run,
+            pool::GcOptions {
+                keep: q.keep,
+                keep_within_days: q.keep_within_days,
+                grace_days: q.grace_days,
+                apt_pool_root: &apt_pool_root,
+                yum_base: &yum_base,
+                apt: q.apt,
+                yum: q.yum,
+                dry_run: q.dry_run,
+            },
         )?;
         let pruned = report.pruned.iter().map(pool::Entry::info).collect();
         let published = if report.dry_run || report.pruned.is_empty() {
@@ -318,8 +405,9 @@ struct HistoryItem {
 
 async fn history_handler(State(st): State<AppState>, AxPath(target): AxPath<String>) -> Response {
     let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
     let blocking = move || -> Result<Vec<HistoryItem>> {
-        let link = crate::target_link(&root, &target);
+        let link = client_target_link(&root, &cfg, &target)?;
         let entries = arx_debrepo::statedir::list(&link).context("listing states")?;
         Ok(entries
             .into_iter()
@@ -352,8 +440,9 @@ async fn rollback_handler(
         return resp;
     }
     let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
     let blocking = move || -> Result<RollbackResult> {
-        let link = crate::target_link(&root, &target);
+        let link = client_target_link(&root, &cfg, &target)?;
         let id =
             arx_debrepo::statedir::rollback(&link, q.to.as_deref()).context("rollback failed")?;
         Ok(RollbackResult {
@@ -402,22 +491,32 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
         let do_yum = q.yum || !q.apt;
         let mut imported = 0usize;
         if do_apt {
-            let dist = q.dist.as_deref().unwrap_or(&cfg.apt.dist);
-            let comp = q.component.as_deref().unwrap_or(&cfg.apt.component);
+            let dist = match q.dist.as_deref() {
+                Some(dist) => client_scope_name(dist, "apt dist")?,
+                None => &cfg.apt.dist,
+            };
+            let comp = match q.component.as_deref() {
+                Some(component) => client_scope_name(component, "apt component")?,
+                None => &cfg.apt.component,
+            };
+            let arch = client_scope_name(&q.arch, "apt arch")?;
             imported += crate::import::import_apt(&crate::import::ImportOpts {
                 root: &root,
                 cfg: &cfg,
                 base_url: &q.url,
                 dist,
                 component: comp,
-                arch: &q.arch,
+                arch,
                 match_name: q.match_name.as_deref(),
                 limit: q.limit,
             })?;
         }
         if do_yum {
-            let repo = q.component.unwrap_or_else(|| cfg.yum.repo.clone());
-            imported += crate::import::import_yum(&root, &cfg, &q.url, &repo, q.limit)?;
+            let repo = match q.component.as_deref() {
+                Some(repo) => client_scope_name(repo, "yum repo")?,
+                None => &cfg.yum.repo,
+            };
+            imported += crate::import::import_yum(&root, &cfg, &q.url, repo, q.limit)?;
         }
         Ok(ImportResult { imported })
     };
@@ -454,7 +553,7 @@ async fn promote_handler(State(st): State<AppState>, Query(q): Query<ApiPromoteQ
         let mut moved = 0usize;
         if do_apt {
             moved += promote_files(
-                &cfg.apt_pool_root(&root),
+                &cfg.checked_apt_pool_root(&root)?,
                 &q.from,
                 &q.to,
                 &q.name,
@@ -464,7 +563,7 @@ async fn promote_handler(State(st): State<AppState>, Query(q): Query<ApiPromoteQ
         }
         if do_yum {
             moved += promote_files(
-                &cfg.yum_base(&root),
+                &cfg.checked_yum_base(&root)?,
                 &q.from,
                 &q.to,
                 &q.name,
@@ -485,6 +584,8 @@ fn promote_files(
     version: Option<&str>,
     ext: &str,
 ) -> Result<usize> {
+    let from = client_scope_name(from, "source scope")?;
+    let to = client_scope_name(to, "destination scope")?;
     let src = base.join(from);
     let dst = base.join(to);
     let mut moved = 0usize;
@@ -496,24 +597,30 @@ fn promote_files(
         if !p.is_file() || p.extension().map(|e| e != ext).unwrap_or(true) {
             continue;
         }
-        let matches = if ext == "deb" {
+        let dest_dir = if ext == "deb" {
             let ctrl = arx_debrepo::deb::read_control(p)
                 .with_context(|| format!("reading {}", p.display()))?;
-            (ctrl.package().ok() == Some(name))
-                && version.is_none_or(|v| ctrl.version().ok() == Some(v))
+            let matches = (ctrl.package().ok() == Some(name))
+                && version.is_none_or(|v| ctrl.version().ok() == Some(v));
+            matches.then(|| dst.clone())
         } else {
             let mut r = createrepo_rs::rpm::RpmReader::open(p)
                 .with_context(|| format!("opening {}", p.display()))?;
             let pkg = r.read_package().context("reading rpm")?;
-            pkg.name == name && version.is_none_or(|v| pkg.version == v)
+            if pkg.name == name && version.is_none_or(|v| pkg.version == v) {
+                let arch = client_scope_name(&pkg.arch, "yum arch")?;
+                Some(dst.join(arch))
+            } else {
+                None
+            }
         };
-        if matches {
+        if let Some(dest_dir) = dest_dir {
             let name = p
                 .file_name()
                 .and_then(|n| n.to_str())
                 .context("invalid filename")?;
-            std::fs::create_dir_all(&dst)?;
-            std::fs::rename(p, dst.join(name))?;
+            std::fs::create_dir_all(&dest_dir)?;
+            std::fs::rename(p, dest_dir.join(name))?;
             moved += 1;
         }
     }
@@ -540,6 +647,9 @@ fn err_response(e: &anyhow::Error) -> Response {
     if let Some(skip) = e.downcast_ref::<crate::StrictSkip>() {
         return (StatusCode::UNPROCESSABLE_ENTITY, format!("{skip}\n")).into_response();
     }
+    if e.downcast_ref::<BadRequest>().is_some() {
+        return (StatusCode::BAD_REQUEST, format!("{e:#}\n")).into_response();
+    }
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}\n")).into_response()
 }
 
@@ -558,6 +668,13 @@ fn safe_filename(name: &str) -> Option<String> {
         return None;
     }
     Some(f.to_string())
+}
+
+fn stored_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Republish both formats (caller already holds the publish lock). Strict mode
@@ -594,9 +711,11 @@ fn ingest(
     match ext {
         "deb" => {
             let comp = component.unwrap_or_else(|| st.cfg.apt.component.clone());
-            let dir = st.cfg.apt_pool_root(&st.root).join(&comp);
+            let comp = client_scope_name(&comp, "apt component")?;
+            let dir = st.cfg.checked_apt_pool_root(&st.root)?.join(comp);
+            let dest = dir.join(filename);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-            std::fs::write(dir.join(filename), &body).context("writing uploaded .deb")?;
+            std::fs::write(&dest, &body).context("writing uploaded .deb")?;
             let published = crate::publish_apt(
                 &st.root,
                 &st.cfg,
@@ -606,14 +725,15 @@ fn ingest(
                 true,
             )?;
             Ok(PushResult {
-                stored: format!("apt/{comp}/{filename}"),
+                stored: stored_path(&st.root, &dest),
                 published: published.summary,
                 skipped: published.skipped,
             })
         }
         "rpm" => {
             let repo = repo.unwrap_or_else(|| st.cfg.yum.repo.clone());
-            let yum = st.cfg.yum_base(&st.root);
+            let repo = client_scope_name(&repo, "yum repo")?;
+            let yum = st.cfg.checked_yum_base(&st.root)?;
             std::fs::create_dir_all(&yum).with_context(|| format!("creating {}", yum.display()))?;
             let tmp = yum.join(format!(".incoming-{filename}"));
             std::fs::write(&tmp, &body).context("writing uploaded .rpm")?;
@@ -622,12 +742,14 @@ fn ingest(
                     createrepo_rs::rpm::RpmReader::open(&tmp).context("opening uploaded .rpm")?;
                 r.read_package().context("reading uploaded .rpm")?.arch
             };
-            let dir = yum.join(&repo).join(&arch);
+            let arch = client_scope_name(&arch, "yum arch")?;
+            let dir = yum.join(repo).join(arch);
+            let dest = dir.join(filename);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-            std::fs::rename(&tmp, dir.join(filename)).context("moving uploaded .rpm")?;
+            std::fs::rename(&tmp, &dest).context("moving uploaded .rpm")?;
             let published = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
             Ok(PushResult {
-                stored: format!("yum/{repo}/{arch}/{filename}"),
+                stored: stored_path(&st.root, &dest),
                 published,
                 skipped: Vec::new(),
             })
@@ -669,8 +791,8 @@ pub async fn serve(
         .route("/api/v1/packages/:name", delete(delete_handler))
         .route("/api/v1/gc", post(gc_handler))
         .route("/api/v1/publish", post(publish_handler))
-        .route("/api/v1/rollback/:target", post(rollback_handler))
-        .route("/api/v1/history/:target", get(history_handler))
+        .route(ROLLBACK_ROUTE, post(rollback_handler))
+        .route(HISTORY_ROUTE, get(history_handler))
         .route("/api/v1/import", post(import_handler))
         .route("/api/v1/promote", post(promote_handler))
         .fallback_service(serve_dir)
@@ -694,4 +816,124 @@ pub async fn serve(
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     tracing::info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        bad_request, client_target_link, err_response, promote_files, HISTORY_ROUTE, ROLLBACK_ROUTE,
+    };
+    use axum::{
+        http::StatusCode,
+        routing::{get, post},
+        Router,
+    };
+
+    #[test]
+    fn rollback_and_history_routes_use_axum_0_7_wildcards() {
+        let _ = Router::<super::AppState>::new()
+            .route(ROLLBACK_ROUTE, post(super::rollback_handler))
+            .route(HISTORY_ROUTE, get(super::history_handler));
+    }
+
+    #[test]
+    fn client_wrapped_scope_errors_are_bad_requests() {
+        let err = anyhow::Error::from(crate::scope::InvalidScopeName::new_for_test(
+            "apt component",
+            "../escape",
+        ));
+        let err = bad_request(err);
+        let response = err_response(&err);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn raw_scope_errors_are_server_errors() {
+        let err = anyhow::Error::from(crate::scope::InvalidScopeName::new_for_test(
+            "apt pool dir",
+            "../escape",
+        ));
+        let response = err_response(&err);
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn client_target_errors_are_bad_requests_but_bad_config_is_server_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mut cfg = crate::config::Config::default();
+
+        let err = client_target_link(root, &cfg, "../escape")
+            .expect_err("path-like target should be client bad request");
+        assert_eq!(err_response(&err).status(), StatusCode::BAD_REQUEST);
+
+        cfg.yum.base_dir = "../escape".into();
+        let err = client_target_link(root, &cfg, "repo/x86_64")
+            .expect_err("bad server config should surface as internal error");
+        assert_eq!(
+            err_response(&err).status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn promote_files_preserves_yum_arch_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let payload = tmp.path().join("payload.sh");
+        std::fs::write(
+            &payload,
+            b"#!/bin/sh
+echo yumapi
+",
+        )
+        .unwrap();
+        let manifest = arx_pack::Manifest::from_toml_str(&format!(
+            "name = \"yumapi\"
+\
+             version = \"1.0.0\"
+\
+             arch = \"x86_64\"
+\
+             maintainer = \"T <t@localhost>\"
+\
+             description = \"server promote fixture\"
+\
+             license = \"MIT\"
+\
+             [[files]]
+\
+             source = \"{}\"
+\
+             dest = \"/usr/bin/yumapi\"
+\
+             mode = \"0755\"
+",
+            payload.display()
+        ))
+        .unwrap();
+        let built = arx_pack::build_rpm(&manifest, &tmp.path().join("dist")).unwrap();
+        let base = tmp.path().join("yum");
+        let src = base.join("staging/x86_64");
+        std::fs::create_dir_all(&src).unwrap();
+        let rpm_name = built.file_name().unwrap();
+        std::fs::copy(&built, src.join(rpm_name)).unwrap();
+
+        let moved = promote_files(&base, "staging", "prod", "yumapi", Some("1.0.0"), "rpm")
+            .expect("yum promote should succeed");
+
+        assert_eq!(moved, 1);
+        assert!(base.join("prod/x86_64").join(rpm_name).exists());
+        assert!(
+            !base.join("prod").join(rpm_name).exists(),
+            "server yum promote must not drop the arch directory"
+        );
+    }
+
+    #[test]
+    fn promote_files_rejects_path_like_scopes_before_walking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = promote_files(tmp.path(), "../escape", "stable", "hello", None, "deb")
+            .expect_err("unsafe source scope should fail");
+        assert_eq!(err_response(&err).status(), StatusCode::BAD_REQUEST);
+    }
 }
