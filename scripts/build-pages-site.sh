@@ -39,7 +39,7 @@ test ! -e public/keys/private.asc
 OWNER="$GITHUB_REPOSITORY_OWNER"
 REPOSITORY="$GITHUB_REPOSITORY"
 REPO="$PAGES_REPOSITORY_NAME"
-if [ -n "$PAGES_BASE_URL" ]; then
+if [ -n "${PAGES_BASE_URL:-}" ]; then
   REPO_URL="${PAGES_BASE_URL%/}"
 elif [ "$REPO" = "$OWNER.github.io" ]; then
   REPO_URL="https://${OWNER}.github.io"
@@ -324,6 +324,7 @@ cat > public/index.html <<HTML
         <a class="btn" href="${REPO_URL}/apt/dists/stable/Release">APT metadata</a>
         <a class="btn" href="${REPO_URL}/yum/myrepo/x86_64/repodata/repomd.xml">YUM metadata</a>
         <a class="btn" href="https://github.com/${REPOSITORY}/blob/main/docs/README.md">Docs</a>
+        <a class="btn" href="https://github.com/${REPOSITORY}/blob/main/docs/how-to/publish-with-github-pages.md">Pages guide</a>
         <a class="btn" href="https://github.com/${REPOSITORY}">GitHub</a>
       </div>
     </div>
@@ -396,7 +397,7 @@ journalctl -u arx -f</pre></div>
   </main>
 
   <footer class="wrap">
-    <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary. Need production details? Read the <a href="https://github.com/${REPOSITORY}/blob/main/docs/README.md">docs</a>.</p>
+    <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary. Need production details? Read the <a href="https://github.com/${REPOSITORY}/blob/main/docs/README.md">docs</a> or the <a href="https://github.com/${REPOSITORY}/blob/main/docs/how-to/publish-with-github-pages.md">Pages deployment guide</a>.</p>
   </footer>
 </body>
 </html>
