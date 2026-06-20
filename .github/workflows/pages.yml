@@ -1,0 +1,70 @@
+name: pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/pages.yml
+      - scripts/build-pages-site.sh
+      - packaging/arx.toml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve Cargo version
+        id: meta
+        run: |
+          VERSION="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('crates/arx/Cargo.toml').read_text()
+          match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          if not match:
+              raise SystemExit('version field not found in crates/arx/Cargo.toml')
+          print(match.group(1))
+          PY
+          )"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download latest release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          gh release download v${{ steps.meta.outputs.version }} \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern arx-latest-amd64 \
+            --output build/arx
+          chmod +x build/arx
+          ./build/arx --version
+
+      - name: Build signed repo → Pages
+        env:
+          ARX_VERSION: ${{ steps.meta.outputs.version }}
+          ARX_KEY_PASSPHRASE: ${{ secrets.ARX_KEY_PASSPHRASE }}
+          ARX_SIGNING_KEY: ${{ secrets.ARX_SIGNING_KEY }}
+          PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
+          PAGES_REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: scripts/build-pages-site.sh
+
+      - uses: actions/upload-pages-artifact@v5
+        with: { path: public }
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
