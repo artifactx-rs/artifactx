@@ -6,6 +6,9 @@ authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
 license = "GPL-2.0-or-later"
 repository = "https://github.com/artifactx-rs/artifactx"
+readme = "README.md"
+keywords = ["apt", "yum", "repository", "deb", "rpm"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
 
 [[bin]]
 name = "arx"
