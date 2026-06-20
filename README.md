@@ -403,6 +403,7 @@ Change `origin`, `label`, `description`, and `signing.user_id` before generating
 
 - [Documentation](docs/README.md)
 - [HTTP API reference](docs/reference/http-api.md) / [OpenAPI](docs/reference/openapi.yaml)
+- [GitHub Pages deployment guide](docs/how-to/publish-with-github-pages.md)
 - [Roadmap](ROADMAP.md)
 - [Operations guide](docs/OPERATIONS.md)
 - [Contributing](CONTRIBUTING.md)

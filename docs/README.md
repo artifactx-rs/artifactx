@@ -11,6 +11,7 @@ front of you.
 | Move packages from an existing apt/yum repo with low risk | [Import an existing repo](tutorials/import-existing-repo.md) |
 | Create a new repo from local `.deb`/`.rpm` files | [Create and serve a repo](tutorials/create-and-serve-repo.md) |
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
+| Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
 | Run ArtifactX with Docker Compose | [Run with Docker Compose](how-to/run-with-docker-compose.md) |
 | Run the server under systemd | [Run as a systemd service](how-to/run-as-systemd-service.md) |
 | Use your organization signing key | [Use custom signing keys](how-to/use-custom-signing-keys.md) |
