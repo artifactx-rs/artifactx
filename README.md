@@ -4,7 +4,7 @@
   <img src="res/logo.svg" alt="ArtifactX logo" width="720">
 </p>
 
-[![CI](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml) [![Release](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/artifactx-rs/artifactx)](https://github.com/artifactx-rs/artifactx/releases/latest)
+[![CI](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml) [![Release](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/artifactx-rs/artifactx)](https://github.com/artifactx-rs/artifactx/releases/latest) [![crates.io](https://img.shields.io/crates/v/artifactx.svg)](https://crates.io/crates/artifactx)
 
 **Import first. Cut over when ready.** Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.
 
@@ -203,6 +203,13 @@ arx serve                             # local server on 127.0.0.1:8080
 ```
 
 ## Install arx
+
+### Cargo
+
+```bash
+cargo install artifactx
+arx --version
+```
 
 ### Download static binary
 

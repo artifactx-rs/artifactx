@@ -13,7 +13,8 @@ It turns a directory into a **signed apt + yum repository** that `apt-get` and
 ## Install
 
 ```bash
-cargo install --path crates/arx        # or: cargo build --release -p artifactx
+cargo install artifactx                # from crates.io
+# or, from a checkout: cargo build --release -p artifactx
 ```
 
 The binary is `arx`. A static single-file build:
