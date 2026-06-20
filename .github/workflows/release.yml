@@ -282,6 +282,23 @@ jobs:
           PY
           chmod +x public/install.sh
 
+          cat > public/robots.txt <<TXT
+          User-agent: *
+          Allow: /
+          Sitemap: ${REPO_URL}/sitemap.xml
+          TXT
+
+          cat > public/sitemap.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+            <url>
+              <loc>${REPO_URL}/</loc>
+              <changefreq>weekly</changefreq>
+              <priority>1.0</priority>
+            </url>
+          </urlset>
+          XML
+
           cat > public/index.html <<HTML
           <!doctype html>
           <html lang="en">
@@ -289,6 +306,32 @@ jobs:
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>ArtifactX — publish package repos like a static blog</title>
+            <meta name="description" content="ArtifactX imports or creates signed apt and yum repositories, then publishes static files you can host on GitHub Pages, S3, nginx, or arx serve.">
+            <meta name="robots" content="index,follow">
+            <link rel="canonical" href="${REPO_URL}/">
+            <meta property="og:type" content="website">
+            <meta property="og:url" content="${REPO_URL}/">
+            <meta property="og:title" content="ArtifactX — publish package repos like a static blog">
+            <meta property="og:description" content="Import existing apt/yum repos or start from local .deb/.rpm files. ArtifactX signs metadata and emits static files for Pages, S3, nginx, or arx serve.">
+            <meta property="og:site_name" content="ArtifactX">
+            <meta name="twitter:card" content="summary">
+            <meta name="twitter:title" content="ArtifactX — publish package repos like a static blog">
+            <meta name="twitter:description" content="One Rust binary to import, sign, publish, serve, promote, prune, and roll back apt/yum package repositories.">
+            <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              "name": "ArtifactX",
+              "alternateName": "arx",
+              "applicationCategory": "DeveloperApplication",
+              "operatingSystem": "Linux, macOS",
+              "description": "ArtifactX imports or creates signed apt and yum repositories, then publishes static files you can host anywhere.",
+              "url": "${REPO_URL}/",
+              "codeRepository": "https://github.com/${REPOSITORY}",
+              "programmingLanguage": "Rust",
+              "license": "https://github.com/${REPOSITORY}/blob/main/LICENSES/GPL-2.0-or-later.txt"
+            }
+            </script>
             <style>
               :root {
                 color-scheme: dark;
