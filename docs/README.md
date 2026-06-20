@@ -15,6 +15,7 @@ front of you.
 | Run the server under systemd | [Run as a systemd service](how-to/run-as-systemd-service.md) |
 | Use your organization signing key | [Use custom signing keys](how-to/use-custom-signing-keys.md) |
 | Find every CLI command and option | [CLI reference](reference/cli.md) |
+| Integrate with `arx serve` over HTTP | [HTTP API reference](reference/http-api.md) / [OpenAPI](reference/openapi.yaml) |
 | Understand `arx.toml` | [Configuration reference](reference/config.md) |
 | Understand repo signing and expiry | [Signing and expiry](explanation/signing-and-expiry.md) |
 | Operate backups, restore, and rollback | [Operations guide](OPERATIONS.md) |
@@ -49,6 +50,7 @@ arx serve --root ./repo
 
 `arx serve` exposes static repo files and an authenticated write API. Reads are
 public. Writes require `ARX_SERVE_TOKEN` or configured GitHub Actions OIDC.
+See the [HTTP API reference](reference/http-api.md) for every endpoint.
 
 ```sh
 ARX_SERVE_TOKEN='change-me' arx serve --root ./repo
