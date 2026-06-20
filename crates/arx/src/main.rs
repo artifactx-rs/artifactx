@@ -8,6 +8,7 @@ mod mirror;
 mod observability;
 mod oidc;
 mod pool;
+mod scope;
 mod server;
 mod signing;
 mod yum;
@@ -49,10 +50,13 @@ async fn main() -> Result<()> {
         Command::History(args) => cmd_history(&args),
         Command::Push(args) => cmd_push(&args).await,
         Command::Rm(args) => {
+            let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
+            let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
             let removed = pool::remove(
-                &args.root,
+                &apt_pool_root,
                 &args.name,
                 args.version.as_deref(),
+                &yum_base,
                 args.apt,
                 args.yum,
             )?;
@@ -69,18 +73,24 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Mirror(args) => cmd_mirror(&args),
-        Command::Import(args) => cmd_import(&args),
+        Command::Mirror(args) => cmd_mirror(args).await,
+        Command::Import(args) => cmd_import(args).await,
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
+            let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
+            let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
             let report = pool::gc(
                 &args.root,
-                args.keep,
-                args.keep_within,
-                args.grace,
-                args.apt,
-                args.yum,
-                args.dry_run,
+                pool::GcOptions {
+                    keep: args.keep,
+                    keep_within_days: args.keep_within,
+                    grace_days: args.grace,
+                    apt_pool_root: &apt_pool_root,
+                    yum_base: &yum_base,
+                    apt: args.apt,
+                    yum: args.yum,
+                    dry_run: args.dry_run,
+                },
             )?;
             for e in &report.pruned {
                 let tag = if report.dry_run {
@@ -134,7 +144,7 @@ fn load_key(root: &Path, cfg: &Config) -> Result<Option<SignedSecretKey>> {
     if !cfg.signing.enabled {
         return Ok(None);
     }
-    let path = cfg.private_key_path(root);
+    let path = cfg.private_key_path(root)?;
     if !path.exists() {
         bail!(
             "signing enabled but no key at {}; run `arx key generate`",
@@ -185,9 +195,9 @@ async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
     }
 
     // Create directory structure using config-driven paths.
-    let pool = cfg.apt_pool_root(root);
-    let keys = cfg.keys_dir(root);
-    let yum = cfg.yum_base(root);
+    let pool = cfg.checked_apt_pool_root(root)?;
+    let keys = cfg.keys_dir(root)?;
+    let yum = cfg.checked_yum_base(root)?;
     for dir in [
         pool.as_path(),
         &root.join("apt/dists"),
@@ -218,10 +228,11 @@ async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
 fn generate_and_store_key(root: &Path, cfg: &Config, passphrase: &str) -> Result<()> {
     tracing::info!("generating RSA-2048 signing key...");
     let key = signing::generate_key(&cfg.signing.user_id, passphrase)?;
-    std::fs::create_dir_all(cfg.private_key_path(root).parent().unwrap()).ok();
-    std::fs::write(cfg.private_key_path(root), &key.private_armored)
-        .context("writing private key")?;
-    std::fs::write(cfg.public_key_path(root), &key.public_armored).context("writing public key")?;
+    let private_key = cfg.private_key_path(root)?;
+    let public_key = cfg.public_key_path(root)?;
+    std::fs::create_dir_all(private_key.parent().unwrap()).ok();
+    std::fs::write(&private_key, &key.private_armored).context("writing private key")?;
+    std::fs::write(&public_key, &key.public_armored).context("writing public key")?;
     Ok(())
 }
 
@@ -236,13 +247,13 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             cfg.signing.encrypted = !passphrase.is_empty();
             cfg.save(root)?;
             warn_if_unencrypted(&passphrase);
-            println!("Wrote {}", cfg.public_key_path(root).display());
+            println!("Wrote {}", cfg.public_key_path(root)?.display());
         }
         KeyAction::Rotate => {
             let passphrase =
                 resolve_passphrase(args.passphrase_file.as_deref())?.unwrap_or_default();
             // Back up the current key.
-            let priv_path = cfg.private_key_path(root);
+            let priv_path = cfg.private_key_path(root)?;
             let old = format!("{}.old", priv_path.display());
             if priv_path.exists() {
                 std::fs::copy(&priv_path, &old)
@@ -256,12 +267,12 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             warn_if_unencrypted(&passphrase);
             println!(
                 "Key rotated — new public key at {}",
-                cfg.public_key_path(root).display()
+                cfg.public_key_path(root)?.display()
             );
             println!("Old key backed up to {old}");
         }
         KeyAction::Revoke => {
-            let old = format!("{}.old", cfg.private_key_path(root).display());
+            let old = format!("{}.old", cfg.private_key_path(root)?.display());
             if std::path::Path::new(&old).exists() {
                 std::fs::remove_file(&old).with_context(|| format!("removing old key {old}"))?;
                 println!("Revoked old key ({old} deleted)");
@@ -277,20 +288,19 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             // derive the public key.
             let passphrase =
                 resolve_passphrase(args.passphrase_file.as_deref())?.unwrap_or_default();
-            std::fs::create_dir_all(cfg.private_key_path(root).parent().unwrap()).ok();
-            std::fs::write(cfg.private_key_path(root), &armored).context("writing private key")?;
+            let private_key = cfg.private_key_path(root)?;
+            let public_key = cfg.public_key_path(root)?;
+            std::fs::create_dir_all(private_key.parent().unwrap()).ok();
+            std::fs::write(&private_key, &armored).context("writing private key")?;
             let public = signing::public_from_secret(&key, &passphrase)?;
-            std::fs::write(cfg.public_key_path(root), public).context("writing public key")?;
+            std::fs::write(&public_key, public).context("writing public key")?;
             cfg.signing.enabled = true;
             cfg.signing.encrypted = !passphrase.is_empty();
             cfg.save(root)?;
-            println!(
-                "Imported key, wrote {}",
-                cfg.public_key_path(root).display()
-            );
+            println!("Imported key, wrote {}", public_key.display());
         }
         KeyAction::Export => {
-            let path = cfg.public_key_path(root);
+            let path = cfg.public_key_path(root)?;
             let pubkey = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
             print!("{pubkey}");
@@ -300,7 +310,8 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
 }
 
 /// Copy one `.deb`/`.rpm` into the pool, returning its destination path.
-/// `.deb` goes to `apt/pool/<component>`; `.rpm` to `yum/<repo>/<arch>`.
+/// `.deb` goes to the configured apt pool under `<component>`;
+/// `.rpm` goes to the configured yum base under `<repo>/<arch>`.
 fn add_to_pool(
     root: &Path,
     cfg: &Config,
@@ -308,9 +319,11 @@ fn add_to_pool(
     component: &str,
     repo: &str,
 ) -> Result<PathBuf> {
+    let component = scope::validate_scope_name(component, "apt component")?;
+    let repo = scope::validate_scope_name(repo, "yum repo")?;
     let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
     let dest_dir = match ext {
-        "deb" => cfg.apt_pool_root(root).join(component),
+        "deb" => cfg.checked_apt_pool_root(root)?.join(component),
         "rpm" => {
             let mut reader = createrepo_rs::rpm::RpmReader::open(pkg)
                 .with_context(|| format!("opening {}", pkg.display()))?;
@@ -318,7 +331,8 @@ fn add_to_pool(
                 .read_package()
                 .with_context(|| format!("reading {}", pkg.display()))?
                 .arch;
-            cfg.yum_base(root).join(repo).join(arch)
+            let arch = scope::validate_scope_name(&arch, "yum arch")?;
+            cfg.checked_yum_base(root)?.join(repo).join(arch)
         }
         other => bail!("{}: unsupported package type .{other}", pkg.display()),
     };
@@ -364,10 +378,17 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
     }
 }
 
-fn cmd_mirror(args: &cli::MirrorArgs) -> Result<()> {
+async fn cmd_mirror(args: cli::MirrorArgs) -> Result<()> {
+    tokio::task::spawn_blocking(move || cmd_mirror_blocking(&args))
+        .await
+        .context("mirror task panicked")?
+}
+
+fn cmd_mirror_blocking(args: &cli::MirrorArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
     let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
+    scope::validate_scope_name(comp, "apt component")?;
 
     let (downloaded, removed, total) = mirror::mirror_apt(
         &args.root, &cfg, &args.url, dist, comp, &args.arch, args.prune,
@@ -386,7 +407,13 @@ fn cmd_mirror(args: &cli::MirrorArgs) -> Result<()> {
     Ok(())
 }
 
-fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
+async fn cmd_import(args: cli::ImportArgs) -> Result<()> {
+    tokio::task::spawn_blocking(move || cmd_import_blocking(&args))
+        .await
+        .context("import task panicked")?
+}
+
+fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let do_apt = args.apt || !args.yum;
     let do_yum = args.yum || !args.apt;
@@ -395,6 +422,7 @@ fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
     if do_apt {
         let dist = args.dist.as_deref().unwrap_or(&cfg.apt.dist);
         let comp = args.component.as_deref().unwrap_or(&cfg.apt.component);
+        scope::validate_scope_name(comp, "apt component")?;
         let n = import::import_apt(&import::ImportOpts {
             root: &args.root,
             cfg: &cfg,
@@ -409,6 +437,7 @@ fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
     }
     if do_yum {
         let repo = args.component.as_deref().unwrap_or(&cfg.yum.repo);
+        scope::validate_scope_name(repo, "yum repo")?;
         let n = import::import_yum(&args.root, &cfg, &args.url, repo, args.limit)?;
         total += n;
     }
@@ -419,13 +448,15 @@ fn cmd_import(args: &cli::ImportArgs) -> Result<()> {
 
 fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
+    let from = scope::validate_scope_name(&args.from, "source scope")?;
+    let to = scope::validate_scope_name(&args.to, "destination scope")?;
     let do_apt = args.apt || !args.yum;
     let do_yum = args.yum || !args.apt;
     let mut moved = 0usize;
 
     if do_apt {
-        let src = cfg.apt_pool_root(&args.root).join(&args.from);
-        let dst = cfg.apt_pool_root(&args.root).join(&args.to);
+        let src = cfg.checked_apt_pool_root(&args.root)?.join(from);
+        let dst = cfg.checked_apt_pool_root(&args.root)?.join(to);
         if src.is_dir() {
             for entry in walkdir::WalkDir::new(&src)
                 .into_iter()
@@ -442,7 +473,7 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
                         std::fs::create_dir_all(&dst)?;
                         std::fs::rename(p, &dest)
                             .with_context(|| format!("promoting {}", p.display()))?;
-                        println!("Promoted {name} {version} {} → {}", args.from, args.to);
+                        println!("Promoted {name} {version} {from} → {to}");
                         moved += 1;
                     }
                 }
@@ -450,7 +481,7 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
         }
     }
     if do_yum {
-        let yum_base = cfg.yum_base(&args.root);
+        let yum_base = cfg.checked_yum_base(&args.root)?;
         for entry in walkdir::WalkDir::new(&yum_base)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -463,17 +494,16 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
                 if pkg.name == args.name
                     && args.version.as_deref().is_none_or(|v| pkg.version == v)
                     && p.parent()
-                        .and_then(|pp| pp.file_name())
+                        .and_then(|arch_dir| arch_dir.parent())
+                        .and_then(|repo_dir| repo_dir.file_name())
                         .map(|n| n.to_string_lossy())
-                        == Some(args.from.as_str().into())
+                        == Some(from.into())
                 {
-                    let dst = yum_base.join(&args.to).join(&pkg.arch);
+                    let arch = scope::validate_scope_name(&pkg.arch, "yum arch")?;
+                    let dst = yum_base.join(to).join(arch);
                     std::fs::create_dir_all(&dst)?;
                     std::fs::rename(p, dst.join(p.file_name().unwrap()))?;
-                    println!(
-                        "Promoted {} {} {} → {}",
-                        pkg.name, pkg.version, args.from, args.to
-                    );
+                    println!("Promoted {} {} {} → {}", pkg.name, pkg.version, from, to);
                     moved += 1;
                 }
             }
@@ -515,8 +545,19 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
         let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
         for p in &built {
-            let dest = add_to_pool(&args.root, &cfg, p, component, repo)?;
-            println!("Added {}", dest.display());
+            match p.extension().and_then(|e| e.to_str()) {
+                Some("deb" | "rpm") => {
+                    let dest = add_to_pool(&args.root, &cfg, p, component, repo)?;
+                    println!("Added {}", dest.display());
+                }
+                Some("apk") => {
+                    println!(
+                        "Skipped {} (.apk repositories are not supported by arx add)",
+                        p.display()
+                    );
+                }
+                _ => {}
+            }
         }
         println!("\nRun `arx publish` to update repository metadata.");
     }
@@ -635,6 +676,32 @@ async fn fetch_oidc_token(
     Ok(body.value)
 }
 
+fn selected_apt_pool_root(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> {
+    if apt || !yum {
+        let config_path = root.join("arx.toml");
+        if config_path.exists() {
+            Config::load(root)?.checked_apt_pool_root(root)
+        } else {
+            Config::default().checked_apt_pool_root(root)
+        }
+    } else {
+        Ok(root.join("apt/pool"))
+    }
+}
+
+fn selected_yum_base(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> {
+    if yum || !apt {
+        let config_path = root.join("arx.toml");
+        if config_path.exists() {
+            Config::load(root)?.checked_yum_base(root)
+        } else {
+            Config::default().checked_yum_base(root)
+        }
+    } else {
+        Ok(root.join("yum"))
+    }
+}
+
 fn human_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
     let mut size = bytes as f64;
@@ -662,6 +729,49 @@ mod tests {
         assert_eq!(human_bytes(1536), "1.5 KiB");
         assert_eq!(human_bytes(1048576), "1.0 MiB");
         assert_eq!(human_bytes(1073741824), "1.0 GiB");
+    }
+
+    #[test]
+    fn target_link_rejects_path_traversal() {
+        let root = Path::new("/repo");
+        let cfg = Config::default();
+        assert!(target_link(root, &cfg, "../escape").is_err());
+        assert!(target_link(root, &cfg, "C:escape").is_err());
+        assert!(target_link(root, &cfg, "CON").is_err());
+        assert!(target_link(root, &cfg, "repo/../../escape").is_err());
+        assert_eq!(
+            target_link(root, &cfg, "myrepo/x86_64").unwrap(),
+            root.join("yum/myrepo/x86_64/repodata")
+        );
+    }
+
+    #[test]
+    fn all_targets_skips_legacy_invalid_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("apt/dists/stable")).unwrap();
+        std::fs::create_dir_all(root.join("apt/dists/main.")).unwrap();
+        std::fs::create_dir_all(root.join("yum/myrepo/x86_64")).unwrap();
+        std::fs::create_dir_all(root.join("yum/CON/x86_64")).unwrap();
+        std::fs::create_dir_all(root.join("yum/myrepo/C:escape")).unwrap();
+
+        let cfg = Config::default();
+        assert_eq!(all_targets(root, &cfg), vec!["stable", "myrepo/x86_64"]);
+    }
+
+    #[test]
+    fn yum_history_targets_respect_configured_base_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mut cfg = Config::default();
+        cfg.yum.base_dir = "rpmrepos".to_string();
+        std::fs::create_dir_all(root.join("rpmrepos/myrepo/x86_64")).unwrap();
+
+        assert_eq!(
+            target_link(root, &cfg, "myrepo/x86_64").unwrap(),
+            root.join("rpmrepos/myrepo/x86_64/repodata")
+        );
+        assert_eq!(all_targets(root, &cfg), vec!["myrepo/x86_64"]);
     }
 }
 
@@ -710,23 +820,19 @@ fn publish_apt(
 ) -> Result<AptPublish> {
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
+    let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
+    let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
 
     let meta = arx_debrepo::ReleaseMeta::new(
         cfg.repo.origin.as_str(),
         cfg.repo.label.as_str(),
         cfg.repo.description.as_str(),
-        cfg.apt.dist.as_str(),
+        dist,
     )
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
-    let staged = arx_debrepo::stage_dist(
-        &apt_root,
-        &cfg.apt.pool_dir,
-        &cfg.apt.dist,
-        &meta,
-        incremental,
-    )?;
+    let staged = arx_debrepo::stage_dist(&apt_root, pool_dir, dist, &meta, incremental)?;
 
     // A forgiving default must still be observable: never let a skipped package
     // pass silently behind an exit-0 publish. Under strict, refuse to commit.
@@ -784,7 +890,7 @@ fn publish_yum(
     passphrase: &str,
     incremental: bool,
 ) -> Result<String> {
-    let yum_root = cfg.yum_base(root);
+    let yum_root = cfg.checked_yum_base(root)?;
     let mut total = 0usize;
     let mut repos = 0usize;
     if yum_root.is_dir() {
@@ -837,10 +943,22 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
 /// Resolve a rollback target to its versioned symlink path. A target containing
 /// `/` is a yum `<repo>/<arch>` (`yum/<repo>/<arch>/repodata`); otherwise it is an
 /// apt dist (`apt/dists/<dist>`).
-pub(crate) fn target_link(root: &Path, target: &str) -> PathBuf {
+pub(crate) fn target_link(root: &Path, cfg: &Config, target: &str) -> Result<PathBuf> {
     match target.split_once('/') {
-        Some((repo, arch)) => root.join("yum").join(repo).join(arch).join("repodata"),
-        None => root.join("apt/dists").join(target),
+        Some((repo, arch)) if !arch.contains('/') => {
+            let repo = scope::validate_scope_name(repo, "yum repo")?;
+            let arch = scope::validate_scope_name(arch, "yum arch")?;
+            Ok(cfg
+                .checked_yum_base(root)?
+                .join(repo)
+                .join(arch)
+                .join("repodata"))
+        }
+        Some(_) => bail!("invalid rollback target {target:?}: expected <repo>/<arch>"),
+        None => {
+            let dist = scope::validate_scope_name(target, "apt dist")?;
+            Ok(root.join("apt/dists").join(dist))
+        }
     }
 }
 
@@ -858,15 +976,34 @@ fn visible_children(dir: &Path) -> Vec<String> {
 }
 
 /// Every rollback target present in the repo: apt dists and yum `repo/arch`.
-fn all_targets(root: &Path) -> Vec<String> {
+fn all_targets(root: &Path, cfg: &Config) -> Vec<String> {
     let mut targets = Vec::new();
     for dist in visible_children(&root.join("apt/dists")) {
-        targets.push(dist);
+        if target_link(root, cfg, &dist).is_ok() {
+            targets.push(dist);
+        } else {
+            tracing::warn!(target = %dist, "skipping invalid apt history target");
+        }
     }
-    let yum = root.join("yum");
+    let yum = match cfg.checked_yum_base(root) {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::warn!(error = %e, "skipping yum history targets: invalid yum base dir");
+            return targets;
+        }
+    };
     for repo in visible_children(&yum) {
+        if scope::validate_scope_name(&repo, "yum repo").is_err() {
+            tracing::warn!(target = %repo, "skipping invalid yum repo history target");
+            continue;
+        }
         for arch in visible_children(&yum.join(&repo)) {
-            targets.push(format!("{repo}/{arch}"));
+            let target = format!("{repo}/{arch}");
+            if target_link(root, cfg, &target).is_ok() {
+                targets.push(target);
+            } else {
+                tracing::warn!(target = %target, "skipping invalid yum history target");
+            }
         }
     }
     targets
@@ -886,8 +1023,8 @@ fn print_states(target: &str, link: &Path) -> Result<()> {
 
 fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
-    let target = args.dist.clone().unwrap_or(cfg.apt.dist);
-    let link = target_link(&args.root, &target);
+    let target = args.dist.clone().unwrap_or_else(|| cfg.apt.dist.clone());
+    let link = target_link(&args.root, &cfg, &target)?;
     let id = arx_debrepo::statedir::rollback(&link, args.to.as_deref())?;
     println!("Rolled back '{target}' to state {id}.");
     println!("(The next `arx publish` regenerates metadata from the current pool.)");
@@ -895,16 +1032,17 @@ fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
 }
 
 fn cmd_history(args: &cli::HistoryArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).unwrap_or_default();
     match &args.dist {
-        Some(target) => print_states(target, &target_link(&args.root, target)),
+        Some(target) => print_states(target, &target_link(&args.root, &cfg, target)?),
         None => {
-            let targets = all_targets(&args.root);
+            let targets = all_targets(&args.root, &cfg);
             if targets.is_empty() {
                 println!("No published states yet — run `arx publish`.");
                 return Ok(());
             }
             for t in &targets {
-                print_states(t, &target_link(&args.root, t))?;
+                print_states(t, &target_link(&args.root, &cfg, t)?)?;
             }
             Ok(())
         }

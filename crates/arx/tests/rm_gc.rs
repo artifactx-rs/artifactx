@@ -218,3 +218,18 @@ fn key_rotate_backs_up_and_replaces() {
         "old key must be deleted"
     );
 }
+
+#[test]
+fn default_rm_and_gc_keep_legacy_apt_only_repo_without_config_working() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let pool = root.join("apt/pool/main");
+    seed_three_versions(&pool);
+
+    arx(root, &["rm", "hello", "--version", "1.0-1"]);
+    assert!(!pool.join("hello_1.0_amd64.deb").exists());
+
+    arx(root, &["gc", "--keep", "1"]);
+    assert!(!pool.join("hello_2.0_amd64.deb").exists());
+    assert!(pool.join("hello_3.0_amd64.deb").exists());
+}

@@ -105,13 +105,12 @@ fn mtime_of(path: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
+fn scan_apt(apt_pool_root: &Path) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
-    let pool = root.join("apt/pool");
-    if !pool.is_dir() {
+    if !apt_pool_root.is_dir() {
         return Ok(out);
     }
-    for comp in std::fs::read_dir(&pool)? {
+    for comp in std::fs::read_dir(apt_pool_root)? {
         let comp = comp?;
         if !comp.path().is_dir() {
             continue;
@@ -142,13 +141,12 @@ fn scan_apt(root: &Path) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
-fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
+fn scan_yum(yum_base: &Path) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
-    let yum = root.join("yum");
-    if !yum.is_dir() {
+    if !yum_base.is_dir() {
         return Ok(out);
     }
-    for repo in std::fs::read_dir(&yum)? {
+    for repo in std::fs::read_dir(yum_base)? {
         let repo = repo?;
         if !repo.path().is_dir() {
             continue;
@@ -183,15 +181,15 @@ fn scan_yum(root: &Path) -> Result<Vec<Entry>> {
 }
 
 /// List packages in the pool(s) selected by `apt`/`yum` (both when neither set).
-pub fn list(root: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
+pub fn list(apt_pool_root: &Path, yum_base: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
     let do_apt = apt || !yum;
     let do_yum = yum || !apt;
     let mut entries = Vec::new();
     if do_apt {
-        entries.extend(scan_apt(root)?);
+        entries.extend(scan_apt(apt_pool_root)?);
     }
     if do_yum {
-        entries.extend(scan_yum(root)?);
+        entries.extend(scan_yum(yum_base)?);
     }
     Ok(entries)
 }
@@ -199,13 +197,14 @@ pub fn list(root: &Path, apt: bool, yum: bool) -> Result<Vec<Entry>> {
 /// Remove packages matching `name` (and optional exact `version`). Returns the
 /// removed entries; does not print or republish.
 pub fn remove(
-    root: &Path,
+    apt_pool_root: &Path,
     name: &str,
     version: Option<&str>,
+    yum_base: &Path,
     apt: bool,
     yum: bool,
 ) -> Result<Vec<Entry>> {
-    let matches: Vec<Entry> = list(root, apt, yum)?
+    let matches: Vec<Entry> = list(apt_pool_root, yum_base, apt, yum)?
         .into_iter()
         .filter(|e| e.name == name && version.is_none_or(|v| e.version == v))
         .collect();
@@ -256,14 +255,13 @@ fn referenced_apt_files(root: &Path) -> std::collections::HashSet<String> {
 }
 
 /// Absolute `.rpm` paths referenced by any retained yum state's `primary.xml`
-/// (`yum/<repo>/<arch>/.states/repodata/**/sha256-primary.xml.gz`).
-fn referenced_yum_files(root: &Path) -> std::collections::HashSet<PathBuf> {
+/// (`<yum-base>/<repo>/<arch>/.states/repodata/**/sha256-primary.xml.gz`).
+fn referenced_yum_files(yum_base: &Path) -> std::collections::HashSet<PathBuf> {
     let mut set = std::collections::HashSet::new();
-    let yum = root.join("yum");
-    if !yum.is_dir() {
+    if !yum_base.is_dir() {
         return set;
     }
-    for entry in walkdir::WalkDir::new(&yum)
+    for entry in walkdir::WalkDir::new(yum_base)
         .into_iter()
         .filter_map(|e| e.ok())
     {
@@ -312,29 +310,37 @@ fn extract_hrefs(xml: &str) -> Vec<String> {
 /// can't evict a newer version; mtime is only a per-pair tiebreaker when a
 /// version is unparseable. Files pinned by a retained rollback state are never
 /// pruned.
-pub fn gc(
-    root: &Path,
-    keep: usize,
-    keep_within_days: u32,
-    grace_days: u32,
-    apt: bool,
-    yum: bool,
-    dry_run: bool,
-) -> Result<GcReport> {
+pub struct GcOptions<'a> {
+    pub keep: usize,
+    pub keep_within_days: u32,
+    pub grace_days: u32,
+    pub apt_pool_root: &'a Path,
+    pub yum_base: &'a Path,
+    pub apt: bool,
+    pub yum: bool,
+    pub dry_run: bool,
+}
+
+pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
     let referenced = referenced_apt_files(root);
-    let referenced_rpm = referenced_yum_files(root);
+    let referenced_rpm = referenced_yum_files(options.yum_base);
     let apt_root = root.join("apt");
 
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
-    for e in list(root, apt, yum)? {
+    for e in list(
+        options.apt_pool_root,
+        options.yum_base,
+        options.apt,
+        options.yum,
+    )? {
         groups.entry(e.group_key()).or_default().push(e);
     }
 
-    let keep_within_secs = (keep_within_days as u64).saturating_mul(86400);
-    let grace_secs = (grace_days as u64).saturating_mul(86400);
-    let time_cutoff = if keep_within_days > 0 {
+    let keep_within_secs = (options.keep_within_days as u64).saturating_mul(86400);
+    let grace_secs = (options.grace_days as u64).saturating_mul(86400);
+    let time_cutoff = if options.keep_within_days > 0 {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs().saturating_sub(keep_within_secs))
@@ -342,7 +348,7 @@ pub fn gc(
     } else {
         None
     };
-    let grace_cutoff = if grace_days > 0 {
+    let grace_cutoff = if options.grace_days > 0 {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs().saturating_sub(grace_secs))
@@ -356,7 +362,7 @@ pub fn gc(
     let mut deferred = 0usize;
     let mut bytes_freed: u64 = 0;
     for (_, mut versions) in groups {
-        if versions.len() <= keep && keep_within_days == 0 {
+        if versions.len() <= options.keep && options.keep_within_days == 0 {
             continue;
         }
         // Newest version first; per-pair fall back to mtime when a version is
@@ -366,7 +372,7 @@ pub fn gc(
                 .unwrap_or_else(|| a.mtime.cmp(&b.mtime))
                 .reverse()
         });
-        for e in versions.into_iter().skip(keep) {
+        for e in versions.into_iter().skip(options.keep) {
             // Protect files younger than the time cutoff.
             if let Some(cutoff) = time_cutoff {
                 let mtime_secs = e
@@ -407,7 +413,7 @@ pub fn gc(
             if let Ok(meta) = std::fs::metadata(&e.path) {
                 bytes_freed += meta.len();
             }
-            if !dry_run {
+            if !options.dry_run {
                 std::fs::remove_file(&e.path)
                     .with_context(|| format!("removing {}", e.path.display()))?;
             }
@@ -416,7 +422,7 @@ pub fn gc(
     }
     Ok(GcReport {
         pruned,
-        dry_run,
+        dry_run: options.dry_run,
         retained_for_rollback,
         deferred,
         bytes_freed,

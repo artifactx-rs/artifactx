@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::scope;
+
 /// Default config file name living at the repository root.
 pub const CONFIG_FILE: &str = "arx.toml";
 
@@ -204,29 +206,45 @@ impl Config {
         Ok(())
     }
 
-    /// Absolute path to the armored private key for a given repo root.
-    pub fn private_key_path(&self, root: &Path) -> PathBuf {
-        root.join(&self.signing.private_key)
+    /// Absolute path to the armored private key for a given repo root after
+    /// validating the configured path stays repo-relative.
+    pub fn private_key_path(&self, root: &Path) -> Result<PathBuf> {
+        Ok(root.join(scope::validate_repo_relative_path(
+            &self.signing.private_key,
+            "signing private key",
+        )?))
     }
 
-    /// Absolute path to the armored public key for a given repo root.
-    pub fn public_key_path(&self, root: &Path) -> PathBuf {
-        root.join(&self.signing.public_key)
+    /// Absolute path to the armored public key for a given repo root after
+    /// validating the configured path stays repo-relative.
+    pub fn public_key_path(&self, root: &Path) -> Result<PathBuf> {
+        Ok(root.join(scope::validate_repo_relative_path(
+            &self.signing.public_key,
+            "signing public key",
+        )?))
     }
 
-    /// Absolute path to the key storage directory.
-    pub fn keys_dir(&self, root: &Path) -> PathBuf {
-        root.join(&self.signing.keys_dir)
+    /// Absolute path to the key storage directory after validating the
+    /// configured path stays repo-relative.
+    pub fn keys_dir(&self, root: &Path) -> Result<PathBuf> {
+        Ok(root.join(scope::validate_repo_relative_path(
+            &self.signing.keys_dir,
+            "signing keys dir",
+        )?))
     }
 
-    /// Absolute path to the apt pool root (`apt/<pool_dir>`).
-    pub fn apt_pool_root(&self, root: &Path) -> PathBuf {
-        root.join("apt").join(&self.apt.pool_dir)
+    /// Absolute path to the apt pool root after validating `pool_dir` is a
+    /// single logical repository name, not a filesystem path.
+    pub fn checked_apt_pool_root(&self, root: &Path) -> Result<PathBuf> {
+        let pool_dir = scope::validate_scope_name(&self.apt.pool_dir, "apt pool dir")?;
+        Ok(root.join("apt").join(pool_dir))
     }
 
-    /// Absolute path to the yum base directory.
-    pub fn yum_base(&self, root: &Path) -> PathBuf {
-        root.join(&self.yum.base_dir)
+    /// Absolute path to the yum base directory after validating `base_dir` is
+    /// a single logical repository name, not a filesystem path.
+    pub fn checked_yum_base(&self, root: &Path) -> Result<PathBuf> {
+        let base_dir = scope::validate_scope_name(&self.yum.base_dir, "yum base dir")?;
+        Ok(root.join(base_dir))
     }
 }
 
