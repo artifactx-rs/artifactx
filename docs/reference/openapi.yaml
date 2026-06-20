@@ -1,0 +1,505 @@
+openapi: 3.1.0
+info:
+  title: ArtifactX HTTP API
+  version: 0.1.4
+  description: |
+    JSON API exposed by `arx serve` for package repository operations. Static
+    apt/yum repository files are served from the same origin.
+servers:
+  - url: http://127.0.0.1:8080
+security: []
+tags:
+  - name: health
+  - name: packages
+  - name: publish
+  - name: rollback
+  - name: import
+  - name: promote
+  - name: metrics
+paths:
+  /api/v1/health:
+    get:
+      tags: [health]
+      summary: Get server identity and version
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server health information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /api/v1/packages:
+    get:
+      tags: [packages]
+      summary: List pooled packages
+      operationId: listPackages
+      responses:
+        '200':
+          description: Package list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PackageInfo'
+    post:
+      tags: [packages]
+      summary: Upload one package and republish metadata
+      operationId: uploadPackage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Arx-Filename
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Safe single-component package filename.
+        - name: X-Arx-Component
+          in: header
+          required: false
+          schema:
+            type: string
+          description: apt component for `.deb` uploads.
+        - name: X-Arx-Repo
+          in: header
+          required: false
+          schema:
+            type: string
+          description: yum repo for `.rpm` uploads.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Stored and published package.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/v1/packages/{name}:
+    delete:
+      tags: [packages]
+      summary: Remove packages by name and optional version, then republish
+      operationId: deletePackage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AptFlag'
+        - $ref: '#/components/parameters/YumFlag'
+      responses:
+        '200':
+          description: Removed packages and publish summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/gc:
+    post:
+      tags: [packages]
+      summary: Prune old package versions
+      operationId: gcPackages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keep
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 3
+        - name: keep_within_days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: grace_days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/AptFlag'
+        - $ref: '#/components/parameters/YumFlag'
+      responses:
+        '200':
+          description: GC result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GcResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/publish:
+    post:
+      tags: [publish]
+      summary: Regenerate apt and yum metadata
+      operationId: publishRepositories
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Publish summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/history/{target}:
+    get:
+      tags: [rollback]
+      summary: List retained states for an apt dist or yum repo/arch target
+      operationId: listHistory
+      parameters:
+        - name: target
+          in: path
+          required: true
+          schema:
+            type: string
+          description: apt dist (`stable`) or yum target (`myrepo/x86_64`).
+      responses:
+        '200':
+          description: Retained states.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryItem'
+  /api/v1/rollback/{target}:
+    post:
+      tags: [rollback]
+      summary: Roll a target back to a retained state
+      operationId: rollbackTarget
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: target
+          in: path
+          required: true
+          schema:
+            type: string
+          description: apt dist (`stable`) or yum target (`myrepo/x86_64`).
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: State id to roll back to. Omitting it selects the previous retained state.
+      responses:
+        '200':
+          description: Rollback result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/import:
+    post:
+      tags: [import]
+      summary: Import packages from an upstream apt or yum repository
+      operationId: importRepository
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - $ref: '#/components/parameters/AptFlag'
+        - $ref: '#/components/parameters/YumFlag'
+        - name: dist
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: component
+          in: query
+          required: false
+          schema:
+            type: string
+          description: apt component or yum repo.
+        - name: arch
+          in: query
+          required: false
+          schema:
+            type: string
+            default: amd64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: match_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: apt package-name prefix filter.
+      responses:
+        '200':
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/promote:
+    post:
+      tags: [promote]
+      summary: Move packages between apt components or yum repos
+      operationId: promotePackage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AptFlag'
+        - $ref: '#/components/parameters/YumFlag'
+      responses:
+        '200':
+          description: Promote result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromoteResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /metrics:
+    get:
+      tags: [metrics]
+      summary: Prometheus metrics
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token or GitHub OIDC JWT
+  parameters:
+    AptFlag:
+      name: apt
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: Limit/apply the operation to apt packages.
+    YumFlag:
+      name: yum
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+      description: Limit/apply the operation to yum packages.
+  responses:
+    BadRequest:
+      description: Invalid path, query parameter, upload filename, or package scope.
+      content:
+        text/plain:
+          schema:
+            type: string
+    Unauthorized:
+      description: Missing or invalid bearer authentication.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: unauthorized
+    Forbidden:
+      description: Writes are disabled because no write auth mode is configured.
+      content:
+        text/plain:
+          schema:
+            type: string
+    UnprocessableEntity:
+      description: Strict publish rejected a skipped package.
+      content:
+        text/plain:
+          schema:
+            type: string
+  schemas:
+    Health:
+      type: object
+      required: [name, version]
+      properties:
+        name:
+          type: string
+          example: arx
+        version:
+          type: string
+          example: 0.1.4
+    PackageInfo:
+      type: object
+      required: [name, version, arch, scope, kind]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        arch:
+          type: string
+        scope:
+          type: string
+          description: apt component or yum repo.
+        kind:
+          type: string
+          enum: [apt, yum]
+    DeleteResult:
+      type: object
+      required: [removed, published]
+      properties:
+        removed:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageInfo'
+        published:
+          type: string
+    GcResult:
+      type: object
+      required: [pruned, dry_run, published]
+      properties:
+        pruned:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageInfo'
+        dry_run:
+          type: boolean
+        published:
+          type:
+            - string
+            - 'null'
+    PushResult:
+      type: object
+      required: [stored, published]
+      properties:
+        stored:
+          type: string
+        published:
+          type: string
+        skipped:
+          type: array
+          items:
+            type: string
+    PublishResult:
+      type: object
+      required: [apt, yum]
+      properties:
+        apt:
+          type: string
+        yum:
+          type: string
+    HistoryItem:
+      type: object
+      required: [id, current]
+      properties:
+        id:
+          type: string
+        current:
+          type: boolean
+    RollbackResult:
+      type: object
+      required: [previous, current]
+      properties:
+        previous:
+          type: string
+        current:
+          type: string
+    ImportResult:
+      type: object
+      required: [imported]
+      properties:
+        imported:
+          type: integer
+          minimum: 0
+    PromoteResult:
+      type: object
+      required: [moved]
+      properties:
+        moved:
+          type: integer
+          minimum: 0
