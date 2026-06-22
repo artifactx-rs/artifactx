@@ -36,11 +36,13 @@ ArtifactX has two Pages paths:
 | `.github/workflows/pages.yml` | manual dispatch, or changes to Pages inputs on `main` | Rebuilds and redeploys only the Pages site/repo. It downloads the latest release binary for the Cargo version; it does **not** compile Rust source. |
 
 Both workflows call `scripts/build-pages-site.sh`. That script is the source of
-truth for the generated Pages layout.
+truth for the generated repository layout, while `site/` is the maintainable
+source for the landing page, install helper, robots file, and sitemap.
 
 The standalone `pages` workflow checks out the repository because it needs the
-workflow file, `scripts/build-pages-site.sh`, `packaging/arx.toml`, and the Cargo
-version. It deliberately avoids the Rust toolchain and release build steps.
+workflow file, `scripts/build-pages-site.sh`, `site/`, `packaging/arx.toml`, and
+the Cargo version. It deliberately avoids the Rust toolchain and release build
+steps.
 
 ## Prerequisites
 
@@ -206,17 +208,19 @@ configuration management instead of piping `install.sh` directly into `sh`. See
 
 ## Update the landing page
 
-The generated landing page lives inside `scripts/build-pages-site.sh`. Edit that
-script when changing copy, metadata, install snippets, or links. Then run:
+The generated landing page source lives in `site/`, not in the generated
+`public/index.html` artifact. Edit `site/index.html` for copy, layout, metadata,
+and links; edit `site/install.sh.in` for the installer; edit
+`site/robots.txt.in` or `site/sitemap.xml.in` for crawler metadata. Then run:
 
 ```sh
 bash -n scripts/build-pages-site.sh
 scripts/build-pages-site.sh
 ```
 
-Commit the script change and push to `main`. The standalone `pages` workflow is
-configured to redeploy when `scripts/build-pages-site.sh`, `packaging/arx.toml`,
-or `.github/workflows/pages.yml` changes on `main`.
+Commit the `site/` or script change and push to `main`. The standalone `pages`
+workflow is configured to redeploy when `site/`, `scripts/build-pages-site.sh`,
+`packaging/arx.toml`, or `.github/workflows/pages.yml` changes on `main`.
 
 ## Security and operations notes
 

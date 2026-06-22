@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+REPO_URL="__REPO_URL__"
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "This installer needs root privileges or sudo." >&2
+    exit 1
+  fi
+}
+
+if command -v apt-get >/dev/null 2>&1; then
+  run_root install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL "$REPO_URL/public.asc" | run_root tee /etc/apt/keyrings/arx.asc >/dev/null
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/arx.asc] $REPO_URL/apt stable main" | run_root tee /etc/apt/sources.list.d/arx.list >/dev/null
+  run_root apt-get update
+  run_root apt-get install -y arx
+elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+  PM="dnf"
+  command -v dnf >/dev/null 2>&1 || PM="yum"
+  cat <<REPO | run_root tee /etc/yum.repos.d/arx.repo >/dev/null
+[arx]
+name=ArtifactX
+baseurl=$REPO_URL/yum/myrepo/\$basearch
+enabled=1
+repo_gpgcheck=1
+gpgcheck=0
+gpgkey=$REPO_URL/public.asc
+REPO
+  run_root "$PM" install -y arx
+else
+  echo "Unsupported system: expected apt-get, dnf, or yum." >&2
+  exit 1
+fi
