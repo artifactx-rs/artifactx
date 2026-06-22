@@ -3,6 +3,7 @@
 mod cli;
 mod compose;
 mod config;
+mod cutover;
 mod export;
 mod hooks;
 mod import;
@@ -143,6 +144,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Export(args) => cmd_export(&args),
+        Command::Cutover(args) => cmd_cutover(&args),
     }
 }
 
@@ -262,6 +264,47 @@ fn export_formats(args: &cli::ExportArgs) -> String {
         formats.push("yum");
     }
     formats.join(",")
+}
+
+fn cmd_cutover(args: &cli::CutoverArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).context("loading config; run `arx init` first")?;
+    let needs_key = !args.no_publish || args.yum_flat_live.is_some();
+    let key = if needs_key {
+        load_key(&args.root, &cfg)?
+    } else {
+        None
+    };
+    let passphrase = if needs_key && cfg.signing.enabled && cfg.signing.encrypted {
+        match resolve_passphrase(args.passphrase_file.as_deref())? {
+            Some(p) => p,
+            None => bail!(
+                "signing key is encrypted; provide --passphrase-file or set ARX_KEY_PASSPHRASE"
+            ),
+        }
+    } else {
+        String::new()
+    };
+    let report = cutover::run(
+        &cutover::CutoverOptions {
+            root: args.root.clone(),
+            apt_live: args.apt_live.clone(),
+            yum_flat_live: args.yum_flat_live.clone(),
+            staging_dir: args.staging_dir.clone(),
+            repo: args.repo.clone(),
+            arch: args.arch.clone(),
+            dry_run: args.dry_run,
+            no_publish: args.no_publish,
+            require_signed_rpms: args.require_signed_rpms,
+        },
+        &cfg,
+        key.as_ref(),
+        &passphrase,
+    )?;
+    println!("cutover staging: {}", report.staging_root.display());
+    for line in report.lines {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 /// Load the signing key referenced by config, if signing is enabled.

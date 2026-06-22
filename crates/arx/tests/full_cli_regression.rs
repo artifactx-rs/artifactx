@@ -225,13 +225,126 @@ fn every_cli_subcommand_is_wired_into_help() {
     let help = String::from_utf8_lossy(&output.stdout);
     for cmd in [
         "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
-        "search", "gc", "promote", "serve", "mirror", "watch", "compose", "export",
+        "search", "gc", "promote", "serve", "mirror", "watch", "compose", "export", "cutover",
     ] {
         assert!(
             help.contains(cmd),
             "help output missing command {cmd}:\n{help}"
         );
     }
+}
+
+#[test]
+fn cutover_exports_validates_and_switches_live_symlink() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let public = tmp.path().join("public");
+    let live = public.join("deb");
+    let staging = tmp.path().join("cutovers");
+    let first = tmp.path().join("cutover_1.0-1_amd64.deb");
+    let second = tmp.path().join("cutover_2.0-1_amd64.deb");
+    write_deb(&first, "cutover", "1.0-1", "amd64");
+    write_deb(&second, "cutover", "2.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        first.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+
+    arx_ok(&[
+        "cutover",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "live path should be an atomically switched symlink"
+    );
+    assert!(live.join("dists/stable/Release").exists());
+    assert!(!public.join("deb.previous").exists());
+
+    arx_ok(&[
+        "add",
+        second.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "cutover",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+    ]);
+
+    assert!(live.join("dists/stable/Release").exists());
+    assert!(
+        std::fs::symlink_metadata(public.join("deb.previous"))
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "second cutover should leave a rollback pointer"
+    );
+}
+
+#[test]
+fn cutover_require_signed_rpms_blocks_unsigned_payloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let public = tmp.path().join("public");
+    let staging = tmp.path().join("cutovers");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+    std::fs::write(&payload, "#!/bin/sh\necho cutover\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "unsigned-cutover", "1.0.0");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--add",
+        "--root",
+        repo.to_str().unwrap(),
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+
+    let output = arx_output(&[
+        "cutover",
+        "--root",
+        repo.to_str().unwrap(),
+        "--yum-flat-live",
+        public.join("repo").to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+        "--require-signed-rpms",
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "unsigned RPM payloads should block strict yum cutover"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unsigned RPM payload"),
+        "failure should distinguish RPM payload signatures from repo metadata signatures: {stderr}"
+    );
+    assert!(
+        !public.join("repo").exists(),
+        "failed preflight must leave live yum path untouched"
+    );
 }
 
 #[test]

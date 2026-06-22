@@ -123,3 +123,26 @@ Keep downstream sync only when it still provides value, such as mirror fan-out,
 CDN upload, or compatibility with an existing public URL. If ArtifactX already
 serves the repository directly and no separate distribution step is needed,
 removing redundant sync automation reduces cutover risk.
+
+
+## Preflighted local cutover
+
+Use `arx cutover` when the public apt/yum paths are live symlinks to versioned
+exports:
+
+```bash
+arx cutover \
+  --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo \
+  --staging-dir ./public/.arx-cutovers \
+  --arch x86_64
+```
+
+Add `--dry-run` to publish, export, and validate without switching live pointers.
+Add `--require-signed-rpms` when yum clients enforce RPM payload signatures with
+`gpgcheck=1`. ArtifactX signs repository metadata, but it does not re-sign RPM
+payloads during import.
+
+Keep downstream file replication outside the cutover command. If replication or
+notifications are needed, configure lifecycle hooks with generic commands.
