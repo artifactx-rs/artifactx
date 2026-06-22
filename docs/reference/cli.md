@@ -117,6 +117,10 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--strict`: fail if packages are skipped.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
 
+Configured `pre_publish` hooks run before metadata changes, and `post_publish`
+hooks run after a successful publish. See
+[`[hooks]`](config.md#hooks) for command shape and environment variables.
+
 ### `arx import`
 
 - `--apt` or `--yum`: choose upstream repo format.

@@ -40,6 +40,14 @@ base_dir = "yum"
 enabled = false
 audience = "arx"
 allowed_repos = []
+
+[[hooks.pre_publish]]
+command = "sh"
+args = ["-c", "test -f READY"]
+
+[[hooks.post_publish]]
+command = "sh"
+args = ["-c", "printf '%s\n' \"$ARX_SUMMARY\" >> publish.log"]
 ```
 
 ## `[repo]`
@@ -120,3 +128,49 @@ GitHub Actions OIDC push authentication.
 
 If OIDC is disabled, write API calls require `ARX_SERVE_TOKEN`. If neither OIDC
 nor `ARX_SERVE_TOKEN` is configured, reads are public and writes are disabled.
+
+## `[hooks]`
+
+Lifecycle hooks let operators attach validation, notification, audit, or mirror
+sync steps around client-visible repository state changes without wrapping
+`arx` in ad-hoc shell scripts.
+
+Hooks are arrays of commands under these keys:
+
+| Key | Runs |
+| --- | --- |
+| `pre_publish` | Before publish starts; failure aborts before metadata changes. |
+| `post_publish` | After a successful publish. |
+| `pre_export` | Before export starts; failure aborts before export directories are committed. |
+| `post_export` | After a successful export. |
+| `pre_rollback` | Before a rollback flips a retained state pointer. |
+| `post_rollback` | After a successful rollback. |
+
+Each hook uses this shape:
+
+```toml
+[[hooks.pre_publish]]
+command = "sh"
+args = ["-c", "test -f READY"]
+```
+
+ArtifactX does not invoke a shell implicitly. `command` is executed directly,
+and `args` are passed exactly as configured. If you need shell features, opt in
+explicitly as shown above.
+
+Hooks run with the repository root as their working directory. ArtifactX adds
+these environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `ARX_HOOK` | Hook event name, such as `pre_publish`. |
+| `ARX_ROOT` | Repository root path. |
+| `ARX_FORMATS` | Comma-separated formats for publish/export hooks, such as `apt,yum`. |
+| `ARX_SUMMARY` | Human-readable publish/export summary for post hooks. |
+| `ARX_TARGET` | Rollback target for rollback hooks. |
+| `ARX_STATE` | Retained state id selected by `post_rollback`. |
+
+Pre-hook failures stop the operation before the corresponding state change.
+Post-hook failures are reported after the state change has already succeeded, so
+post hooks should be idempotent. Public logs should print references to secret
+locations or environment variable names, not secret values.
