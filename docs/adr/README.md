@@ -69,4 +69,7 @@ How we'd make this better later, and what would trigger that.
 | [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |
 | [0014](0014-oidc-keyless-push.md) | OIDC keyless push — ditch the long-lived token | Accepted |
 | [0015](0015-object-storage-backend-deferred.md) | Object-storage backend | Deferred |
-| [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |
+| [0016](0016-component-channel-filtering.md) | Component/channel filtering | Accepted |
+| [0017](0017-mirror-one-way-sync.md) | `arx mirror` — one-way upstream sync (not mirroring-as-platform) | Accepted |
+| [0018](0018-directory-entries-for-package-manifests.md) | Directory entries for package manifests | Proposed |
+| [0019](0019-directory-inputs-for-add-and-import.md) | Directory inputs for `arx add` and import workflows | Proposed |
