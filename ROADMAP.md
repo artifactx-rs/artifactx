@@ -199,7 +199,8 @@ Rules to design before implementation:
 
 ## 🟡 Future — v0.4.0 UI and console
 
-Milestone: [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4)
+Milestone: [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4)  
+Tracking issue: [#62 — Roadmap: v0.4 UI and console](https://github.com/artifactx-rs/artifactx/issues/62)
 
 This is intentionally parked until v0.2 publish/API and v0.3 pack ergonomics are
 solid. The UI should be a thin, trustworthy console over stable CLI/API semantics,
@@ -214,7 +215,8 @@ not a second product with separate behavior.
 
 ## 🟠 Future — v0.5.0 OCI, Helm, and cloud-native integrations
 
-Milestone: [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5)
+Milestone: [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5)  
+Tracking issue: [#63 — Roadmap: v0.5 OCI, Helm, and cloud-native integrations](https://github.com/artifactx-rs/artifactx/issues/63)
 
 This lane is for cloud-native distribution only after the native package repo
 story is stable. The goal is to meet teams where they already deploy, not to turn
@@ -229,7 +231,8 @@ ArtifactX into a giant registry platform.
 
 ## 🟣 Future — v0.6.0 distributed delivery
 
-Milestone: [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6)
+Milestone: [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6)  
+Tracking issue: [#64 — Roadmap: v0.6 distributed delivery](https://github.com/artifactx-rs/artifactx/issues/64)
 
 This is the bigger bet: distribution, replication, and multi-site delivery. It is
 explicitly after publish/API, pack, UI, and cloud-native fundamentals because it

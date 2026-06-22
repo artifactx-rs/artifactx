@@ -128,6 +128,8 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--match-name <PREFIX>`: import packages whose names match the prefix.
 - `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, or fails size/checksum validation. Use this for production cutover gates; omit it for best-effort migrations.
 
+For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[repo]`.
+
 ### `arx search`
 
 - `[QUERY]`: optional substring match against package names.

@@ -232,6 +232,74 @@ fn fetch_first_existing(
     )
 }
 
+#[derive(Debug, Default)]
+struct AptReleaseIdentity {
+    origin: Option<String>,
+    label: Option<String>,
+    suite: Option<String>,
+    codename: Option<String>,
+}
+
+fn parse_apt_release_identity(text: &str) -> AptReleaseIdentity {
+    let mut identity = AptReleaseIdentity::default();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "Origin" if !value.is_empty() => identity.origin = Some(value.to_string()),
+            "Label" if !value.is_empty() => identity.label = Some(value.to_string()),
+            "Suite" if !value.is_empty() => identity.suite = Some(value.to_string()),
+            "Codename" if !value.is_empty() => identity.codename = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    identity
+}
+
+fn preserve_apt_release_identity(
+    root: &Path,
+    cfg: &Config,
+    base: &str,
+    dist: &str,
+    client: &reqwest::blocking::Client,
+) -> Result<()> {
+    let release_url = format!("{base}/dists/{dist}/Release");
+    let text = match fetch_text(client, &release_url) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("warning: could not read upstream apt Release identity ({e:#})");
+            return Ok(());
+        }
+    };
+    let identity = parse_apt_release_identity(&text);
+    if identity.origin.is_none()
+        && identity.label.is_none()
+        && identity.suite.is_none()
+        && identity.codename.is_none()
+    {
+        return Ok(());
+    }
+
+    let mut next = cfg.clone();
+    if let Some(origin) = identity.origin {
+        next.repo.origin = origin;
+    }
+    if let Some(label) = identity.label {
+        next.repo.label = label;
+    }
+    if let Some(suite) = identity.suite {
+        next.repo.suite = Some(suite);
+    }
+    if let Some(codename) = identity.codename {
+        next.repo.codename = Some(codename);
+    }
+    next.save(root)?;
+    println!("preserved upstream apt Release identity from {release_url}");
+    Ok(())
+}
+
 fn verify_size(location: &str, expected: Option<u64>, actual: usize) -> Result<()> {
     if let Some(expected) = expected {
         if actual as u64 != expected {
@@ -381,6 +449,7 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
     let base = base_url.trim_end_matches('/');
     let prefix = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages");
     let client = reqwest::blocking::Client::new();
+    preserve_apt_release_identity(root, cfg, base, dist, &client)?;
     let (_metadata_url, text) = fetch_first_existing(
         &client,
         &[

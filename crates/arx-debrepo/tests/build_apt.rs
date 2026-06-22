@@ -125,6 +125,25 @@ fn builds_packages_and_release() {
 }
 
 #[test]
+fn release_meta_can_render_distinct_suite_and_codename() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+    write_deb(
+        &pool.join("foo_1.0_amd64.deb"),
+        &control("foo", "1.0", "amd64"),
+    );
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable").with_codename("bookworm");
+    build_dist(&apt, "stable", &meta).unwrap();
+
+    let release = std::fs::read_to_string(apt.join("dists/stable/Release")).unwrap();
+    assert!(release.contains("Suite: stable"));
+    assert!(release.contains("Codename: bookworm"));
+}
+
+#[test]
 fn omits_empty_control_fields_from_packages_index() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");

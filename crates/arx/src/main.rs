@@ -1005,8 +1005,9 @@ fn publish_apt(
         cfg.repo.origin.as_str(),
         cfg.repo.label.as_str(),
         cfg.repo.description.as_str(),
-        dist,
+        cfg.repo.suite.as_deref().unwrap_or(dist),
     )
+    .with_codename(cfg.repo.codename.as_deref().unwrap_or(dist))
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
