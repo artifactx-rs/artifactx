@@ -31,6 +31,9 @@ pub struct Config {
     /// OIDC (GitHub Actions keyless push) settings.
     #[serde(default)]
     pub oidc: OidcConfig,
+    /// Lifecycle hooks around client-visible state changes.
+    #[serde(default, skip_serializing_if = "Hooks::is_empty")]
+    pub hooks: Hooks,
 }
 
 /// OIDC configuration for keyless push authentication. (ADR-0014.)
@@ -59,6 +62,48 @@ impl Default for OidcConfig {
             allowed_repos: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Hooks {
+    /// Commands run before publish starts; failures abort before metadata changes.
+    #[serde(default)]
+    pub pre_publish: Vec<HookCommand>,
+    /// Commands run after a successful publish.
+    #[serde(default)]
+    pub post_publish: Vec<HookCommand>,
+    /// Commands run before export starts; failures abort before export directories are committed.
+    #[serde(default)]
+    pub pre_export: Vec<HookCommand>,
+    /// Commands run after a successful export.
+    #[serde(default)]
+    pub post_export: Vec<HookCommand>,
+    /// Commands run before rollback flips a retained state pointer.
+    #[serde(default)]
+    pub pre_rollback: Vec<HookCommand>,
+    /// Commands run after a successful rollback.
+    #[serde(default)]
+    pub post_rollback: Vec<HookCommand>,
+}
+
+impl Hooks {
+    pub fn is_empty(&self) -> bool {
+        self.pre_publish.is_empty()
+            && self.post_publish.is_empty()
+            && self.pre_export.is_empty()
+            && self.post_export.is_empty()
+            && self.pre_rollback.is_empty()
+            && self.post_rollback.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookCommand {
+    /// Executable to run. No shell is invoked unless configured explicitly.
+    pub command: String,
+    /// Arguments passed exactly as configured.
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

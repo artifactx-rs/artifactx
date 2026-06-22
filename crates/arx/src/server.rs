@@ -498,9 +498,24 @@ async fn publish_handler(State(st): State<AppState>) -> Response {
     let passphrase = Arc::clone(&st.passphrase);
     let blocking = move || -> Result<PublishResult> {
         let _lock = crate::PublishLock::acquire(&root)?;
+        crate::hooks::run(
+            &root,
+            &cfg,
+            crate::hooks::HookEvent::PrePublish,
+            &crate::hooks::HookContext::new().with("ARX_FORMATS", "apt,yum"),
+        )?;
         let k = key.as_deref();
         let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true)?;
         let yum = crate::publish_yum(&root, &cfg, k, &passphrase, true)?;
+        let summary = format!("{}; {yum}", apt.summary);
+        crate::hooks::run(
+            &root,
+            &cfg,
+            crate::hooks::HookEvent::PostPublish,
+            &crate::hooks::HookContext::new()
+                .with("ARX_FORMATS", "apt,yum")
+                .with("ARX_SUMMARY", summary),
+        )?;
         Ok(PublishResult {
             apt: apt.summary,
             yum,
@@ -554,9 +569,23 @@ async fn rollback_handler(
     let root = st.root.clone();
     let cfg = Arc::clone(&st.cfg);
     let blocking = move || -> Result<RollbackResult> {
+        crate::hooks::run(
+            &root,
+            &cfg,
+            crate::hooks::HookEvent::PreRollback,
+            &crate::hooks::HookContext::new().with("ARX_TARGET", target.clone()),
+        )?;
         let link = client_target_link(&root, &cfg, &target)?;
         let id =
             arx_debrepo::statedir::rollback(&link, q.to.as_deref()).context("rollback failed")?;
+        crate::hooks::run(
+            &root,
+            &cfg,
+            crate::hooks::HookEvent::PostRollback,
+            &crate::hooks::HookContext::new()
+                .with("ARX_TARGET", target.clone())
+                .with("ARX_STATE", id.clone()),
+        )?;
         Ok(RollbackResult {
             previous: target,
             current: id,
@@ -821,6 +850,13 @@ fn publish_selected(
     do_apt: bool,
     do_yum: bool,
 ) -> Result<String> {
+    let formats = crate::publish_formats(do_apt, do_yum);
+    crate::hooks::run(
+        root,
+        cfg,
+        crate::hooks::HookEvent::PrePublish,
+        &crate::hooks::HookContext::new().with("ARX_FORMATS", formats.clone()),
+    )?;
     let mut published = Vec::new();
     if do_apt {
         let apt = crate::publish_apt(root, cfg, key, passphrase, cfg.apt.strict, true)?;
@@ -829,11 +865,26 @@ fn publish_selected(
     if do_yum {
         published.push(crate::publish_yum(root, cfg, key, passphrase, true)?);
     }
-    Ok(published.join("; "))
+    let summary = published.join("; ");
+    crate::hooks::run(
+        root,
+        cfg,
+        crate::hooks::HookEvent::PostPublish,
+        &crate::hooks::HookContext::new()
+            .with("ARX_FORMATS", formats)
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    Ok(summary)
 }
 
 /// Republish both formats (caller already holds the publish lock).
 fn publish_both(st: &AppState) -> Result<String> {
+    crate::hooks::run(
+        &st.root,
+        &st.cfg,
+        crate::hooks::HookEvent::PrePublish,
+        &crate::hooks::HookContext::new().with("ARX_FORMATS", "apt,yum"),
+    )?;
     let apt = crate::publish_apt(
         &st.root,
         &st.cfg,
@@ -843,7 +894,16 @@ fn publish_both(st: &AppState) -> Result<String> {
         true,
     )?;
     let yum = crate::publish_yum(&st.root, &st.cfg, st.key.as_deref(), &st.passphrase, true)?;
-    Ok(format!("{}; {yum}", apt.summary))
+    let summary = format!("{}; {yum}", apt.summary);
+    crate::hooks::run(
+        &st.root,
+        &st.cfg,
+        crate::hooks::HookEvent::PostPublish,
+        &crate::hooks::HookContext::new()
+            .with("ARX_FORMATS", "apt,yum")
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    Ok(summary)
 }
 
 /// Store an uploaded package in the pool and republish its format.
@@ -869,6 +929,12 @@ fn ingest(
             let dest = dir.join(filename);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(&dest, &body).context("writing uploaded .deb")?;
+            crate::hooks::run(
+                &st.root,
+                &st.cfg,
+                crate::hooks::HookEvent::PrePublish,
+                &crate::hooks::HookContext::new().with("ARX_FORMATS", "apt"),
+            )?;
             let published = crate::publish_apt(
                 &st.root,
                 &st.cfg,
@@ -876,6 +942,14 @@ fn ingest(
                 &st.passphrase,
                 st.cfg.apt.strict,
                 true,
+            )?;
+            crate::hooks::run(
+                &st.root,
+                &st.cfg,
+                crate::hooks::HookEvent::PostPublish,
+                &crate::hooks::HookContext::new()
+                    .with("ARX_FORMATS", "apt")
+                    .with("ARX_SUMMARY", published.summary.clone()),
             )?;
             Ok(PushResult {
                 stored: stored_path(&st.root, &dest),
@@ -900,7 +974,21 @@ fn ingest(
             let dest = dir.join(filename);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::rename(&tmp, &dest).context("moving uploaded .rpm")?;
+            crate::hooks::run(
+                &st.root,
+                &st.cfg,
+                crate::hooks::HookEvent::PrePublish,
+                &crate::hooks::HookContext::new().with("ARX_FORMATS", "yum"),
+            )?;
             let published = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
+            crate::hooks::run(
+                &st.root,
+                &st.cfg,
+                crate::hooks::HookEvent::PostPublish,
+                &crate::hooks::HookContext::new()
+                    .with("ARX_FORMATS", "yum")
+                    .with("ARX_SUMMARY", published.clone()),
+            )?;
             Ok(PushResult {
                 stored: stored_path(&st.root, &dest),
                 published,

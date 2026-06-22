@@ -4,6 +4,7 @@ mod cli;
 mod compose;
 mod config;
 mod export;
+mod hooks;
 mod import;
 mod mirror;
 mod observability;
@@ -187,6 +188,13 @@ fn cmd_export(args: &cli::ExportArgs) -> Result<()> {
     }
 
     let cfg = Config::load(&args.root).context("loading config; run `arx init` first")?;
+    let formats = export_formats(args);
+    hooks::run(
+        &args.root,
+        &cfg,
+        hooks::HookEvent::PreExport,
+        &hooks::HookContext::new().with("ARX_FORMATS", formats.clone()),
+    )?;
     let key = if args.yum_flat_out.is_some() {
         load_key(&args.root, &cfg)?
     } else {
@@ -232,8 +240,28 @@ fn cmd_export(args: &cli::ExportArgs) -> Result<()> {
             }
         ));
     }
-    println!("{}", lines.join("\n"));
+    let summary = lines.join("\n");
+    hooks::run(
+        &args.root,
+        &cfg,
+        hooks::HookEvent::PostExport,
+        &hooks::HookContext::new()
+            .with("ARX_FORMATS", formats)
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    println!("{summary}");
     Ok(())
+}
+
+fn export_formats(args: &cli::ExportArgs) -> String {
+    let mut formats = Vec::new();
+    if args.apt_out.is_some() {
+        formats.push("apt");
+    }
+    if args.yum_flat_out.is_some() {
+        formats.push("yum");
+    }
+    formats.join(",")
 }
 
 /// Load the signing key referenced by config, if signing is enabled.
@@ -833,23 +861,40 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     // both flags off means publish both.
     let do_apt = args.apt || !args.yum;
     let do_yum = args.yum || !args.apt;
+    let formats = publish_formats(do_apt, do_yum);
     // CLI flag OR config opt-in: any skipped package becomes a hard error.
     let strict = args.strict || cfg.apt.strict;
     // `--full` disables the incremental cache (rebuild from scratch).
     let incremental = !args.full;
 
+    hooks::run(
+        &root,
+        &cfg,
+        hooks::HookEvent::PrePublish,
+        &hooks::HookContext::new().with("ARX_FORMATS", formats.clone()),
+    )?;
+
     // CPU-bound generation runs on a blocking thread.
+    let publish_cfg = cfg.clone();
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
             lines.push(
-                publish_apt(&root, &cfg, key.as_ref(), &passphrase, strict, incremental)?.summary,
+                publish_apt(
+                    &root,
+                    &publish_cfg,
+                    key.as_ref(),
+                    &passphrase,
+                    strict,
+                    incremental,
+                )?
+                .summary,
             );
         }
         if do_yum {
             lines.push(publish_yum(
                 &root,
-                &cfg,
+                &publish_cfg,
                 key.as_ref(),
                 &passphrase,
                 incremental,
@@ -860,8 +905,27 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     .await
     .context("publish task panicked")??;
 
+    hooks::run(
+        &args.root,
+        &cfg,
+        hooks::HookEvent::PostPublish,
+        &hooks::HookContext::new()
+            .with("ARX_FORMATS", formats)
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
     println!("{summary}");
     Ok(())
+}
+
+fn publish_formats(do_apt: bool, do_yum: bool) -> String {
+    let mut formats = Vec::new();
+    if do_apt {
+        formats.push("apt");
+    }
+    if do_yum {
+        formats.push("yum");
+    }
+    formats.join(",")
 }
 
 /// Print a loud, human-visible summary of skipped packages to stderr so a
@@ -1237,8 +1301,22 @@ fn print_states(target: &str, link: &Path) -> Result<()> {
 fn cmd_rollback(args: &cli::RollbackArgs) -> Result<()> {
     let cfg = Config::load(&args.root).unwrap_or_default();
     let target = args.dist.clone().unwrap_or_else(|| cfg.apt.dist.clone());
+    hooks::run(
+        &args.root,
+        &cfg,
+        hooks::HookEvent::PreRollback,
+        &hooks::HookContext::new().with("ARX_TARGET", target.clone()),
+    )?;
     let link = target_link(&args.root, &cfg, &target)?;
     let id = arx_debrepo::statedir::rollback(&link, args.to.as_deref())?;
+    hooks::run(
+        &args.root,
+        &cfg,
+        hooks::HookEvent::PostRollback,
+        &hooks::HookContext::new()
+            .with("ARX_TARGET", target.clone())
+            .with("ARX_STATE", id.clone()),
+    )?;
     println!("Rolled back '{target}' to state {id}.");
     println!("(The next `arx publish` regenerates metadata from the current pool.)");
     Ok(())
@@ -1309,12 +1387,27 @@ async fn cmd_watch(args: &cli::WatchArgs) -> Result<()> {
 
 /// Synchronous publish for the watcher (no async needed).
 fn cmd_publish_static(root: &Path, cfg: &Config) -> Result<String> {
+    let _lock = PublishLock::acquire(root)?;
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PrePublish,
+        &hooks::HookContext::new().with("ARX_FORMATS", "apt,yum"),
+    )?;
     let key = load_key(root, cfg)?;
     let passphrase = resolve_passphrase(None)?.unwrap_or_default();
-    let _lock = PublishLock::acquire(root)?;
     let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true)?;
     let yum = publish_yum(root, cfg, key.as_ref(), &passphrase, true)?;
-    Ok(format!("{}; {yum}", apt.summary))
+    let summary = format!("{}; {yum}", apt.summary);
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PostPublish,
+        &hooks::HookContext::new()
+            .with("ARX_FORMATS", "apt,yum")
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    Ok(summary)
 }
 
 async fn resolve_push_token(args: &cli::PushArgs) -> Result<String> {

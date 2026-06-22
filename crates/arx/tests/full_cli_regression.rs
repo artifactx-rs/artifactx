@@ -132,6 +132,16 @@ fn arx_ok(args: &[&str]) {
     );
 }
 
+fn append_config(root: &Path, text: &str) {
+    use std::io::Write as _;
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(root.join("arx.toml"))
+        .unwrap();
+    file.write_all(text.as_bytes()).unwrap();
+}
+
 fn sha256_hex(path: &Path) -> String {
     let bytes = std::fs::read(path).unwrap();
     hex::encode(Sha256::digest(&bytes))
@@ -222,6 +232,147 @@ fn every_cli_subcommand_is_wired_into_help() {
             "help output missing command {cmd}:\n{help}"
         );
     }
+}
+
+#[test]
+fn publish_pre_hook_failure_blocks_metadata_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let deb = tmp.path().join("hooked_1.0-1_amd64.deb");
+    write_deb(&deb, "hooked", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        r#"
+
+[[hooks.pre_publish]]
+command = "sh"
+args = ["-c", "printf '%s:%s' \"$ARX_HOOK\" \"$ARX_FORMATS\" > pre-hook.txt; exit 23"]
+"#,
+    );
+
+    let output = arx_output(&["publish", "--root", repo.to_str().unwrap(), "--apt"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("hook pre_publish[0] failed"), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("pre-hook.txt")).unwrap(),
+        "pre_publish:apt"
+    );
+    assert!(
+        !repo.join("apt/dists/stable/Release").exists(),
+        "pre hook failure must leave client metadata untouched"
+    );
+}
+
+#[test]
+fn publish_post_hook_runs_after_success_with_context() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let deb = tmp.path().join("hooked_1.0-1_amd64.deb");
+    write_deb(&deb, "hooked", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        r#"
+
+[[hooks.post_publish]]
+command = "sh"
+args = ["-c", "test -f apt/dists/stable/Release && printf '%s:%s:%s' \"$ARX_HOOK\" \"$ARX_FORMATS\" \"$ARX_ROOT\" > post-hook.txt"]
+"#,
+    );
+
+    arx_ok(&["publish", "--root", repo.to_str().unwrap(), "--apt"]);
+
+    let marker = std::fs::read_to_string(repo.join("post-hook.txt")).unwrap();
+    assert!(marker.starts_with("post_publish:apt:"), "{marker}");
+    assert!(
+        marker.ends_with(repo.to_str().unwrap()),
+        "ARX_ROOT should be the repository root: {marker}"
+    );
+    assert!(repo.join("apt/dists/stable/Release").exists());
+}
+
+#[test]
+fn api_publish_runs_configured_post_hook() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let deb = tmp.path().join("apihook_1.0-1_amd64.deb");
+    write_deb(&deb, "apihook", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        r#"
+
+[[hooks.post_publish]]
+command = "sh"
+args = ["-c", "test -f apt/dists/stable/Release && printf '%s:%s' \"$ARX_HOOK\" \"$ARX_FORMATS\" > api-post-hook.txt"]
+"#,
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                repo.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let published: serde_json::Value = reqwest::blocking::Client::new()
+        .post(format!("{base}/api/v1/publish"))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+
+    assert!(
+        published["apt"].as_str().unwrap().contains("apt:"),
+        "API publish response should include apt summary: {published}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("api-post-hook.txt")).unwrap(),
+        "post_publish:apt,yum"
+    );
+    let _ = child.0.kill();
 }
 
 #[test]
