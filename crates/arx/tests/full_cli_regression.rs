@@ -1490,7 +1490,7 @@ fn search_cli_filters_pool_entries_and_emits_json() {
     let text = arx_output(&[
         "search",
         "--name-prefix",
-        "qg",
+        "other",
         "--version",
         "1.0-1",
         "--root",

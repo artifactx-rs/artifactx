@@ -54,7 +54,7 @@ services:
     environment:
       ARX_SERVE_TOKEN: "replace-with-a-secret"
     volumes:
-      - "/tmp/arx-dogfood/repo:/repo"
+      - "./repo:/repo"
 ```
 
 Do this only when the container is the writer for that repo. Avoid multiple

@@ -75,3 +75,6 @@ How we'd make this better later, and what would trigger that.
 | [0019](0019-directory-inputs-for-add-and-import.md) | Directory inputs for `arx add` and import workflows | Proposed |
 | [0020](0020-packaged-systemd-service-unit.md) | Packaged systemd service unit | Proposed |
 | [0021](0021-search-and-api-readiness.md) | Package search and API readiness | Proposed |
+| [0022](0022-apt-release-identity-preservation.md) | Preserve apt Release identity during imports | Accepted |
+| [0023](0023-cutover-preflight-and-downstream-boundaries.md) | Cutover preflight and downstream integration boundaries | Proposed |
+| [0024](0024-public-roadmap-and-information-hygiene.md) | Public roadmap and information hygiene | Accepted |

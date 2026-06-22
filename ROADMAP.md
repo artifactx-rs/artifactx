@@ -108,18 +108,18 @@ common path.
 
 ### v0.2 publish and migration hardening
 
-These items come from the 2026-06-22 `packages.example.com` dogfood and define the publish
+These items come from the 2026-06-22 production-shaped dogfood and define the publish
 contract that must be boring before v0.3 pack work becomes the main focus.
 
 | Work item | Priority | Tracking | Done means |
 | --- | --- | --- | --- |
 | One-command signed import + publish | P0 | [#43](https://github.com/artifactx-rs/artifactx/issues/43) | Migration can intentionally import and publish/re-sign repo metadata in one flow, with apt+yum client e2e coverage. |
 | Preserve apt Release identity | P0 | [#54](https://github.com/artifactx-rs/artifactx/issues/54) | `Origin`, `Label`, `Suite`, and `Codename` are preserved or explicitly overridden so apt clients do not fail on surprise identity changes. |
-| Dirty yum metadata report / strict gate | P0 | [#47](https://github.com/artifactx-rs/artifactx/issues/47) | Stale/missing RPM metadata is either a hard blocker or a clear accepted delta before cutover. |
+| Dirty yum metadata report / strict gate | P0 | [#66](https://github.com/artifactx-rs/artifactx/issues/66) | Stale/missing RPM metadata is either a hard blocker or a clear accepted delta before cutover. |
 | RPM package-signature preflight | P0 | [#55](https://github.com/artifactx-rs/artifactx/issues/55) | `gpgcheck=1` yum cutovers know whether payload RPMs are signed; repo metadata signing is reported separately. |
-| One-command production publish/cutover | P1 | [#49](https://github.com/artifactx-rs/artifactx/issues/49) | The common production path feels like `add -> publish`, with staging validation, atomic promotion, and rollback notes built in. |
+| One-command production publish/cutover | P1 | [#67](https://github.com/artifactx-rs/artifactx/issues/67) | The common production path feels like `add -> publish`, with staging validation, atomic promotion, and rollback notes built in. |
 | Cutover preflight | P1 | [#56](https://github.com/artifactx-rs/artifactx/issues/56) | A staging export is validated for apt, yum, legacy `/deb` + flat `/repo`, CentOS 7 `.gz`, and rollback before live paths move. |
-| Safe service/sync integration guide | P1 | [#57](https://github.com/artifactx-rs/artifactx/issues/57) | Docs distinguish ArtifactX publish success from downstream `downstream sync service` / `downstream monitor service` success and keep private state out of public roots. |
+| Safe service/sync integration guide | P1 | [#68](https://github.com/artifactx-rs/artifactx/issues/68) | Docs distinguish ArtifactX publish success from downstream sync/monitor automation success and keep private state out of public roots. |
 | Migration e2e fixture suite | P1 | [#58](https://github.com/artifactx-rs/artifactx/issues/58) | CI/local fixtures cover apt identity, aptly hash-prefixed debs, dirty yum metadata, CentOS 7 gzip metadata, and API workflows. |
 
 ### v0.2 API and operator query surface
@@ -127,8 +127,8 @@ contract that must be boring before v0.3 pack work becomes the main focus.
 | Work item | Priority | Tracking | Done means |
 | --- | --- | --- | --- |
 | API readiness before stable public use | P0 | [#51](https://github.com/artifactx-rs/artifactx/issues/51) | `/api/v1` has a compatibility stance, stable error shapes, Swagger/OpenAPI docs, auth examples, and e2e examples before being called stable. |
-| Search command + package query API | P0 | [#50](https://github.com/artifactx-rs/artifactx/issues/50) | Operators can query package families/versions/scopes before `gc`, `rm`, `promote`, or cutover; JSON output is available. |
-| Package-scoped GC + rollback-state retention | P1 | [#52](https://github.com/artifactx-rs/artifactx/issues/52) | Old package families such as `demo-*` can be dry-run and pruned safely, with rollback-state pinning explained and controllable. |
+| Search command + package query API | P0 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Operators can query package families/versions/scopes before `gc`, `rm`, `promote`, or cutover; JSON output is available. |
+| Package-scoped GC + rollback-state retention | P1 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Old package families such as `demo-*` can be dry-run and pruned safely, with rollback-state pinning explained and controllable. |
 | Directory inputs for add/import | P1 | [#33](https://github.com/artifactx-rs/artifactx/issues/33) | Existing `.deb` / `.rpm` drop directories can be discovered in stable order with clear failure behavior. |
 | CI slimming + Rust-idiomatic cleanup | P1 | [#34](https://github.com/artifactx-rs/artifactx/issues/34) | Contributor feedback stays fast while release confidence remains deterministic. |
 
