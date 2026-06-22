@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Search(args) => cmd_search(&args),
         Command::Mirror(args) => cmd_mirror(args).await,
         Command::Import(args) => cmd_import(args).await,
         Command::Promote(args) => cmd_promote(&args),
@@ -83,6 +84,8 @@ async fn main() -> Result<()> {
             let report = pool::gc(
                 &args.root,
                 pool::GcOptions {
+                    name: args.name.as_deref(),
+                    name_prefix: args.name_prefix.as_deref(),
                     keep: args.keep,
                     keep_within_days: args.keep_within,
                     grace_days: args.grace,
@@ -91,6 +94,7 @@ async fn main() -> Result<()> {
                     apt: args.apt,
                     yum: args.yum,
                     dry_run: args.dry_run,
+                    retain_rollback_states: !args.ignore_rollback_states,
                 },
             )?;
             for e in &report.pruned {
@@ -139,6 +143,42 @@ async fn main() -> Result<()> {
         }
         Command::Export(args) => cmd_export(&args),
     }
+}
+
+fn cmd_search(args: &cli::SearchArgs) -> Result<()> {
+    let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
+    let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
+    let entries = pool::search(
+        &apt_pool_root,
+        &yum_base,
+        pool::SearchOptions {
+            query: args.query.as_deref(),
+            name_prefix: args.name_prefix.as_deref(),
+            version: args.version.as_deref(),
+            arch: args.arch.as_deref(),
+            scope: args.scope.as_deref(),
+            apt: args.apt,
+            yum: args.yum,
+        },
+    )?;
+    let infos: Vec<_> = entries.iter().map(pool::Entry::info).collect();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&infos)?);
+    } else if infos.is_empty() {
+        println!("No packages matched.");
+    } else {
+        for info in infos {
+            let kind = match info.kind {
+                pool::Kind::Apt => "apt",
+                pool::Kind::Yum => "yum",
+            };
+            println!(
+                "{}\t{}\t{}\t{}\t{}",
+                info.name, info.version, info.arch, info.scope, kind
+            );
+        }
+    }
+    Ok(())
 }
 
 fn cmd_export(args: &cli::ExportArgs) -> Result<()> {
@@ -443,14 +483,51 @@ fn add_to_pool(
     Ok(dest)
 }
 
+fn is_supported_package_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("deb" | "rpm")
+    )
+}
+
+fn expand_add_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut packages = Vec::new();
+
+    for input in inputs {
+        if input.is_dir() {
+            let before = packages.len();
+            for entry in walkdir::WalkDir::new(input).follow_links(false) {
+                let entry = entry.with_context(|| format!("walking {}", input.display()))?;
+                let path = entry.path();
+                if entry.file_type().is_file() && is_supported_package_path(path) {
+                    packages.push(path.to_path_buf());
+                }
+            }
+            if packages.len() == before {
+                bail!(
+                    "{}: directory contains no supported package files (.deb or .rpm)",
+                    input.display()
+                );
+            }
+        } else {
+            packages.push(input.clone());
+        }
+    }
+
+    packages.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    packages.dedup();
+
+    Ok(packages)
+}
+
 fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     let root = &args.root;
     let cfg = Config::load(root).unwrap_or_default();
     let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
 
-    for pkg in &args.packages {
-        let dest = add_to_pool(root, &cfg, pkg, component, repo)?;
+    for pkg in expand_add_inputs(&args.packages)? {
+        let dest = add_to_pool(root, &cfg, &pkg, component, repo)?;
         tracing::info!(file = %dest.display(), "added");
         println!("Added {}", dest.display());
     }

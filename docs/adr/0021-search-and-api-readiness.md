@@ -1,6 +1,6 @@
 # ADR-0021: Add package search before calling the HTTP API stable
 
-- Status: Proposed
+- Status: Accepted for v0.2 search/filtering; broader API stability checklist remains open
 - Date: 2026-06-22
 
 ## Context
@@ -24,14 +24,14 @@ Add a first-class read model around package search:
 
 - CLI: `arx search <query>` with filters for apt/yum, scope/component/repo, arch,
   version, and `--json`.
-- API: expose an equivalent read-only query endpoint, or document a deliberately
-  CLI-only v0.2 cut if the server-side shape is not ready.
+- API: `GET /api/v1/packages` accepts equivalent read-only query parameters:
+  `q`, `name_prefix`, `version`, `arch`, `scope`, `apt`, and `yum`.
 - Implementation: reuse package metadata scanners from list/rm/gc; do not rely on
   filename parsing when package metadata is available.
 
-Until search/filtering, pagination considerations, and error-shape consistency are
-reviewed, `/api/v1` should be described as suitable for early developer use but not
-as a stable long-term compatibility contract.
+Search/filtering is now part of the v0.2 API surface. Pagination considerations,
+error-shape consistency, and a compatibility policy still need review before
+`/api/v1` is described as stable rather than beta/early developer use.
 
 ## Consequences
 

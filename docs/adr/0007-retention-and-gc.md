@@ -13,20 +13,27 @@ pool operation followed by a republish (the aptly model: edit, then publish).
 
 - `arx rm <name> [--version V]` — yank: delete matching pool file(s). Exact
   name/version match (read from package metadata, not the filename).
-- `arx gc --keep N [--dry-run]` — retention: per `(scope, name, arch)`, keep the `N`
-  most recent files, delete older. `--dry-run` previews.
+- `arx gc [name] --keep N [--dry-run]` — retention: per `(scope, name, arch)`,
+  keep the `N` newest versions and delete older files. `--dry-run` previews.
+- `--name-prefix` scopes GC to a package family, and `--keep-within` / `--grace`
+  add time-based protection around the version policy.
+- Retained rollback states pin referenced files by default so `arx rollback`
+  stays valid. Operators may pass `--ignore-rollback-states` only after
+  intentionally giving up that rollback safety net.
 - Both touch the pool only and print "run `arx publish`". Over the API, `DELETE` and
   `POST /gc` do the same and **republish automatically**.
 
-Retention orders by **recency (file mtime)**, not semantic version. This is simple
-and *safe* — a buggy version comparator could delete the wrong package (data loss).
+Retention orders by tested Debian/RPM version comparison where possible, falling
+back to mtime only when a version is unparseable.
 
 ## Consequences
 
-- Good: removal/pruning exists and is predictable; one knob (`--keep`), no policy DSL.
-- Good: mtime ≈ upload order ≈ version order in practice for normal workflows.
-- Bad: re-adding an old version resets its mtime; a hand-edited pool can reorder.
-  Documented honestly; not version-correct.
+- Good: removal/pruning exists and is predictable; a small set of knobs covers
+  common cleanup without a policy DSL.
+- Good: package-scoped cleanup supports real production workflows such as
+  pruning one stale package family while leaving unrelated packages untouched.
+- Bad: rollback-state retention can keep old blobs longer than expected, but the
+  command reports that count and exposes an explicit override.
 
 ## Alternatives considered
 
@@ -38,5 +45,5 @@ and *safe* — a buggy version comparator could delete the wrong package (data l
 
 ## Future improvements
 
-Semver-aware retention (proper deb/rpm version comparison); `--keep-within 90d`;
-`gc --grace` so a just-yanked blob isn't reaped mid-deploy; a bytes-freed report.
+Dry-run summaries grouped by package family; a separate command to expire or
+compact rollback states before package cleanup.

@@ -42,6 +42,8 @@ pub enum Command {
     Push(PushArgs),
     /// Remove a package from the pool (then run `publish`).
     Rm(RmArgs),
+    /// Search packages in the local apt/yum pools.
+    Search(SearchArgs),
     /// Import packages from an existing apt/yum repository (migration path).
     Import(ImportArgs),
     /// Prune old package versions from the pool (then run `publish`).
@@ -317,7 +319,42 @@ pub struct RmArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// Match package names containing this text.
+    pub query: Option<String>,
+    /// Match package names starting with this prefix.
+    #[arg(long)]
+    pub name_prefix: Option<String>,
+    /// Match this exact package version.
+    #[arg(long)]
+    pub version: Option<String>,
+    /// Match this exact architecture.
+    #[arg(long)]
+    pub arch: Option<String>,
+    /// Match this exact apt component or yum repo name.
+    #[arg(long)]
+    pub scope: Option<String>,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Restrict to the apt pool.
+    #[arg(long)]
+    pub apt: bool,
+    /// Restrict to the yum pool.
+    #[arg(long)]
+    pub yum: bool,
+    /// Emit JSON instead of tab-separated text.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct GcArgs {
+    /// Only prune this package name.
+    pub name: Option<String>,
+    /// Only prune packages whose names start with this prefix.
+    #[arg(long)]
+    pub name_prefix: Option<String>,
     /// Keep this many newest versions per package.
     #[arg(long, default_value_t = 3)]
     pub keep: usize,
@@ -331,6 +368,13 @@ pub struct GcArgs {
     /// Show what would be pruned without deleting.
     #[arg(long)]
     pub dry_run: bool,
+    /// Allow pruning files referenced by retained rollback states.
+    ///
+    /// By default, ArtifactX keeps files needed by rollback history so old
+    /// states do not 404. Use this only after intentionally discarding that
+    /// rollback safety net.
+    #[arg(long)]
+    pub ignore_rollback_states: bool,
     /// Repository root.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,

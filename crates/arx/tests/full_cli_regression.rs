@@ -215,7 +215,7 @@ fn every_cli_subcommand_is_wired_into_help() {
     let help = String::from_utf8_lossy(&output.stdout);
     for cmd in [
         "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
-        "gc", "promote", "serve", "mirror", "watch", "compose", "export",
+        "search", "gc", "promote", "serve", "mirror", "watch", "compose", "export",
     ] {
         assert!(
             help.contains(cmd),
@@ -729,6 +729,157 @@ fn serve_and_push_round_trip_a_deb_package() {
 }
 
 #[test]
+fn package_list_api_supports_search_filters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let first = tmp.path().join("api-demo_1.0-1_amd64.deb");
+    let second = tmp.path().join("api-other_1.0-1_amd64.deb");
+    write_deb(&first, "api-demo", "1.0-1", "amd64");
+    write_deb(&second, "api-other", "1.0-1", "amd64");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        first.to_str().unwrap(),
+        second.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let response: serde_json::Value =
+        reqwest::blocking::get(format!("{base}/api/v1/packages?q=demo&apt=true&scope=main"))
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .unwrap();
+    let packages = response.as_array().expect("array response");
+    assert_eq!(packages.len(), 1, "filtered package list: {response}");
+    assert_eq!(packages[0]["name"], "api-demo");
+    assert_eq!(packages[0]["kind"], "apt");
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn gc_api_supports_package_scope_and_retention_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    for v in ["1.0", "2.0", "3.0"] {
+        let target = tmp.path().join(format!("api-gc_{v}_amd64.deb"));
+        let other = tmp.path().join(format!("api-keep_{v}_amd64.deb"));
+        write_deb(&target, "api-gc", &format!("{v}-1"), "amd64");
+        write_deb(&other, "api-keep", &format!("{v}-1"), "amd64");
+        arx_ok(&[
+            "add",
+            target.to_str().unwrap(),
+            other.to_str().unwrap(),
+            "--root",
+            root.to_str().unwrap(),
+        ]);
+        std::thread::sleep(Duration::from_millis(1100));
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+    let client = reqwest::blocking::Client::new();
+
+    let dry_run: serde_json::Value = client
+        .post(format!(
+            "{base}/api/v1/gc?name=api-gc&keep=1&apt=true&dry_run=true"
+        ))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(dry_run["dry_run"], true);
+    assert_eq!(dry_run["retained_for_rollback"], 0);
+    assert_eq!(dry_run["deferred"], 0);
+    assert!(dry_run["bytes_freed"].as_u64().unwrap() > 0);
+    assert_eq!(dry_run["published"], serde_json::Value::Null);
+    assert_eq!(
+        dry_run["pruned"].as_array().unwrap().len(),
+        2,
+        "dry-run should report old target versions only: {dry_run}"
+    );
+    assert!(root.join("apt/pool/main/api-gc_1.0_amd64.deb").exists());
+
+    let pruned: serde_json::Value = client
+        .post(format!("{base}/api/v1/gc?name=api-gc&keep=1&apt=true"))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(pruned["dry_run"], false);
+    assert_eq!(pruned["pruned"].as_array().unwrap().len(), 2);
+    assert!(
+        pruned["published"].as_str().unwrap().contains("apt:"),
+        "non-dry-run API GC should republish: {pruned}"
+    );
+    assert!(!root.join("apt/pool/main/api-gc_1.0_amd64.deb").exists());
+    assert!(root.join("apt/pool/main/api-gc_3.0_amd64.deb").exists());
+    assert!(
+        root.join("apt/pool/main/api-keep_1.0_amd64.deb").exists(),
+        "name-scoped API GC must not prune unrelated packages"
+    );
+
+    let _ = child.0.kill();
+}
+
+#[test]
 fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
@@ -1172,6 +1323,171 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
     assert!(root
         .join("yum/myrepo/x86_64/packed-1.0.0-1.x86_64.rpm")
         .exists());
+}
+
+#[test]
+fn add_accepts_directory_inputs_recursively_in_stable_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let input = tmp.path().join("incoming");
+    let first_dir = input.join("a-first");
+    let nested = input.join("z-nested");
+    let rpm_out = tmp.path().join("rpm-out");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    std::fs::create_dir_all(&first_dir).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(input.join("README.txt"), "ignored").unwrap();
+    std::fs::write(&payload, b"#!/bin/sh\necho diradd\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "dirrpm", "1.0.0");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        rpm_out.to_str().unwrap(),
+        "--rpm",
+    ]);
+
+    let first = first_dir.join("dirdeb-a_1.0-1_amd64.deb");
+    let second = nested.join("dirdeb-z_1.0-1_amd64.deb");
+    write_deb(&first, "dirdeb-a", "1.0-1", "amd64");
+    write_deb(&second, "dirdeb-z", "1.0-1", "amd64");
+    std::fs::copy(
+        rpm_out.join("dirrpm-1.0.0-1.x86_64.rpm"),
+        nested.join("dirrpm-1.0.0-1.x86_64.rpm"),
+    )
+    .unwrap();
+
+    let output = arx_output(&[
+        "add",
+        input.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "arx add directory failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_idx = stdout
+        .find("dirdeb-a_1.0-1_amd64.deb")
+        .expect("first deb add line");
+    let second_idx = stdout
+        .find("dirdeb-z_1.0-1_amd64.deb")
+        .expect("second deb add line");
+    let rpm_idx = stdout
+        .find("dirrpm-1.0.0-1.x86_64.rpm")
+        .expect("rpm add line");
+    assert!(
+        first_idx < second_idx && second_idx < rpm_idx,
+        "directory add output should be stable sorted order:\n{stdout}"
+    );
+    assert!(root.join("apt/pool/main/dirdeb-a_1.0-1_amd64.deb").exists());
+    assert!(root.join("apt/pool/main/dirdeb-z_1.0-1_amd64.deb").exists());
+    assert!(root
+        .join("yum/myrepo/x86_64/dirrpm-1.0.0-1.x86_64.rpm")
+        .exists());
+
+    arx_ok(&["publish", "--root", root.to_str().unwrap(), "--full"]);
+    let packages =
+        std::fs::read_to_string(root.join("apt/dists/stable/main/binary-amd64/Packages")).unwrap();
+    assert!(packages.contains("Package: dirdeb-a"));
+    assert!(packages.contains("Package: dirdeb-z"));
+    let repomd =
+        std::fs::read_to_string(root.join("yum/myrepo/x86_64/repodata/repomd.xml")).unwrap();
+    assert!(repomd.contains("primary"));
+}
+
+#[test]
+fn add_directory_without_packages_fails_loudly() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let input = tmp.path().join("incoming");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    std::fs::create_dir_all(&input).unwrap();
+    std::fs::write(input.join("README.txt"), "not a package").unwrap();
+
+    let output = arx_output(&[
+        "add",
+        input.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        !output.status.success(),
+        "empty directory add should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("directory contains no supported package files"),
+        "error should explain empty directory package discovery:\n{stderr}"
+    );
+}
+
+#[test]
+fn search_cli_filters_pool_entries_and_emits_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let keep = tmp.path().join("demo-agent_2.0-1_amd64.deb");
+    let other = tmp.path().join("otherpkg_1.0-1_amd64.deb");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    write_deb(&keep, "demo-agent", "2.0-1", "amd64");
+    write_deb(&other, "otherpkg", "1.0-1", "amd64");
+    arx_ok(&[
+        "add",
+        keep.to_str().unwrap(),
+        other.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+
+    let json = arx_output(&[
+        "search",
+        "demo",
+        "--apt",
+        "--scope",
+        "main",
+        "--json",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        json.status.success(),
+        "search json failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&json.stdout),
+        String::from_utf8_lossy(&json.stderr)
+    );
+    let packages: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    let packages = packages.as_array().expect("json array");
+    assert_eq!(packages.len(), 1, "filtered search json");
+    assert_eq!(packages[0]["name"], "demo-agent");
+
+    let text = arx_output(&[
+        "search",
+        "--name-prefix",
+        "qg",
+        "--version",
+        "1.0-1",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        text.status.success(),
+        "search text failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&text.stdout),
+        String::from_utf8_lossy(&text.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.contains("otherpkg\t1.0-1\tamd64\tmain\tapt"));
+    assert!(!stdout.contains("demo-agent"));
 }
 
 #[test]

@@ -34,6 +34,51 @@ paths:
       tags: [packages]
       summary: List pooled packages
       operationId: listPackages
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match package names containing this substring.
+        - name: name_prefix
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match package names starting with this prefix.
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match an exact package version.
+        - name: arch
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match an exact package architecture.
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match an apt component or yum repo name.
+        - name: apt
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Restrict results to apt packages.
+        - name: yum
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Restrict results to yum packages.
       responses:
         '200':
           description: Package list.
@@ -129,6 +174,18 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Prune only this package name.
+        - name: name_prefix
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Prune only packages whose names start with this prefix.
         - name: keep
           in: query
           required: false
@@ -156,6 +213,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: ignore_rollback_states
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Allow pruning files referenced by retained rollback states.
         - $ref: '#/components/parameters/AptFlag'
         - $ref: '#/components/parameters/YumFlag'
       responses:
@@ -441,7 +505,7 @@ components:
           type: string
     GcResult:
       type: object
-      required: [pruned, dry_run, published]
+      required: [pruned, dry_run, retained_for_rollback, deferred, bytes_freed, published]
       properties:
         pruned:
           type: array
@@ -449,6 +513,15 @@ components:
             $ref: '#/components/schemas/PackageInfo'
         dry_run:
           type: boolean
+        retained_for_rollback:
+          type: integer
+          minimum: 0
+        deferred:
+          type: integer
+          minimum: 0
+        bytes_freed:
+          type: integer
+          minimum: 0
         published:
           type:
             - string
