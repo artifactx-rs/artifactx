@@ -84,6 +84,19 @@ These are plausible, but intentionally not current focus:
 
 ### v0.2 research candidates
 
+#### v0.2.0 TODO
+
+- **Clarify directory workflow from issue #14** — confirm whether the request is
+  `arx pack` package payload directories, `arx add` / import directory inputs,
+  or both before implementation.
+- **Package payload directories** — design `[[dirs]]` manifest entries for
+  deterministic, cross-format directory payloads; tracked by
+  [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md).
+- **Directory inputs for add/import** — design directory discovery for existing
+  `.deb` / `.rpm` package files, including recursion, filtering, stable ordering,
+  and failure behavior; tracked by
+  [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md).
+
 - **HSM / KMS-backed repository signing spike** — explore whether `arx publish` can sign apt/yum metadata through an external signing boundary instead of loading `keys/private.asc` directly. Scope the design first: PKCS#11/HSM, cloud KMS, or `gpg-agent` may have very different tradeoffs. Do not implement before an ADR proves it preserves the one-binary/5-minute path for normal users.
 
 ### Later product bets
