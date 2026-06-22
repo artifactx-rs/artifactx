@@ -97,6 +97,34 @@ These are plausible, but intentionally not current focus:
   and failure behavior; tracked by
   [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md).
 
+#### Pack v0.2.0 TODO
+
+- **Cargo target selection controls** — design `arx pack` support for the common
+  Cargo build matrix without driving the build itself: `--target`, `--profile`,
+  `--target-dir`, and/or an explicit binary path override. Current Cargo.toml
+  mode assumes `target/release/<bin>`.
+- **Rust packaging bridge: cargo-deb + cargo-rpm, one ArtifactX path** — evaluate
+  reading the useful common subset of `[package.metadata.deb]`,
+  `[package.metadata.generate-rpm]`, and legacy `[package.metadata.rpm]` into the
+  shared `arx_pack::Manifest`, then layer ArtifactX-native
+  `[package.metadata.arx]` on top for cross-format and publish-aware features.
+  The goal is more than compatibility: projects already using cargo-deb plus
+  cargo-generate-rpm/cargo-rpm should be able to keep that Cargo.toml investment,
+  add small ArtifactX-specific overrides where needed, and get one pure-Rust
+  pack/publish path for `.deb`, `.rpm`, and `.apk`. `arx` metadata should win
+  when schemas overlap, and should cover ArtifactX-only features such as shared
+  `[[dirs]]`, publish defaults, deterministic knobs, and future repo integration.
+  Keep rendering in ArtifactX; do not depend on `cargo-deb`, `cargo-generate-rpm`,
+  `cargo-rpm`, or `rpmbuild`.
+- **Config-file marking** — design deb `conffiles` / equivalent manifest intent
+  for config paths before users start relying on ad-hoc postinst behavior.
+- **Explicit source date CLI** — consider `arx pack --source-date <epoch>` as a
+  discoverable wrapper around `SOURCE_DATE_EPOCH`, preserving reproducible
+  defaults while avoiding hidden environment-only behavior.
+- **Pack docs completeness** — document current limitations clearly: no package
+  signing, no auto dependency detection, no symlink following, no source packages,
+  and no `.apk` repository add path yet.
+
 - **HSM / KMS-backed repository signing spike** — explore whether `arx publish` can sign apt/yum metadata through an external signing boundary instead of loading `keys/private.asc` directly. Scope the design first: PKCS#11/HSM, cloud KMS, or `gpg-agent` may have very different tradeoffs. Do not implement before an ADR proves it preserves the one-binary/5-minute path for normal users.
 
 ### Later product bets
