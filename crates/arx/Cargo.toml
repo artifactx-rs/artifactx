@@ -55,6 +55,8 @@ walkdir.workspace = true
 sha2.workspace = true
 hex.workspace = true
 chrono.workspace = true
+xz2 = "0.1"
+bzip2 = "0.4"
 
 # PGP signing (rpgp, pure Rust)
 pgp = "0.14"
