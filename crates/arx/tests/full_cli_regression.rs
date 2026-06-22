@@ -321,7 +321,7 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
 
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
-    arx_ok(&[
+    let import = arx_output(&[
         "import",
         &server.base_url,
         "--apt",
@@ -333,7 +333,19 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
         "main",
         "--arch",
         "amd64",
+        "--publish",
     ]);
+    assert!(
+        import.status.success(),
+        "arx import --publish failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&import.stdout),
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let import_stdout = String::from_utf8_lossy(&import.stdout);
+    assert!(
+        import_stdout.contains("Published: apt:"),
+        "import --publish should report published apt metadata:\n{import_stdout}"
+    );
 
     let imported = root.join("apt/pool/main").join(hashed_name);
     assert!(
@@ -347,7 +359,6 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     assert!(config.contains("suite = \"oldstable\""));
     assert!(config.contains("codename = \"bullseye\""));
 
-    arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
     let published_packages =
         std::fs::read_to_string(root.join("apt/dists/stable/main/binary-amd64/Packages")).unwrap();
     assert!(
@@ -364,6 +375,83 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     assert!(release.contains("Label: Example Repository"));
     assert!(release.contains("Suite: oldstable"));
     assert!(release.contains("Codename: bullseye"));
+}
+
+#[test]
+fn import_api_publish_true_imports_and_publishes_apt_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let upstream = tmp.path().join("upstream");
+    let pool = upstream.join("pool/main");
+    let packages_dir = upstream.join("dists/stable/main/binary-amd64");
+    std::fs::create_dir_all(&pool).unwrap();
+    std::fs::create_dir_all(&packages_dir).unwrap();
+    let deb = pool.join("apiimport_1.0-1_amd64.deb");
+    write_deb(&deb, "apiimport", "1.0-1", "amd64");
+    let size = std::fs::metadata(&deb).unwrap().len();
+    let sha = sha256_hex(&deb);
+    std::fs::write(
+        packages_dir.join("Packages"),
+        format!(
+            "Package: apiimport\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/main/apiimport_1.0-1_amd64.deb\nSize: {size}\nSHA256: {sha}\n\n"
+        ),
+    )
+    .unwrap();
+    let upstream_server = start_static_server(upstream);
+
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let imported: serde_json::Value = reqwest::blocking::Client::new()
+        .post(format!("{base}/api/v1/import"))
+        .bearer_auth("test-token")
+        .query(&[
+            ("url", upstream_server.base_url.as_str()),
+            ("apt", "true"),
+            ("dist", "stable"),
+            ("component", "main"),
+            ("publish", "true"),
+        ])
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(imported["imported"], 1, "import response: {imported}");
+    assert!(
+        imported["published"].as_str().unwrap().contains("apt:"),
+        "publish=true should return apt publish summary: {imported}"
+    );
+    assert!(
+        root.join("apt/dists/stable/Release").exists(),
+        "API import publish=true should make apt metadata immediately available"
+    );
+
+    let _ = child.0.kill();
 }
 
 #[test]
@@ -520,7 +608,7 @@ fn yum_import_accepts_noncanonical_rpm_filenames_and_xz_metadata() {
     .unwrap();
 
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
-    arx_ok(&[
+    let import = arx_output(&[
         "import",
         &server.base_url,
         "--yum",
@@ -528,13 +616,24 @@ fn yum_import_accepts_noncanonical_rpm_filenames_and_xz_metadata() {
         root.to_str().unwrap(),
         "--component",
         "staging",
+        "--publish",
     ]);
+    assert!(
+        import.status.success(),
+        "arx import --publish --yum failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&import.stdout),
+        String::from_utf8_lossy(&import.stderr)
+    );
+    let import_stdout = String::from_utf8_lossy(&import.stdout);
+    assert!(
+        import_stdout.contains("Published: yum:"),
+        "import --publish should report published yum metadata:\n{import_stdout}"
+    );
 
     assert!(
         root.join("yum/staging/x86_64").join(rpm_name).exists(),
         "yum import should preserve upstream basename but place rpm under the package arch dir"
     );
-    arx_ok(&["publish", "--yum", "--root", root.to_str().unwrap()]);
     assert!(
         root.join("yum/staging/x86_64/repodata/repomd.xml").exists(),
         "imported rpm should publish as a normal yum repository"

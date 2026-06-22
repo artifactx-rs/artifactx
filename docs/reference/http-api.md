@@ -361,10 +361,10 @@ Response:
 ### `POST /api/v1/import`
 
 Imports packages from an upstream apt or yum repository into the local pool.
-Run `POST /api/v1/publish` afterwards to regenerate and sign repository
-metadata for clients. Importing does not reuse upstream `InRelease`,
-`Release.gpg`, or `repomd.xml.asc` signatures because ArtifactX publishes a new
-repository boundary.
+Pass `publish=true` to regenerate and sign repository metadata in the same
+request, or run `POST /api/v1/publish` afterwards. Importing does not reuse
+upstream `InRelease`, `Release.gpg`, or `repomd.xml.asc` signatures because
+ArtifactX publishes a new repository boundary.
 
 Query parameters:
 
@@ -378,6 +378,7 @@ Query parameters:
 | `arch` | string | `amd64` | apt architecture filter. |
 | `limit` | integer | none | Maximum packages to import. |
 | `match_name` | string | none | apt package-name prefix filter. |
+| `publish` | boolean | `false` | Publish apt/yum metadata after a successful import. |
 
 If neither `apt` nor `yum` is true, ArtifactX attempts both formats.
 For yum imports, metadata entries whose downloaded RPM fails size/checksum
@@ -394,7 +395,8 @@ Response:
 
 ```json
 {
-  "imported": 20
+  "imported": 20,
+  "published": "apt: indexed 20 package(s) across 1 dist/component(s)"
 }
 ```
 
@@ -486,8 +488,9 @@ curl -fsSL -X POST \
 curl -fsSL -X POST "${auth[@]}" "${BASE_URL}/api/v1/publish" | jq .
 ```
 
-Use `POST /api/v1/import` followed by `POST /api/v1/publish` when migrating from
-an upstream apt/yum repository instead of uploading local package files.
+Use `POST /api/v1/import?publish=true` when migrating from an upstream apt/yum
+repository instead of uploading local package files. Without `publish=true`, call
+`POST /api/v1/publish` after import.
 
 ### `GET /metrics`
 

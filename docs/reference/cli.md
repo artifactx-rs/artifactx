@@ -60,8 +60,7 @@ Import, publish, serve:
 
 ```sh
 arx init ./repo
-arx import https://packages.example.com --apt --dist stable --component main --limit 20 --root ./repo
-arx publish --root ./repo
+arx import https://packages.example.com --apt --dist stable --component main --limit 20 --publish --root ./repo
 arx serve --root ./repo
 ```
 
