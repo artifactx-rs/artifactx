@@ -582,6 +582,8 @@ struct ApiImportQuery {
     limit: Option<usize>,
     #[serde(default)]
     match_name: Option<String>,
+    #[serde(default)]
+    publish: bool,
 }
 fn default_arch_str() -> String {
     "amd64".into()
@@ -590,6 +592,7 @@ fn default_arch_str() -> String {
 #[derive(Serialize)]
 struct ImportResult {
     imported: usize,
+    published: Option<String>,
 }
 
 async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQuery>) -> Response {
@@ -598,6 +601,8 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
     }
     let root = st.root.clone();
     let cfg = Arc::clone(&st.cfg);
+    let key = st.key.clone();
+    let passphrase = Arc::clone(&st.passphrase);
     let blocking = move || -> Result<ImportResult> {
         let do_apt = q.apt || !q.yum;
         let do_yum = q.yum || !q.apt;
@@ -630,7 +635,24 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
             };
             imported += crate::import::import_yum(&root, &cfg, &q.url, repo, q.limit, false)?;
         }
-        Ok(ImportResult { imported })
+        let published = if q.publish {
+            let _lock = crate::PublishLock::acquire(&root)?;
+            let cfg = Config::load(&root).unwrap_or_else(|_| (*cfg).clone());
+            Some(publish_selected(
+                &root,
+                &cfg,
+                key.as_deref(),
+                &passphrase,
+                do_apt,
+                do_yum,
+            )?)
+        } else {
+            None
+        };
+        Ok(ImportResult {
+            imported,
+            published,
+        })
     };
     run_blocking(blocking).await
 }
@@ -789,19 +811,38 @@ fn stored_path(root: &Path, path: &Path) -> String {
         .into_owned()
 }
 
-/// Republish both formats (caller already holds the publish lock). Strict mode
-/// (a skipped package → error) is governed by the server's `[apt].strict`.
+/// Republish selected formats (caller already holds the publish lock). Strict
+/// mode (a skipped package → error) is governed by the server's `[apt].strict`.
+fn publish_selected(
+    root: &Path,
+    cfg: &Config,
+    key: Option<&SignedSecretKey>,
+    passphrase: &str,
+    do_apt: bool,
+    do_yum: bool,
+) -> Result<String> {
+    let mut published = Vec::new();
+    if do_apt {
+        let apt = crate::publish_apt(root, cfg, key, passphrase, cfg.apt.strict, true)?;
+        published.push(apt.summary);
+    }
+    if do_yum {
+        published.push(crate::publish_yum(root, cfg, key, passphrase, true)?);
+    }
+    Ok(published.join("; "))
+}
+
+/// Republish both formats (caller already holds the publish lock).
 fn publish_both(st: &AppState) -> Result<String> {
-    let key = st.key.as_deref();
     let apt = crate::publish_apt(
         &st.root,
         &st.cfg,
-        key,
+        st.key.as_deref(),
         &st.passphrase,
         st.cfg.apt.strict,
         true,
     )?;
-    let yum = crate::publish_yum(&st.root, &st.cfg, key, &st.passphrase, true)?;
+    let yum = crate::publish_yum(&st.root, &st.cfg, st.key.as_deref(), &st.passphrase, true)?;
     Ok(format!("{}; {yum}", apt.summary))
 }
 

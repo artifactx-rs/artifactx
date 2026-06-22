@@ -274,6 +274,9 @@ pub struct ImportArgs {
     /// Fail if any upstream metadata entry is invalid or cannot be downloaded.
     #[arg(long)]
     pub strict: bool,
+    /// Publish repository metadata immediately after a successful import.
+    #[arg(long)]
+    pub publish: bool,
 }
 
 #[derive(Debug, Args)]

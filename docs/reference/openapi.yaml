@@ -333,7 +333,7 @@ paths:
     post:
       tags: [import]
       summary: Import packages from an upstream apt or yum repository
-      description: Import copies package payloads into the pool. Call `POST /api/v1/publish` afterwards to regenerate signed metadata for clients.
+      description: Import copies package payloads into the pool. Pass `publish=true` to regenerate signed metadata in the same request, or call `POST /api/v1/publish` afterwards.
       operationId: importRepository
       security:
         - bearerAuth: []
@@ -375,6 +375,13 @@ paths:
           schema:
             type: string
           description: apt package-name prefix filter.
+        - name: publish
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Publish apt/yum metadata after a successful import.
       responses:
         '200':
           description: Import result.
@@ -384,6 +391,7 @@ paths:
                 $ref: '#/components/schemas/ImportResult'
               example:
                 imported: 20
+                published: 'apt: indexed 20 package(s) across 1 dist/component(s)'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -596,11 +604,15 @@ components:
           type: string
     ImportResult:
       type: object
-      required: [imported]
+      required: [imported, published]
       properties:
         imported:
           type: integer
           minimum: 0
+        published:
+          type:
+            - string
+            - 'null'
     PromoteResult:
       type: object
       required: [moved]

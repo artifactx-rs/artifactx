@@ -620,7 +620,41 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
         total += n;
     }
 
-    println!("Imported {total} package(s). Run `arx publish` to update metadata.");
+    if args.publish {
+        let cfg = Config::load(&args.root).unwrap_or(cfg);
+        let key = load_key(&args.root, &cfg)?;
+        let passphrase = resolve_passphrase(None)?.unwrap_or_default();
+        let _lock = PublishLock::acquire(&args.root)?;
+        let mut published = Vec::new();
+        if do_apt {
+            published.push(
+                publish_apt(
+                    &args.root,
+                    &cfg,
+                    key.as_ref(),
+                    &passphrase,
+                    cfg.apt.strict,
+                    true,
+                )?
+                .summary,
+            );
+        }
+        if do_yum {
+            published.push(publish_yum(
+                &args.root,
+                &cfg,
+                key.as_ref(),
+                &passphrase,
+                true,
+            )?);
+        }
+        println!(
+            "Imported {total} package(s). Published: {}",
+            published.join("; ")
+        );
+    } else {
+        println!("Imported {total} package(s). Run `arx publish` to update metadata.");
+    }
     Ok(())
 }
 
