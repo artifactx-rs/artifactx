@@ -462,23 +462,38 @@ pub fn import_yum(
         }
         let url = resolve_repo_url(base, &entry.href)?;
         let name = basename_from_location(&entry.href);
-        let body = client
-            .get(&url)
-            .send()
-            .with_context(|| format!("downloading {url}"))?
-            .error_for_status()?
-            .bytes()
-            .context("reading rpm body")?;
-        if write_verified_rpm_to_arch_dir(
-            &repo_dir,
-            &name,
-            &entry.href,
-            &body,
-            entry.size,
-            entry.checksum.as_ref(),
-        )? {
-            println!("imported {name}");
-            imported += 1;
+        let result = (|| -> Result<bool> {
+            let body = client
+                .get(&url)
+                .send()
+                .with_context(|| format!("downloading {url}"))?
+                .error_for_status()?
+                .bytes()
+                .context("reading rpm body")?;
+            write_verified_rpm_to_arch_dir(
+                &repo_dir,
+                &name,
+                &entry.href,
+                &body,
+                entry.size,
+                entry.checksum.as_ref(),
+            )
+        })();
+
+        match result {
+            Ok(true) => {
+                println!("imported {name}");
+                imported += 1;
+            }
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(
+                    location = %entry.href,
+                    url = %url,
+                    error = %err,
+                    "skipping invalid yum package entry"
+                );
+            }
         }
     }
     Ok(imported)

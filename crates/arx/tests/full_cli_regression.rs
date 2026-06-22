@@ -424,6 +424,86 @@ fn yum_import_accepts_noncanonical_rpm_filenames_and_xz_metadata() {
 }
 
 #[test]
+fn yum_import_skips_invalid_metadata_entries_and_keeps_importing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let upstream = tmp.path().join("upstream");
+    let repodata = upstream.join("repodata");
+    std::fs::create_dir_all(&repodata).unwrap();
+
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm-import.toml");
+    let out = tmp.path().join("dist");
+    std::fs::write(&payload, b"#!/bin/sh\necho rpm-import\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "rpmimport", "1.0.0");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--rpm",
+    ]);
+
+    let rpm_name = "rpmimport-1.0.0-1.x86_64.rpm";
+    let upstream_rpm = upstream.join(rpm_name);
+    std::fs::copy(out.join(rpm_name), &upstream_rpm).unwrap();
+    let size = std::fs::metadata(&upstream_rpm).unwrap().len();
+    let sha = sha256_hex(&upstream_rpm);
+    let bad_size = size + 1;
+
+    let server = start_static_server(upstream);
+    let primary = format!(
+        r#"<metadata packages="2">
+  <package type="rpm">
+    <name>rpmimport</name>
+    <arch>x86_64</arch>
+    <version epoch="0" ver="1.0.0" rel="1"/>
+    <checksum type="sha256" pkgid="YES">{sha}</checksum>
+    <size package="{bad_size}" installed="{bad_size}" archive="{bad_size}"/>
+    <location href="{rpm_name}"/>
+  </package>
+  <package type="rpm">
+    <name>rpmimport</name>
+    <arch>x86_64</arch>
+    <version epoch="0" ver="1.0.0" rel="1"/>
+    <checksum type="sha256" pkgid="YES">{sha}</checksum>
+    <size package="{size}" installed="{size}" archive="{size}"/>
+    <location href="{rpm_name}"/>
+  </package>
+</metadata>
+"#
+    );
+    std::fs::write(repodata.join("primary.xml.gz"), gzip(primary.as_bytes())).unwrap();
+    std::fs::write(
+        repodata.join("repomd.xml"),
+        r#"<repomd><data type="primary"><location href="repodata/primary.xml.gz"/></data></repomd>
+"#,
+    )
+    .unwrap();
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    let output = arx_output(&[
+        "import",
+        &server.base_url,
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "staging",
+    ]);
+    assert!(
+        output.status.success(),
+        "yum import should skip the bad entry and keep importing\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("yum/staging/x86_64").join(rpm_name).exists(),
+        "valid entry should still be imported"
+    );
+}
+
+#[test]
 fn publish_history_and_rollback_cli_work_together() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
