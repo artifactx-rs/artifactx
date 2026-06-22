@@ -283,7 +283,20 @@ async fn health_handler() -> Json<Health> {
     })
 }
 
-async fn list_handler(State(st): State<AppState>) -> Response {
+#[derive(Deserialize)]
+struct PackageListQuery {
+    q: Option<String>,
+    name_prefix: Option<String>,
+    version: Option<String>,
+    arch: Option<String>,
+    scope: Option<String>,
+    #[serde(default)]
+    apt: bool,
+    #[serde(default)]
+    yum: bool,
+}
+
+async fn list_handler(State(st): State<AppState>, Query(q): Query<PackageListQuery>) -> Response {
     let apt_pool_root = match st.cfg.checked_apt_pool_root(&st.root) {
         Ok(path) => path,
         Err(e) => return err_response(&e),
@@ -292,7 +305,19 @@ async fn list_handler(State(st): State<AppState>) -> Response {
         Ok(path) => path,
         Err(e) => return err_response(&e),
     };
-    match pool::list(&apt_pool_root, &yum_base, false, false) {
+    match pool::search(
+        &apt_pool_root,
+        &yum_base,
+        pool::SearchOptions {
+            query: q.q.as_deref(),
+            name_prefix: q.name_prefix.as_deref(),
+            version: q.version.as_deref(),
+            arch: q.arch.as_deref(),
+            scope: q.scope.as_deref(),
+            apt: q.apt,
+            yum: q.yum,
+        },
+    ) {
         Ok(entries) => {
             let infos: Vec<pool::PackageInfo> = entries.iter().map(pool::Entry::info).collect();
             Json(infos).into_response()
@@ -352,6 +377,8 @@ fn default_keep() -> usize {
 
 #[derive(Deserialize)]
 struct GcQuery {
+    name: Option<String>,
+    name_prefix: Option<String>,
     #[serde(default = "default_keep")]
     keep: usize,
     #[serde(default)]
@@ -360,6 +387,8 @@ struct GcQuery {
     grace_days: u32,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    ignore_rollback_states: bool,
     #[serde(default)]
     apt: bool,
     #[serde(default)]
@@ -370,6 +399,9 @@ struct GcQuery {
 struct GcResult {
     pruned: Vec<pool::PackageInfo>,
     dry_run: bool,
+    retained_for_rollback: usize,
+    deferred: usize,
+    bytes_freed: u64,
     published: Option<String>,
 }
 
@@ -384,6 +416,8 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
         let report = pool::gc(
             &st.root,
             pool::GcOptions {
+                name: q.name.as_deref(),
+                name_prefix: q.name_prefix.as_deref(),
                 keep: q.keep,
                 keep_within_days: q.keep_within_days,
                 grace_days: q.grace_days,
@@ -392,6 +426,7 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
                 apt: q.apt,
                 yum: q.yum,
                 dry_run: q.dry_run,
+                retain_rollback_states: !q.ignore_rollback_states,
             },
         )?;
         let pruned = report.pruned.iter().map(pool::Entry::info).collect();
@@ -403,6 +438,9 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
         Ok(GcResult {
             pruned,
             dry_run: report.dry_run,
+            retained_for_rollback: report.retained_for_rollback,
+            deferred: report.deferred,
+            bytes_freed: report.bytes_freed,
             published,
         })
     };

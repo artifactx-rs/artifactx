@@ -20,6 +20,17 @@ Add Debian and RPM packages in one command:
 arx add dist/*.deb dist/*.rpm --root ./repo
 ```
 
+You can also point `arx add` at one or more directories:
+
+```sh
+arx add ./dist --root ./repo
+```
+
+Directory inputs are recursive, sorted before processing, and ignore unrelated
+files. ArtifactX does not follow symlinked directories during discovery. If a
+directory contains no `.deb` or `.rpm` files, the command fails with an
+actionable error instead of silently doing nothing.
+
 You can override the default apt component or yum repo name:
 
 ```sh
@@ -68,7 +79,7 @@ ArtifactX can also build packages before adding them to a repo:
 
 ```sh
 arx pack ./arx.toml --out dist
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 ```
 

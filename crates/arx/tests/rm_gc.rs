@@ -115,6 +115,91 @@ fn gc_dry_run_deletes_nothing() {
 }
 
 #[test]
+fn gc_can_prune_only_a_named_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let pool = root.join("apt/pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+    for v in ["1.0", "2.0", "3.0"] {
+        write_deb(
+            &pool.join(format!("hello_{v}_amd64.deb")),
+            "hello",
+            &format!("{v}-1"),
+            "amd64",
+        );
+        write_deb(
+            &pool.join(format!("other_{v}_amd64.deb")),
+            "other",
+            &format!("{v}-1"),
+            "amd64",
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    }
+
+    arx(root, &["gc", "hello", "--keep", "1", "--apt"]);
+
+    let remaining: Vec<String> = std::fs::read_dir(&pool)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        !remaining.iter().any(|f| f.starts_with("hello_1.0")),
+        "old hello should be pruned: {remaining:?}"
+    );
+    assert!(
+        remaining.iter().any(|f| f.starts_with("hello_3.0")),
+        "new hello should remain: {remaining:?}"
+    );
+    assert_eq!(
+        remaining.iter().filter(|f| f.starts_with("other_")).count(),
+        3,
+        "non-target package versions must be untouched: {remaining:?}"
+    );
+}
+
+#[test]
+fn gc_keeps_rollback_pins_by_default_and_can_ignore_them_explicitly() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let pool = root.join("apt/pool/main");
+    common::arx_command()
+        .args(["init", root.to_str().unwrap(), "--no-key"])
+        .status()
+        .unwrap();
+
+    for v in ["1.0", "2.0", "3.0"] {
+        let pkg = tmp.path().join(format!("rollbackpin_{v}_amd64.deb"));
+        write_deb(&pkg, "rollbackpin", &format!("{v}-1"), "amd64");
+        arx(&root, &["add", pkg.to_str().unwrap()]);
+        arx(&root, &["publish", "--apt"]);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    }
+
+    arx(&root, &["gc", "rollbackpin", "--keep", "1", "--apt"]);
+    assert!(
+        pool.join("rollbackpin_1.0_amd64.deb").exists(),
+        "default gc must keep packages pinned by rollback states"
+    );
+
+    arx(
+        &root,
+        &[
+            "gc",
+            "rollbackpin",
+            "--keep",
+            "1",
+            "--apt",
+            "--ignore-rollback-states",
+        ],
+    );
+    assert!(
+        !pool.join("rollbackpin_1.0_amd64.deb").exists(),
+        "explicit ignore should allow old rollback-pinned package to be pruned"
+    );
+    assert!(pool.join("rollbackpin_3.0_amd64.deb").exists());
+}
+
+#[test]
 fn rm_by_name_and_version() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
