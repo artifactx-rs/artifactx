@@ -31,6 +31,7 @@ for the authoritative option list in your installed version.
 | `arx mirror <URL>` | Mirror an upstream apt/yum repository. |
 | `arx watch [DIR]` | Watch a directory for new packages and auto-publish. |
 | `arx compose` | Generate `docker-compose.yml` and `Dockerfile`. |
+| `arx export` | Export published repos into legacy-compatible public layouts. |
 
 ## Common command chains
 
@@ -105,12 +106,23 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--arch <ARCH>`: apt architecture filter. Default: `amd64`.
 - `--limit <N>`: import only the first N packages.
 - `--match-name <PREFIX>`: import packages whose names match the prefix.
+- `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, or fails size/checksum validation. Use this for production cutover gates; omit it for best-effort migrations.
 
 ### `arx serve`
 
 - `--root <ROOT>`: repository root to serve. Default: `.`.
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
+
+### `arx export`
+
+- `--apt-out <DIR>`: write a fresh apt public tree containing `dists/` and the configured pool directory.
+- `--yum-flat-out <DIR>`: write a fresh flat yum public tree containing `*.rpm` and `repodata/`.
+- `--repo <REPO>`: yum repo to flatten. Defaults to `[yum].repo`.
+- `--arch <ARCH>`: repeatable yum arch filter. Defaults to all arch directories.
+- `--passphrase-file <FILE>`: unlock an encrypted signing key when rebuilding exported yum metadata.
+
+The flat yum export intentionally writes gzip metadata (`*.xml.gz`) for CentOS 7 compatibility; it must not be changed to xz-only for production cutovers. Export paths must be fresh versioned directories so operators can atomically switch symlinks and roll back.
 
 ### `arx compose`
 

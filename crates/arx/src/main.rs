@@ -3,6 +3,7 @@
 mod cli;
 mod compose;
 mod config;
+mod export;
 mod import;
 mod mirror;
 mod observability;
@@ -136,7 +137,63 @@ async fn main() -> Result<()> {
             tracing::info!(root = %args.root.display(), "wrote Dockerfile + docker-compose.yml");
             Ok(())
         }
+        Command::Export(args) => cmd_export(&args),
     }
+}
+
+fn cmd_export(args: &cli::ExportArgs) -> Result<()> {
+    if args.apt_out.is_none() && args.yum_flat_out.is_none() {
+        bail!("nothing to export; pass --apt-out and/or --yum-flat-out");
+    }
+
+    let cfg = Config::load(&args.root).context("loading config; run `arx init` first")?;
+    let key = if args.yum_flat_out.is_some() {
+        load_key(&args.root, &cfg)?
+    } else {
+        None
+    };
+    let passphrase = if args.yum_flat_out.is_some() && cfg.signing.enabled && cfg.signing.encrypted
+    {
+        match resolve_passphrase(args.passphrase_file.as_deref())? {
+            Some(p) => p,
+            None => bail!(
+                "signing key is encrypted; provide --passphrase-file or set ARX_KEY_PASSPHRASE"
+            ),
+        }
+    } else {
+        String::new()
+    };
+
+    let mut lines = Vec::new();
+    if let Some(out) = &args.apt_out {
+        let path = export::export_apt(&args.root, &cfg, out)?;
+        lines.push(format!("apt export: {}", path.display()));
+    }
+    if let Some(out) = &args.yum_flat_out {
+        let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+        let report = export::export_yum_flat(
+            &args.root,
+            &cfg,
+            out,
+            repo,
+            &args.arch,
+            key.as_ref(),
+            &passphrase,
+        )?;
+        lines.push(format!(
+            "yum flat export: {} (copied {} rpm(s), indexed {} rpm(s), arches: {})",
+            report.path.display(),
+            report.copied_rpms,
+            report.indexed_rpms,
+            if report.arches.is_empty() {
+                "none".to_string()
+            } else {
+                report.arches.join(",")
+            }
+        ));
+    }
+    println!("{}", lines.join("\n"));
+    Ok(())
 }
 
 /// Load the signing key referenced by config, if signing is enabled.
@@ -482,7 +539,7 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
     if do_yum {
         let repo = args.component.as_deref().unwrap_or(&cfg.yum.repo);
         scope::validate_scope_name(repo, "yum repo")?;
-        let n = import::import_yum(&args.root, &cfg, &args.url, repo, args.limit)?;
+        let n = import::import_yum(&args.root, &cfg, &args.url, repo, args.limit, args.strict)?;
         total += n;
     }
 

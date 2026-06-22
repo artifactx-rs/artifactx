@@ -56,6 +56,8 @@ pub enum Command {
     Watch(WatchArgs),
     /// Generate docker-compose.yml + Dockerfile.
     Compose(ComposeArgs),
+    /// Export published metadata into legacy-compatible public layouts.
+    Export(ExportArgs),
 }
 
 #[derive(Debug, Args)]
@@ -267,6 +269,9 @@ pub struct ImportArgs {
     /// Import from a yum repo.
     #[arg(long)]
     pub yum: bool,
+    /// Fail if any upstream metadata entry is invalid or cannot be downloaded.
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Args)]
@@ -380,6 +385,28 @@ pub struct WatchArgs {
     /// Poll interval in seconds.
     #[arg(long, default_value_t = 10)]
     pub interval: u64,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Export apt layout (`dists/` + `pool/`) to this fresh directory.
+    #[arg(long)]
+    pub apt_out: Option<PathBuf>,
+    /// Export a flat yum repo (`*.rpm` + `repodata/`) to this fresh directory.
+    #[arg(long)]
+    pub yum_flat_out: Option<PathBuf>,
+    /// Yum repo name to export (defaults to `[yum].repo`).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Limit yum export to one or more architectures (default: all arch dirs).
+    #[arg(long)]
+    pub arch: Vec<String>,
+    /// Passphrase file to unlock an encrypted signing key for exported yum metadata.
+    #[arg(long)]
+    pub passphrase_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
