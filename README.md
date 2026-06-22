@@ -60,6 +60,12 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 
 Use `import` when you already have packages somewhere and want a cleaner repo in front of them. Start with a bounded slice, verify clients, then cut over when the repo is boring.
 
+`arx import` copies package payloads into the local pool. The new repository
+becomes client-consumable after `arx publish`, which regenerates and signs fresh
+apt/yum metadata for the ArtifactX repo. Existing upstream package files are not
+rewritten or re-signed; upstream repository metadata signatures cannot be reused
+because paths, checksums, expiry, and trust root now belong to the new repo.
+
 ### Import from apt
 
 ```bash
@@ -78,7 +84,9 @@ arx publish --root ./repo
 arx serve --root ./repo
 ```
 
-ArtifactX reads `Packages.gz` or `Packages`, downloads matching `.deb` files into the pool, then regenerates signed apt metadata under `apt/dists/<dist>`.
+ArtifactX reads `Packages.gz` or `Packages` and downloads matching `.deb` files
+into the pool. `arx publish` then regenerates signed apt metadata under
+`apt/dists/<dist>`.
 
 ### Import from yum/dnf
 
@@ -95,7 +103,10 @@ arx publish --root ./repo
 arx serve --root ./repo
 ```
 
-ArtifactX reads `repodata/repomd.xml`, follows the primary metadata stream, downloads `.rpm` files, then regenerates signed yum repodata.
+ArtifactX reads `repodata/repomd.xml`, follows the primary metadata stream, and
+downloads `.rpm` files. `arx publish` then regenerates signed yum repodata.
+Invalid upstream entries with bad size/checksum are warned and skipped so one
+damaged historical package does not block the rest of a migration.
 
 ## Signing keys: the simple model
 
@@ -174,8 +185,11 @@ That boundary is deliberate: ArtifactX keeps the default repo safe against stale
 ArtifactX import is a migration path, not a magic mirror.
 
 - **It imports package files** from existing apt `Packages` metadata or yum/dnf `repodata`.
-- **It regenerates repository metadata** under your ArtifactX signing key, so clients trust your repo boundary.
+- **It regenerates repository metadata during `publish`** under your ArtifactX signing key, so clients trust your repo boundary.
 - **It is intentionally sliceable** with filters like `--match-name`, `--arch`, and `--limit` so the first migration is small and observable.
+- **It does not reuse upstream repository signatures.** `InRelease`,
+  `Release.gpg`, and `repomd.xml.asc` must be created for the new repository
+  metadata, ideally with your existing organization repo key.
 - **It is not a bit-for-bit mirror** of the upstream repository metadata. Use mirroring when you need continuous upstream sync.
 - **It does not re-sign individual packages.** Keep package signing in your build pipeline if your clients enforce package-level signatures.
 
