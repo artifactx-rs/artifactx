@@ -318,6 +318,10 @@ Response:
 ### `POST /api/v1/import`
 
 Imports packages from an upstream apt or yum repository into the local pool.
+Run `POST /api/v1/publish` afterwards to regenerate and sign repository
+metadata for clients. Importing does not reuse upstream `InRelease`,
+`Release.gpg`, or `repomd.xml.asc` signatures because ArtifactX publishes a new
+repository boundary.
 
 Query parameters:
 
@@ -333,6 +337,9 @@ Query parameters:
 | `match_name` | string | none | apt package-name prefix filter. |
 
 If neither `apt` nor `yum` is true, ArtifactX attempts both formats.
+For yum imports, metadata entries whose downloaded RPM fails size/checksum
+validation are skipped with a warning so one damaged historical entry does not
+block the rest of the migration.
 
 ```sh
 curl -fsSL -X POST \

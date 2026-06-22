@@ -11,6 +11,13 @@ The migration pattern is:
 4. Test clients against the new repo.
 5. Expand the import and cut over when the repo is boring.
 
+`arx import` is the payload-copy step. `arx publish` is the metadata step: it
+regenerates `Packages`/`Release` or `repodata/repomd.xml` and signs that new
+metadata for the ArtifactX repository. Existing upstream repository signatures
+cannot be reused because the new repository has its own paths, checksums,
+expiry, and trust boundary. Individual `.deb`/`.rpm` payloads are not rewritten
+or re-signed.
+
 ## Prerequisites
 
 - `arx` installed.
@@ -43,6 +50,9 @@ Publish the new repository metadata:
 ```sh
 arx publish --root ./repo
 ```
+
+This creates fresh `InRelease` / `Release.gpg` for the imported pool using the
+key configured in `./repo/arx.toml`.
 
 Serve locally for client testing:
 
@@ -79,6 +89,11 @@ arx publish --root ./repo
 arx serve --root ./repo
 ```
 
+This creates fresh `repomd.xml.asc` for each generated yum architecture repo.
+If upstream metadata contains damaged historical entries (for example a size or
+checksum that does not match the downloaded RPM), ArtifactX warns and skips the
+bad entry while continuing to import the rest.
+
 Then configure a dnf/yum client. See [Install clients](../how-to/install-clients.md).
 
 ## Expand after the canary
@@ -98,6 +113,8 @@ arx publish --root ./repo
 - Clients trust `keys/public.asc` from the ArtifactX repo.
 - At least one apt client and one yum/dnf client, if both formats are used, can
   install from the new URL.
+- If you import an existing organization signing key, verify the public key
+  fingerprint on both apt and yum/dnf clients before cutover.
 - Rollback is clear: clients can point back to the old repo URL until cutover is
   complete.
 
@@ -105,6 +122,8 @@ arx publish --root ./repo
 
 - It does not take ownership of your upstream repo.
 - It does not re-sign individual package payloads.
+- It does not reuse upstream repository metadata signatures; `publish` signs the
+  new ArtifactX metadata.
 - It does not replace your organization key-governance process.
 - It does not make stale upstream packages fresh; it republishes selected
   packages under new repository metadata.
