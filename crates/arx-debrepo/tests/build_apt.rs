@@ -125,6 +125,40 @@ fn builds_packages_and_release() {
 }
 
 #[test]
+fn omits_empty_control_fields_from_packages_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    write_deb(
+        &pool.join("storcli_1_all.deb"),
+        "Package: storcli\n\
+         Version: 1\n\
+         Architecture: all\n\
+         Depends: bash\n\
+         Provides: \n\
+         Pre-Depends: \n\
+         Recommends: \n\
+         Suggests: \n\
+         Maintainer: Test <t@localhost>\n\
+         Description: storage cli\n",
+    );
+
+    let meta = ReleaseMeta::new("TestOrigin", "TestLabel", "Test repo", "stable");
+    build_dist(&apt, "stable", &meta).unwrap();
+
+    let packages =
+        std::fs::read_to_string(apt.join("dists/stable/main/binary-all/Packages")).unwrap();
+    assert!(packages.contains("Package: storcli"));
+    assert!(packages.contains("Depends: bash"));
+    assert!(!packages.contains("Provides:"));
+    assert!(!packages.contains("Pre-Depends:"));
+    assert!(!packages.contains("Recommends:"));
+    assert!(!packages.contains("Suggests:"));
+}
+
+#[test]
 fn valid_until_emitted_when_configured() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");
