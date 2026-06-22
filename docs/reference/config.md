@@ -97,7 +97,7 @@ expires. Republish refreshes the window.
 | `repo` | Default yum repo name. |
 | `base_dir` | Base directory for yum repositories. |
 
-A typical published path is `yum/<repo>/<arch>/repodata/repomd.xml`.
+A typical published path is `yum/<repo>/<arch>/repodata/repomd.xml`. Yum metadata is generated as gzip (`*.xml.gz`) so older CentOS 7 clients remain compatible. Use `arx export --yum-flat-out <DIR>` when an existing public URL expects a flat repo such as `/repo/*.rpm` plus `/repo/repodata`.
 
 ## `[oidc]`
 

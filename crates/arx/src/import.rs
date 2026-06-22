@@ -437,6 +437,7 @@ pub fn import_yum(
     base_url: &str,
     repo: &str,
     limit: Option<usize>,
+    strict: bool,
 ) -> Result<usize> {
     let repo = scope::validate_scope_name(repo, "yum repo")?;
     let base = base_url.trim_end_matches('/');
@@ -454,6 +455,7 @@ pub fn import_yum(
     let repo_dir = cfg.checked_yum_base(root)?.join(repo);
     std::fs::create_dir_all(&repo_dir)?;
     let mut imported = 0usize;
+    let mut skipped = Vec::new();
     for entry in &entries {
         if let Some(n) = limit {
             if imported >= n {
@@ -487,14 +489,24 @@ pub fn import_yum(
             }
             Ok(false) => {}
             Err(err) => {
+                let reason = format!("{} ({url}): {err:#}", entry.href);
                 tracing::warn!(
                     location = %entry.href,
                     url = %url,
                     error = %err,
                     "skipping invalid yum package entry"
                 );
+                skipped.push(reason);
             }
         }
+    }
+    if strict && !skipped.is_empty() {
+        bail!(
+            "strict yum import refused {} invalid metadata entr{}: {}",
+            skipped.len(),
+            if skipped.len() == 1 { "y" } else { "ies" },
+            skipped.join("; ")
+        );
     }
     Ok(imported)
 }

@@ -83,6 +83,23 @@ existing apt/yum repo
 | Operator ergonomics | 🟢 Active ([#19](https://github.com/artifactx-rs/artifactx/issues/19)) | First-run docs cover `init`, `import`, `publish`, `serve`, backup/restore, rollback, systemd, and Docker without overclaiming. |
 | Adversarial review | 🟢 Active ([#31](https://github.com/artifactx-rs/artifactx/issues/31)) | README/Pages/CI are reviewed for a clear wedge, no vague platform promises, no secret leakage. |
 
+### Migration hardening TODO from production dogfood
+
+These TODOs come from the 2026-06-22 `packages.example.com` cutover. The happy path worked,
+but the migration promise is not strong enough until these are explicit product
+features or preflight checks.
+
+| TODO | Priority | Why it matters |
+| --- | --- | --- |
+| Preserve apt Release identity on import/cutover | P0 | Apt clients reject repositories when `Origin` or `Label` changes. `arx import` / cutover tooling should read upstream `Release` identity (`Origin`, `Label`, `Suite`, `Codename`) and either preserve it automatically or require an explicit override. |
+| Migration report for skipped/dirty upstream metadata | P0 | Non-strict yum import can skip bad metadata entries and still appear successful. Produce a report with imported/skipped counts, 404s, size/checksum mismatches, and a clear “safe to cut over?” verdict. |
+| RPM package-signature preflight | P0 | Repo metadata signing is not the same as RPM package signing. Before a `gpgcheck=1` yum cutover, detect unsigned RPMs and either fail, preserve upstream signatures, or run an explicit operator-approved signing step. |
+| Cutover preflight command | P1 | A migration should have one boring command that checks apt signed update, yum `gpgcheck=1`, CentOS 7 gzip metadata, legacy `/deb` + flat `/repo` layout, and rollback paths before touching live directories. |
+| Public/internal directory separation templates | P1 | Only public export directories should be synced. Internal roots, staging builds, keys, backups, and `.states` must stay out of `/srv` mirror jobs and sample systemd/rsync configs. |
+| One-command production publish | P1 ([#49](https://github.com/artifactx-rs/artifactx/issues/49)) | Production should not need bespoke glue around `add -> publish -> export -> atomic cutover`. Design a first-class flow so operators can drop packages and run one command that publishes the client-facing apt/yum layouts safely. |
+| Sync/service integration guide | P1 | Document the safe chain: package drop → `downstream package service`/`arx` publish+export → `downstream sync service` public-only sync → `downstream monitor service` debounce, including how to avoid recursive or long-running full-tree sync. |
+| E2E fixtures for real migration contracts | P1 | Add CI/local fixtures for apt identity preservation, signed RPM yum installs, aptly hash-prefixed deb filenames, dirty yum metadata, and CentOS 7 `.gz` metadata compatibility. |
+
 ## 🔵 Next — v0.2.0 packaging ergonomics
 
 Milestone: [`v0.2.0 — Packaging ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/2)

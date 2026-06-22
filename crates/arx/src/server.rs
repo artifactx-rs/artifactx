@@ -590,7 +590,7 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
                 Some(repo) => client_scope_name(repo, "yum repo")?,
                 None => &cfg.yum.repo,
             };
-            imported += crate::import::import_yum(&root, &cfg, &q.url, repo, q.limit)?;
+            imported += crate::import::import_yum(&root, &cfg, &q.url, repo, q.limit, false)?;
         }
         Ok(ImportResult { imported })
     };
