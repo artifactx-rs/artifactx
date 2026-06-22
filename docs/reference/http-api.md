@@ -115,11 +115,27 @@ Response:
 
 ### `GET /api/v1/packages`
 
-Lists package files currently present in the apt and yum pools.
+Lists package files currently present in the apt and yum pools. Query parameters
+apply the same package-search model as `arx search`.
 
 ```sh
 curl -fsSL "$BASE_URL/api/v1/packages"
+curl -fsSL "$BASE_URL/api/v1/packages?q=wss&apt=true&scope=main"
 ```
+
+Query parameters:
+
+| Name | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `q` | string | none | Match package names containing this substring. |
+| `name_prefix` | string | none | Match package names starting with this prefix. |
+| `version` | string | none | Match an exact package version. |
+| `arch` | string | none | Match an exact package architecture. |
+| `scope` | string | none | Match an apt component or yum repo name. |
+| `apt` | boolean | false | Restrict to apt pool. |
+| `yum` | boolean | false | Restrict to yum pool. |
+
+Omitting both `apt` and `yum` scans both pools.
 
 Response:
 
@@ -223,10 +239,13 @@ Query parameters:
 
 | Name | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `name` | string | none | Prune only this package name. |
+| `name_prefix` | string | none | Prune only packages whose names start with this prefix. |
 | `keep` | integer | `3` | Keep this many newest versions per package/scope/arch. |
 | `keep_within_days` | integer | `0` | Also keep packages newer than this many days. |
 | `grace_days` | integer | `0` | Defer pruning packages newer than this grace period. |
 | `dry_run` | boolean | `false` | Report what would be pruned without deleting or publishing. |
+| `ignore_rollback_states` | boolean | `false` | Allow pruning files referenced by retained rollback states. |
 | `apt` | boolean | `false` | Limit to apt pool when true. |
 | `yum` | boolean | `false` | Limit to yum pool when true. |
 
@@ -242,11 +261,17 @@ Response:
 {
   "pruned": [],
   "dry_run": true,
+  "retained_for_rollback": 0,
+  "deferred": 0,
+  "bytes_freed": 0,
   "published": null
 }
 ```
 
 `published` is `null` for dry runs or when nothing was pruned.
+By default, rollback-referenced files are retained and counted in
+`retained_for_rollback`; pass `ignore_rollback_states=true` only after deciding
+those old rollback states no longer need to be valid.
 
 ### `POST /api/v1/publish`
 

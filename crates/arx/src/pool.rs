@@ -194,6 +194,59 @@ pub fn list(apt_pool_root: &Path, yum_base: &Path, apt: bool, yum: bool) -> Resu
     Ok(entries)
 }
 
+#[derive(Debug, Default)]
+pub struct SearchOptions<'a> {
+    pub query: Option<&'a str>,
+    pub name_prefix: Option<&'a str>,
+    pub version: Option<&'a str>,
+    pub arch: Option<&'a str>,
+    pub scope: Option<&'a str>,
+    pub apt: bool,
+    pub yum: bool,
+}
+
+impl Entry {
+    fn matches_search(&self, options: &SearchOptions<'_>) -> bool {
+        options.query.is_none_or(|q| self.name.contains(q))
+            && options
+                .name_prefix
+                .is_none_or(|prefix| self.name.starts_with(prefix))
+            && options
+                .version
+                .is_none_or(|version| self.version == version)
+            && options.arch.is_none_or(|arch| self.arch == arch)
+            && options.scope.is_none_or(|scope| self.scope == scope)
+    }
+}
+
+pub fn search(
+    apt_pool_root: &Path,
+    yum_base: &Path,
+    options: SearchOptions<'_>,
+) -> Result<Vec<Entry>> {
+    let mut entries: Vec<Entry> = list(apt_pool_root, yum_base, options.apt, options.yum)?
+        .into_iter()
+        .filter(|entry| entry.matches_search(&options))
+        .collect();
+    entries.sort_by(|a, b| {
+        (
+            a.kind,
+            a.scope.as_str(),
+            a.name.as_str(),
+            a.arch.as_str(),
+            a.version.as_str(),
+        )
+            .cmp(&(
+                b.kind,
+                b.scope.as_str(),
+                b.name.as_str(),
+                b.arch.as_str(),
+                b.version.as_str(),
+            ))
+    });
+    Ok(entries)
+}
+
 /// Remove packages matching `name` (and optional exact `version`). Returns the
 /// removed entries; does not print or republish.
 pub fn remove(
@@ -311,6 +364,8 @@ fn extract_hrefs(xml: &str) -> Vec<String> {
 /// version is unparseable. Files pinned by a retained rollback state are never
 /// pruned.
 pub struct GcOptions<'a> {
+    pub name: Option<&'a str>,
+    pub name_prefix: Option<&'a str>,
     pub keep: usize,
     pub keep_within_days: u32,
     pub grace_days: u32,
@@ -319,13 +374,22 @@ pub struct GcOptions<'a> {
     pub apt: bool,
     pub yum: bool,
     pub dry_run: bool,
+    pub retain_rollback_states: bool,
 }
 
 pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
-    let referenced = referenced_apt_files(root);
-    let referenced_rpm = referenced_yum_files(options.yum_base);
+    let referenced = if options.retain_rollback_states {
+        referenced_apt_files(root)
+    } else {
+        std::collections::HashSet::new()
+    };
+    let referenced_rpm = if options.retain_rollback_states {
+        referenced_yum_files(options.yum_base)
+    } else {
+        std::collections::HashSet::new()
+    };
     let apt_root = root.join("apt");
 
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
@@ -335,6 +399,15 @@ pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
         options.apt,
         options.yum,
     )? {
+        if options.name.is_some_and(|name| e.name != name) {
+            continue;
+        }
+        if options
+            .name_prefix
+            .is_some_and(|prefix| !e.name.starts_with(prefix))
+        {
+            continue;
+        }
         groups.entry(e.group_key()).or_default().push(e);
     }
 

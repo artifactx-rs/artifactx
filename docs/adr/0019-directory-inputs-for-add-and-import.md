@@ -1,6 +1,6 @@
 # ADR-0019: Directory inputs for `arx add` and import workflows
 
-- Status: **Proposed**
+- Status: **Accepted for `arx add`; import-local-directory remains proposed**
 - Date: 2026-06-22
 - Target: v0.2.0 planning candidate
 - Related: [GitHub issue #14](https://github.com/artifactx-rs/artifactx/issues/14)
@@ -31,42 +31,33 @@ to be about `pack`.
 
 ## Decision
 
-Add directory inputs to the v0.2.0 planning backlog for `arx add` and import-like
-repository workflows.
+Add directory inputs to `arx add` in v0.2.0. Import-like local directory
+workflows remain a proposed follow-up because upstream apt/yum repository import
+still has different metadata semantics from copying already-built package files.
 
-The intended user-facing shape is still open, but acceptable designs include:
+The accepted `arx add` shape overloads positional package arguments:
 
 ```bash
 arx add ./dist --root ./repo
-arx add ./dist --recursive --root ./repo
-arx import ./exported-repo --root ./repo
+arx add ./dist ./more-packages --root ./repo
 ```
 
-or an explicit option if overloading positional package arguments would be too
-ambiguous:
+Implemented behavior:
 
-```bash
-arx add --from-dir ./dist --root ./repo
-arx add --from-dir ./dist --recursive --root ./repo
-```
-
-Implementation requirements before acceptance:
-
-1. **Clear scope:** define whether directory inputs are shallow by default,
-   recursive by default, or require `--recursive`.
-2. **Package filtering:** only supported package files (`.deb`, `.rpm`, and any
-   accepted future formats) should be selected; unrelated files must be ignored
-   or reported according to a documented policy.
-3. **Stable processing order:** discovered package files must be sorted before
-   add/import so output and logs are deterministic.
-4. **Fail-loud errors:** invalid packages should produce actionable errors that
-   identify the path; partial success semantics must be documented.
-5. **Symlink policy:** directory traversal must not accidentally follow unsafe or
-   surprising symlink loops. Symlink behavior needs an explicit decision.
+1. **Clear scope:** directory inputs are recursive by default.
+2. **Package filtering:** only `.deb` and `.rpm` files are selected; unrelated
+   files are ignored.
+3. **Stable processing order:** discovered package files are sorted before
+   copying into the pool.
+4. **Fail-loud errors:** invalid package files still fail with the package path
+   in the error context; directories with no supported package files fail
+   instead of silently doing nothing.
+5. **Symlink policy:** directory traversal does **not** follow symlinked
+   directories.
 6. **CLI compatibility:** existing explicit file arguments and shell-glob usage
-   must continue to work unchanged.
-7. **Tests and docs:** add CLI regression coverage for shallow/recursive
-   directory input, mixed files, stable ordering, and invalid package handling.
+   continue to work unchanged.
+7. **Tests and docs:** CLI regression coverage verifies recursive mixed
+   directory input, stable ordering, publishability, and empty-directory failure.
 
 ## Consequences
 
