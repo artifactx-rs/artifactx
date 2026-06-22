@@ -150,6 +150,13 @@ fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
 fn package_stanza(control: &deb::Control, filename: &str, deb_bytes: &[u8]) -> String {
     let mut out = String::new();
     for (key, value) in control.fields() {
+        // Some vendor packages carry relationship fields such as `Provides:`
+        // with an empty value. Aptly omits those from generated indices, and
+        // apt can reject an empty `Provides:` in Packages metadata even when it
+        // tolerates other blank fields in the package control file.
+        if value.trim().is_empty() {
+            continue;
+        }
         out.push_str(key);
         out.push_str(": ");
         out.push_str(value);

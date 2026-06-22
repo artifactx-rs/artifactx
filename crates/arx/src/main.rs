@@ -231,8 +231,51 @@ fn generate_and_store_key(root: &Path, cfg: &Config, passphrase: &str) -> Result
     let private_key = cfg.private_key_path(root)?;
     let public_key = cfg.public_key_path(root)?;
     std::fs::create_dir_all(private_key.parent().unwrap()).ok();
-    std::fs::write(&private_key, &key.private_armored).context("writing private key")?;
+    write_private_key(&private_key, key.private_armored.as_bytes())?;
     std::fs::write(&public_key, &key.public_armored).context("writing public key")?;
+    Ok(())
+}
+
+fn write_private_key(path: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("writing private key {}", path.display()))?;
+        file.write_all(bytes)
+            .with_context(|| format!("writing private key {}", path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("syncing private key {}", path.display()))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("restricting private key {}", path.display()))?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes)
+            .with_context(|| format!("writing private key {}", path.display()))
+    }
+}
+
+#[cfg(unix)]
+fn restrict_private_key(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("restricting private key {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn restrict_private_key(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -258,6 +301,7 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             if priv_path.exists() {
                 std::fs::copy(&priv_path, &old)
                     .with_context(|| format!("backing up {} → {}", priv_path.display(), old))?;
+                restrict_private_key(std::path::Path::new(&old))?;
                 println!("Backed up old key to {old}");
             }
             // Generate and store the new key.
@@ -291,7 +335,7 @@ fn cmd_key(args: &cli::KeyArgs) -> Result<()> {
             let private_key = cfg.private_key_path(root)?;
             let public_key = cfg.public_key_path(root)?;
             std::fs::create_dir_all(private_key.parent().unwrap()).ok();
-            std::fs::write(&private_key, &armored).context("writing private key")?;
+            write_private_key(&private_key, armored.as_bytes())?;
             let public = signing::public_from_secret(&key, &passphrase)?;
             std::fs::write(&public_key, public).context("writing public key")?;
             cfg.signing.enabled = true;

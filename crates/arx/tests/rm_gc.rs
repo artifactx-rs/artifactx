@@ -219,6 +219,87 @@ fn key_rotate_backs_up_and_replaces() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn private_key_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let imported = tmp.path().join("imported");
+
+    let status = common::arx_command()
+        .args(["init", root.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::metadata(root.join("keys/private.asc"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    let status = common::arx_command()
+        .args(["init", imported.to_str().unwrap(), "--no-key"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let output = common::arx_command()
+        .args([
+            "key",
+            "import",
+            "--root",
+            imported.to_str().unwrap(),
+            root.join("keys/private.asc").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "key import failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::metadata(imported.join("keys/private.asc"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    let output = common::arx_command()
+        .args(["key", "rotate", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "key rotate failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::metadata(root.join("keys/private.asc.old"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(root.join("keys/private.asc"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
+
 #[test]
 fn default_rm_and_gc_keep_legacy_apt_only_repo_without_config_working() {
     let tmp = tempfile::tempdir().unwrap();
