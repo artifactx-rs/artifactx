@@ -1,0 +1,89 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/docs.yml
+      - .github/workflows/pages.yml
+      - scripts/build-pages-site.sh
+      - site/**
+      - docs/**
+      - README.md
+      - ROADMAP.md
+  pull_request:
+    paths:
+      - .github/workflows/docs.yml
+      - .github/workflows/pages.yml
+      - scripts/build-pages-site.sh
+      - site/**
+      - docs/**
+      - README.md
+      - ROADMAP.md
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate Pages source split
+        run: |
+          set -euo pipefail
+          bash -n scripts/build-pages-site.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          required = [
+              'site/index.html',
+              'site/install.sh.in',
+              'site/robots.txt.in',
+              'site/sitemap.xml.in',
+              'site/README.md',
+          ]
+          for name in required:
+              path = Path(name)
+              if not path.is_file():
+                  raise SystemExit(f'missing Pages source: {name}')
+              if not path.read_text().endswith('\n'):
+                  raise SystemExit(f'missing trailing newline: {name}')
+
+          script = Path('scripts/build-pages-site.sh').read_text()
+          if 'cat > public/index.html' in script:
+              raise SystemExit('landing page HTML must live in site/index.html, not a shell heredoc')
+          for needle in ['site/index.html', 'site/install.sh.in', 'site/robots.txt.in', 'site/sitemap.xml.in']:
+              if needle not in script:
+                  raise SystemExit(f'build script does not render {needle}')
+
+          html = Path('site/index.html').read_text()
+          for placeholder in ['__REPO_URL__', '__REPOSITORY__']:
+              if placeholder not in html:
+                  raise SystemExit(f'missing placeholder in site/index.html: {placeholder}')
+          PY
+
+      - name: Validate roadmap links
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          roadmap = Path('ROADMAP.md').read_text()
+          required = [
+              'Milestone progress is issue-based',
+              'https://github.com/artifactx-rs/artifactx/milestone/1',
+              'https://github.com/artifactx-rs/artifactx/milestone/2',
+              'https://github.com/orgs/artifactx-rs/projects/1',
+              'https://github.com/artifactx-rs/artifactx/issues/16',
+              'https://github.com/artifactx-rs/artifactx/issues/33',
+          ]
+          missing = [needle for needle in required if needle not in roadmap]
+          if missing:
+              raise SystemExit('ROADMAP.md missing required public links: ' + ', '.join(missing))
+          PY

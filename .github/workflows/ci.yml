@@ -3,7 +3,21 @@ name: ci
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/pages.yml'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/pages.yml'
 
 env:
   CARGO_TERM_COLOR: always
