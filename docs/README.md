@@ -13,6 +13,7 @@ front of you.
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
 | Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
 | Keep legacy sync or mirror automation during migration | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
+| Run local E2E checks before changing publish/API flows | [Run local E2E checks](how-to/run-local-e2e.md) |
 | Run ArtifactX with Docker Compose | [Run with Docker Compose](how-to/run-with-docker-compose.md) |
 | Run the server under systemd | [Run as a systemd service](how-to/run-as-systemd-service.md) |
 | Use your organization signing key | [Use custom signing keys](how-to/use-custom-signing-keys.md) |
