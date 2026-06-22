@@ -1,0 +1,68 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ArtifactX square organization logo</title>
+  <desc id="desc">A square ArtifactX logo with a glowing X-shaped repository path, a package cube, and a signed metadata seal.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07131F"/>
+      <stop offset="0.48" stop-color="#0B1020"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <radialGradient id="cyan-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 426) rotate(90) scale(430)">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0.30"/>
+      <stop offset="0.42" stop-color="#2563EB" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lime-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(662 664) rotate(90) scale(260)">
+      <stop offset="0" stop-color="#A3E635" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cyan" x1="250" y1="196" x2="774" y2="828" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="cyan-soft" x1="296" y1="280" x2="728" y2="744" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A3E635"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+    <filter id="deep-shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#000000" flood-opacity="0.40"/>
+    </filter>
+    <filter id="line-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="18" flood-color="#22D3EE" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#cyan-glow)"/>
+  <rect width="1024" height="1024" fill="url(#lime-glow)"/>
+  <rect x="56" y="56" width="912" height="912" rx="172" stroke="#1E293B" stroke-width="4" opacity="0.95"/>
+
+  <!-- X-shaped repository lanes -->
+  <g filter="url(#line-glow)">
+    <path d="M300 170 H410 L724 854 H614 L300 170Z" fill="#020617" opacity="0.95"/>
+    <path d="M614 170 H724 L410 854 H300 L614 170Z" fill="url(#cyan)"/>
+    <path d="M332 214 H386 L692 810 H638 L332 214Z" fill="#111827" opacity="0.86"/>
+    <path d="M638 214 H692 L386 810 H332 L638 214Z" fill="url(#cyan-soft)" opacity="0.96"/>
+  </g>
+
+  <!-- central package cube -->
+  <g transform="translate(292 336) scale(1.62)" filter="url(#deep-shadow)">
+    <path d="M136 0 L272 68 L136 136 L0 68 Z" fill="#E0F2FE" stroke="#0891B2" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M0 68 L136 136 L136 292 L0 224 Z" fill="#CFFAFE" stroke="#0891B2" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M272 68 L136 136 L136 292 L272 224 Z" fill="#7DD3FC" stroke="#0891B2" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M136 136 V292" stroke="#0891B2" stroke-width="9" stroke-linecap="round"/>
+    <path d="M62 68 L136 104 L210 68" stroke="#0E7490" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.88"/>
+  </g>
+
+  <!-- signed metadata seal -->
+  <g transform="translate(592 630)" filter="url(#deep-shadow)">
+    <circle cx="112" cy="112" r="92" fill="url(#lime)" stroke="#166534" stroke-width="10"/>
+    <path d="M68 115 L99 146 L158 78" stroke="#052E16" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="112" cy="112" r="118" stroke="#A3E635" stroke-width="5" opacity="0.22"/>
+  </g>
+
+</svg>
