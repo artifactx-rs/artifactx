@@ -100,6 +100,8 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Clarify issue #14 scope | 🔵 Open | Confirm whether the request means `arx pack` payload directories, `arx add` / import directory inputs, or both. |
 | Package payload directories | 🔵 Proposed ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
 | Directory inputs for add/import | 🔵 Proposed ([#33](https://github.com/artifactx-rs/artifactx/issues/33)) | [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md): discover existing `.deb` / `.rpm` files from directories with stable ordering and clear failure behavior. |
+| Aptly hash-prefixed `.deb` imports | 🟢 Guarded ([#35](https://github.com/artifactx-rs/artifactx/issues/35)) | `arx import --apt` and `arx publish` must treat aptly hash prefixes as storage detail: follow `Packages` `Filename:` exactly, but read identity from `.deb` control fields. Regression coverage is in place; optional filename normalization stays a separate design decision. |
+| Apt migration hardening | 🔵 Open ([#36](https://github.com/artifactx-rs/artifactx/issues/36)) | Grey-test real aptly repositories, then cover remaining migration edge cases: basename collisions after flattening, extra `Packages` compression variants, absolute `Filename:` URLs, and explicit upstream trust/signature behavior. |
 
 ### Pack v0.2.0 TODO
 
