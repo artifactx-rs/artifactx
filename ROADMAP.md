@@ -102,6 +102,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Directory inputs for add/import | 🔵 Proposed ([#33](https://github.com/artifactx-rs/artifactx/issues/33)) | [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md): discover existing `.deb` / `.rpm` files from directories with stable ordering and clear failure behavior. |
 | Aptly hash-prefixed `.deb` imports | 🟢 Guarded ([#35](https://github.com/artifactx-rs/artifactx/issues/35)) | `arx import --apt` and `arx publish` must treat aptly hash prefixes as storage detail: follow `Packages` `Filename:` exactly, but read identity from `.deb` control fields. Regression coverage is in place; optional filename normalization stays a separate design decision. |
 | Apt migration hardening | 🔵 Open ([#36](https://github.com/artifactx-rs/artifactx/issues/36)) | Grey-test real aptly repositories, then cover remaining migration edge cases: basename collisions after flattening, extra `Packages` compression variants, absolute `Filename:` URLs, and explicit upstream trust/signature behavior. |
+| Yum/RPM migration hardening | 🔵 Open ([#37](https://github.com/artifactx-rs/artifactx/issues/37)) | Treat RPM filenames as storage detail too: follow `primary.xml` `location href`, validate checksum/size before writing, read identity from RPM headers, and document unsupported repodata shapes such as `.zck` or module/comps-only metadata. |
 
 ### Pack v0.2.0 TODO
 
