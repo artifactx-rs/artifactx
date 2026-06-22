@@ -215,7 +215,7 @@ fn every_cli_subcommand_is_wired_into_help() {
     let help = String::from_utf8_lossy(&output.stdout);
     for cmd in [
         "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
-        "gc", "promote", "serve", "mirror", "watch", "compose",
+        "gc", "promote", "serve", "mirror", "watch", "compose", "export",
     ] {
         assert!(
             help.contains(cmd),
@@ -346,6 +346,107 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     assert!(
         packages.contains(&format!("Filename: pool/main/{hashed_name}\n")),
         "publish should emit the imported pool path in Packages metadata:\n{packages}"
+    );
+}
+
+#[test]
+fn export_builds_legacy_apt_and_centos7_friendly_flat_yum_layout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let deb = tmp.path().join("hello_1.0-1_amd64.deb");
+    write_deb(&deb, "hello", "1.0-1", "amd64");
+
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm-export.toml");
+    let rpm_dist = tmp.path().join("rpm-dist");
+    std::fs::write(&payload, b"#!/bin/sh\necho export\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "rpmexport", "1.0.0");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        rpm_dist.to_str().unwrap(),
+        "--rpm",
+    ]);
+    let rpm = rpm_dist.join("rpmexport-1.0.0-1.x86_64.rpm");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        rpm.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "main",
+        "--repo",
+        "qgnet",
+    ]);
+    arx_ok(&["publish", "--root", root.to_str().unwrap(), "--full"]);
+
+    let apt_export = tmp.path().join("public-deb-20260622");
+    let yum_export = tmp.path().join("public-repo-20260622");
+    arx_ok(&[
+        "export",
+        "--root",
+        root.to_str().unwrap(),
+        "--apt-out",
+        apt_export.to_str().unwrap(),
+        "--yum-flat-out",
+        yum_export.to_str().unwrap(),
+        "--repo",
+        "qgnet",
+        "--arch",
+        "x86_64",
+    ]);
+
+    assert!(
+        apt_export.join("dists/stable/Release").exists(),
+        "apt export must expose dists/stable/Release for deb http://host/deb stable main"
+    );
+    assert!(
+        apt_export.join("pool/main/hello_1.0-1_amd64.deb").exists(),
+        "apt export must expose the pool under /pool/main"
+    );
+    let packages =
+        std::fs::read_to_string(apt_export.join("dists/stable/main/binary-amd64/Packages"))
+            .unwrap();
+    assert!(
+        packages.contains("Filename: pool/main/hello_1.0-1_amd64.deb"),
+        "exported Packages must keep public /pool paths: {packages}"
+    );
+
+    assert!(
+        yum_export.join("rpmexport-1.0.0-1.x86_64.rpm").exists(),
+        "flat yum export must put rpm payloads directly under the public repo root"
+    );
+    let repomd = std::fs::read_to_string(yum_export.join("repodata/repomd.xml")).unwrap();
+    assert!(
+        repomd.contains("primary.xml.gz"),
+        "CentOS 7 compatibility requires gzip yum metadata: {repomd}"
+    );
+    assert!(
+        !repomd.contains(".xml.xz"),
+        "flat export must not switch production metadata to xz-only for CentOS 7: {repomd}"
+    );
+    assert!(
+        yum_export.join("repodata/sha256-primary.xml.gz").exists(),
+        "primary metadata must be gzip-compressed"
+    );
+    assert!(
+        !std::fs::symlink_metadata(yum_export.join("repodata"))
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "public flat yum export should materialize repodata instead of exposing internal state symlinks"
+    );
+    assert!(
+        !yum_export.join(".states").exists(),
+        "public flat yum export should not expose internal rollback states"
+    );
+    assert!(
+        !apt_export.join("dists/.states").exists(),
+        "public apt export should not expose internal rollback states"
     );
 }
 
@@ -500,6 +601,28 @@ fn yum_import_skips_invalid_metadata_entries_and_keeps_importing() {
     assert!(
         root.join("yum/staging/x86_64").join(rpm_name).exists(),
         "valid entry should still be imported"
+    );
+
+    let strict_root = tmp.path().join("repo-strict");
+    arx_ok(&["init", strict_root.to_str().unwrap(), "--no-key"]);
+    let strict = arx_output(&[
+        "import",
+        &server.base_url,
+        "--yum",
+        "--strict",
+        "--root",
+        strict_root.to_str().unwrap(),
+        "--component",
+        "staging",
+    ]);
+    assert!(
+        !strict.status.success(),
+        "strict yum import must fail when upstream metadata has invalid entries"
+    );
+    let stderr = String::from_utf8_lossy(&strict.stderr);
+    assert!(
+        stderr.contains("strict yum import refused"),
+        "strict failure should explain skipped metadata entries: {stderr}"
     );
 }
 
