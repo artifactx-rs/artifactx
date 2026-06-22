@@ -64,6 +64,9 @@ company or project identity instead of the ArtifactX default.
 | `user_id` | User ID used when generating a new key. |
 
 Passphrases are supplied by `--passphrase-file` or `ARX_KEY_PASSPHRASE`.
+`arx serve` blocks the configured `private_key` path (including `.old` and
+`.bak` rotation backups) from static HTTP responses. The configured
+`public_key` path remains readable so clients can import the repository key.
 
 ## `[server]`
 

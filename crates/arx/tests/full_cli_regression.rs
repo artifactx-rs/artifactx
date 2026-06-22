@@ -672,6 +672,156 @@ fn serve_rejects_unauthenticated_write_when_token_is_configured() {
 }
 
 #[test]
+fn serve_does_not_expose_private_signing_keys() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    std::fs::create_dir_all(root.join("keys")).unwrap();
+    std::fs::write(
+        root.join("keys/private.asc"),
+        b"private key must not be served",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("keys/private.asc.old"),
+        b"old private key must not be served",
+    )
+    .unwrap();
+    std::fs::write(root.join("keys/public.asc"), b"public key may be served").unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let client = reqwest::blocking::Client::new();
+    for path in [
+        "keys/private.asc",
+        "keys/private.asc.old",
+        "keys/private%2Easc",
+    ] {
+        let response = client.get(format!("{base}/{path}")).send().unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::NOT_FOUND,
+            "sensitive path {path} must not be served"
+        );
+    }
+
+    let public = client
+        .get(format!("{base}/keys/public.asc"))
+        .send()
+        .unwrap();
+    assert_eq!(public.status(), reqwest::StatusCode::OK);
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn serve_blocks_configured_private_signing_key_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let config_path = root.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config
+            .replace(
+                "private_key = \"keys/private.asc\"",
+                "private_key = \"secrets/custom-signing-key.asc\"",
+            )
+            .replace(
+                "public_key = \"keys/public.asc\"",
+                "public_key = \"secrets/custom-signing-key.pub.asc\"",
+            ),
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(root.join("secrets")).unwrap();
+    std::fs::write(
+        root.join("secrets/custom-signing-key.asc"),
+        b"configured private key must not be served",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("secrets/custom-signing-key.asc.bak"),
+        b"configured backup private key must not be served",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("secrets/custom-signing-key.pub.asc"),
+        b"configured public key may be served",
+    )
+    .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let client = reqwest::blocking::Client::new();
+    for path in [
+        "secrets/custom-signing-key.asc",
+        "secrets/custom-signing-key.asc.bak",
+    ] {
+        let response = client.get(format!("{base}/{path}")).send().unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::NOT_FOUND,
+            "configured sensitive path {path} must not be served"
+        );
+    }
+
+    let public = client
+        .get(format!("{base}/secrets/custom-signing-key.pub.asc"))
+        .send()
+        .unwrap();
+    assert_eq!(public.status(), reqwest::StatusCode::OK);
+
+    let _ = child.0.kill();
+}
+
+#[test]
 fn serve_upload_response_uses_configured_storage_paths() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
