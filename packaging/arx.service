@@ -1,0 +1,22 @@
+[Unit]
+Description=ArtifactX package repository
+Documentation=https://github.com/artifactx-rs/artifactx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arx
+Group=arx
+EnvironmentFile=-/etc/arx/arx.env
+ExecStart=/usr/bin/arx serve --root /var/lib/arx/repo --addr 127.0.0.1:8080
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/arx/repo
+
+[Install]
+WantedBy=multi-user.target

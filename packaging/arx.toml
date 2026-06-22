@@ -15,3 +15,8 @@ section = "admin"
 source = "build/arx"
 dest = "/usr/bin/arx"
 mode = "0755"
+
+[[files]]
+source = "packaging/arx.service"
+dest = "/usr/lib/systemd/system/arx.service"
+mode = "0644"
