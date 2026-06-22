@@ -127,6 +127,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PushResult'
+              example:
+                stored: apt/pool/main/myapp_1.2.3-1_amd64.deb
+                published: 'apt: indexed 1 package(s) across 1 dist/component(s)'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -229,6 +232,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GcResult'
+              example:
+                pruned:
+                  - name: myapp
+                    version: 1.2.2-1
+                    arch: amd64
+                    scope: main
+                    kind: apt
+                dry_run: true
+                retained_for_rollback: 0
+                deferred: 0
+                bytes_freed: 4096
+                published: null
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -247,6 +262,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublishResult'
+              example:
+                apt: 'apt: indexed 1 package(s) across 1 dist/component(s)'
+                yum: 'yum: indexed 0 package(s) across 0 repo/arch dir(s)'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -272,6 +290,11 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/HistoryItem'
+              example:
+                - id: '000001'
+                  current: false
+                - id: '000002'
+                  current: true
   /api/v1/rollback/{target}:
     post:
       tags: [rollback]
@@ -299,6 +322,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RollbackResult'
+              example:
+                previous: stable
+                current: '000001'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -307,6 +333,7 @@ paths:
     post:
       tags: [import]
       summary: Import packages from an upstream apt or yum repository
+      description: Import copies package payloads into the pool. Call `POST /api/v1/publish` afterwards to regenerate signed metadata for clients.
       operationId: importRepository
       security:
         - bearerAuth: []
@@ -355,6 +382,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImportResult'
+              example:
+                imported: 20
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -363,6 +392,7 @@ paths:
     post:
       tags: [promote]
       summary: Move packages between apt components or yum repos
+      description: Promote moves package files between scopes. Call `POST /api/v1/publish` afterwards to publish the new client metadata.
       operationId: promotePackage
       security:
         - bearerAuth: []
@@ -396,6 +426,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PromoteResult'
+              example:
+                moved: 1
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

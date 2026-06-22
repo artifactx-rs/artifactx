@@ -7,6 +7,24 @@ back published repository states without shelling into the server.
 
 For the machine-readable contract, see [OpenAPI](openapi.yaml).
 
+For v0.2, `/api/v1` is a **beta developer API**: endpoint names and the
+main request/response fields are intended to be script-friendly, but the project
+may still add fields or tighten validation before declaring the API stable.
+Clients should ignore unknown JSON fields and should not parse human-readable
+summary strings as a stable contract.
+
+Compatibility policy before stable API status:
+
+- Existing `/api/v1` endpoint paths will not be renamed without a deprecation
+  note in this document.
+- New optional query parameters or response fields may be added in minor
+  releases.
+- Error responses are currently plain text with HTTP status codes; do not depend
+  on exact wording.
+- Large pool pagination/streaming is not implemented yet. Use search filters
+  (`q`, `name_prefix`, `version`, `arch`, `scope`, `apt`, `yum`) to keep scripted
+  responses bounded until pagination is designed.
+
 ## Base URL
 
 Examples below assume the default development server:
@@ -410,6 +428,66 @@ Response:
   "moved": 1
 }
 ```
+
+
+## Scriptable workflow example
+
+This example uses `curl` and `jq` to exercise the same operational path covered
+by the API E2E regression test: upload, list/search, GC dry-run, publish,
+history, rollback, and promote.
+
+```sh
+set -euo pipefail
+
+BASE_URL=${BASE_URL:-http://127.0.0.1:8080}
+TOKEN=${ARX_SERVE_TOKEN:?set ARX_SERVE_TOKEN}
+PKG=${PKG:-dist/myapp_1.2.3-1_amd64.deb}
+NEXT_PKG=${NEXT_PKG:-dist/myapp_1.2.4-1_amd64.deb}
+STAGED_PKG=${STAGED_PKG:-dist/otherpkg_1.0-1_amd64.deb}
+
+auth=(-H "Authorization: Bearer ${TOKEN}")
+
+curl -fsSL "${BASE_URL}/api/v1/health" | jq .
+
+curl -fsSL -X POST \
+  "${auth[@]}" \
+  -H "X-Arx-Filename: $(basename "$PKG")" \
+  -H "X-Arx-Component: main" \
+  --data-binary @"$PKG" \
+  "${BASE_URL}/api/v1/packages" | jq .
+
+curl -fsSL -X POST \
+  "${auth[@]}" \
+  -H "X-Arx-Filename: $(basename "$NEXT_PKG")" \
+  -H "X-Arx-Component: main" \
+  --data-binary @"$NEXT_PKG" \
+  "${BASE_URL}/api/v1/packages" | jq .
+
+curl -fsSL "${BASE_URL}/api/v1/packages?q=myapp&apt=true&scope=main" | jq .
+
+curl -fsSL -X POST \
+  "${auth[@]}" \
+  "${BASE_URL}/api/v1/gc?name=myapp&keep=1&apt=true&dry_run=true" | jq .
+
+curl -fsSL -X POST "${auth[@]}" "${BASE_URL}/api/v1/publish" | jq .
+curl -fsSL "${BASE_URL}/api/v1/history/stable" | jq .
+curl -fsSL -X POST "${auth[@]}" "${BASE_URL}/api/v1/rollback/stable" | jq .
+
+curl -fsSL -X POST \
+  "${auth[@]}" \
+  -H "X-Arx-Filename: $(basename "$STAGED_PKG")" \
+  -H "X-Arx-Component: staging" \
+  --data-binary @"$STAGED_PKG" \
+  "${BASE_URL}/api/v1/packages" | jq .
+
+curl -fsSL -X POST \
+  "${auth[@]}" \
+  "${BASE_URL}/api/v1/promote?name=otherpkg&from=staging&to=main&apt=true" | jq .
+curl -fsSL -X POST "${auth[@]}" "${BASE_URL}/api/v1/publish" | jq .
+```
+
+Use `POST /api/v1/import` followed by `POST /api/v1/publish` when migrating from
+an upstream apt/yum repository instead of uploading local package files.
 
 ### `GET /metrics`
 
