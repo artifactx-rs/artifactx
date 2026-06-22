@@ -1,42 +1,70 @@
 # ArtifactX Roadmap
 
-> **v0.1.0 shipped.** The product wedge is now: **Import first. Cut over when ready.**
+> **Current phase:** v0.1.x import-first polish  
+> **Next planning lane:** v0.2.0 packaging ergonomics  
+> **Product wedge:** **Import first. Cut over when ready.**
 
-ArtifactX already has enough surface area. The next phase is a feature freeze focused on making the migration path trustworthy, boring, and easy to operate.
+ArtifactX is public now, so this roadmap is written for contributors as much as
+for maintainers. It answers three questions:
 
-## What we have (v0.1.0 — June 2026)
+1. What is already shipped?
+2. What are we polishing right now?
+3. What is planned next, and what is intentionally parked?
 
-### Repository
-- **apt (Debian/Ubuntu)** — generate, sign, serve. Release/InRelease/Release.gpg, by-hash, Acquire-By-Hash.
-- **yum/dnf (RHEL/Fedora/Rocky)** — generate, sign, serve. repomd.xml/repomd.xml.asc, primary/filelists/other.xml.gz.
-- **Import from existing repos** — pull bounded apt/yum slices, then regenerate metadata under your signing key.
-- **Atomic publish** — staging → symlink flip, clients never see half-written metadata.
-- **Atomic rollback** — `arx rollback`/`history` for both apt and yum.
-- **Incremental publish** — O(changes), not O(repo): file-manifest cache skips unchanged packages.
-- **Version-aware GC** — dpkg/rpm EVR sorting, `--keep-within`, `--grace`.
-- **OIDC keyless push** — GitHub Actions JWT, no stored token.
-- **Contents-<arch>** — apt-file support.
-- **Key rotation** — `arx key rotate` + `arx key revoke`.
-- **Promote** — move packages between components/repos.
-- **Watch** — polling drop-dir auto-ingest.
-- **HTTP API** — `/api/v1/packages` (GET/POST/DELETE), `/gc`, `/health`, `/metrics`.
-- **Static binary** — x86_64, aarch64 musl. GHCR Docker image.
+## Status at a glance
 
-### Pack (pure-Rust packager)
-- **.deb** — ar + tar + flate2, deterministic, reproducible.
-- **.rpm** — via rpm crate, SOURCE_DATE_EPOCH reproducible.
-- **.apk** — Alpine Linux, tar.gz + .PKGINFO.
-- **Cargo.toml-driven** — zero-config for Rust CLIs.
-- **Docker backend** — builds inside a pinned container image.
+| Lane | GitHub milestone | Status | What it means |
+| --- | --- | --- | --- |
+| ✅ Shipped | v0.1.0 / v0.1.x | Done / polish | Core repository + packager exists and is dogfooded. |
+| 🟢 Now | [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1) | Active | Make migration boring: import → publish → serve/pages → install → rollback. |
+| 🔵 Next | [`v0.2.0 — Packaging ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/2) | Design + selected implementation | Improve `arx pack` and directory workflows without breaking the 5-minute path. |
+| 🟣 Later | No active milestone | Parked | Plausible bets that wait until the core path is excellent. |
 
-### Verified
-- Workspace tests and clippy pass in CI.
-- Docker E2E covers apt-get on Debian and dnf on Fedora where host tooling is available.
+Public project board: <https://github.com/orgs/artifactx-rs/projects/1>
+
+Milestone progress is issue-based: completed shipped work is represented by closed tracking issues, while active/future TODOs stay open until implemented or intentionally deferred.
+
+## ✅ What we have — v0.1.0 / v0.1.x
+
+### Repository pillar
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| apt repo generation | ✅ Shipped | `Release`, `InRelease`, `Release.gpg`, by-hash, `Acquire-By-Hash`. |
+| yum/dnf repo generation | ✅ Shipped | `repomd.xml`, `repomd.xml.asc`, primary/filelists/other metadata. |
+| Import from existing repos | ✅ Shipped | Pull bounded apt/yum slices, then regenerate metadata under your key. |
+| Atomic publish | ✅ Shipped | staging → symlink flip; clients never see half-written metadata. |
+| Atomic rollback/history | ✅ Shipped | `arx rollback` / `arx history` for apt and yum. |
+| Incremental publish | ✅ Shipped | File-manifest cache avoids O(repo) work for unchanged packages. |
+| Version-aware GC | ✅ Shipped | dpkg/rpm EVR sorting, `--keep-within`, `--grace`. |
+| OIDC keyless push | ✅ Shipped | GitHub Actions JWT; no stored long-lived token. |
+| Contents indices | ✅ Shipped | `Contents-<arch>` / apt-file support. |
+| Key rotation | ✅ Shipped | `arx key rotate` + revoke/export paths. |
+| Promote / watch | ✅ Shipped | Move packages between scopes; polling drop-dir auto-ingest. |
+| HTTP API | ✅ Shipped | `/api/v1/packages`, `/gc`, `/health`, `/metrics`. |
+
+### Package pillar
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| `.deb` builder | ✅ Shipped | Pure Rust `ar` + `tar` + `flate2`; deterministic. |
+| `.rpm` builder | ✅ Shipped | Uses the Rust `rpm` crate; `SOURCE_DATE_EPOCH` reproducible. |
+| `.apk` builder | ✅ Shipped | Alpine package output via tar.gz + `.PKGINFO`. |
+| Cargo.toml-driven pack | ✅ Shipped | Zero-config default for simple Rust CLIs. |
+| Docker backend | ✅ Shipped | Containerized fallback path for build isolation. |
+
+### Verification baseline
+
+- CI runs workspace tests and clippy.
+- E2E coverage exercises apt-get on Debian and dnf on Fedora where host tooling is available.
 - Release workflow builds static binaries, self-packages arx, and dogfoods a signed GitHub Pages repo.
 
-## Current focus — import-first polish / feature freeze
+## 🟢 Now — v0.1.x import-first polish
 
-No new package formats, storage backends, dashboards, or broad CLI features until the core adoption path is excellent:
+Milestone: [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1)
+
+No new package formats, storage backends, dashboards, or broad CLI surfaces until
+this path feels trustworthy:
 
 ```text
 existing apt/yum repo
@@ -47,97 +75,93 @@ existing apt/yum repo
   -> rollback when needed
 ```
 
-### Polish gates
+| Gate | Status | Done means |
+| --- | --- | --- |
+| Import confidence | 🟢 Active ([#16](https://github.com/artifactx-rs/artifactx/issues/16)) | Realistic apt/yum fixtures; clear docs for what import preserves/regenerates; errors name the bad upstream metadata or package URL. |
+| Client trust path | 🟢 Active ([#17](https://github.com/artifactx-rs/artifactx/issues/17)) | Signing docs explain repo metadata vs package signatures; apt/dnf snippets work against published layout. |
+| Release + Pages dogfood | 🟢 Active ([#18](https://github.com/artifactx-rs/artifactx/issues/18)) | Manual Pages publish is safe; tag releases produce binaries and aliases; private keys never enter Pages artifacts. |
+| Operator ergonomics | 🟢 Active ([#19](https://github.com/artifactx-rs/artifactx/issues/19)) | First-run docs cover `init`, `import`, `publish`, `serve`, backup/restore, rollback, systemd, and Docker without overclaiming. |
+| Adversarial review | 🟢 Active ([#31](https://github.com/artifactx-rs/artifactx/issues/31)) | README/Pages/CI are reviewed for a clear wedge, no vague platform promises, no secret leakage. |
 
-1. **Import confidence**
-   - Keep apt and yum import fixtures realistic: compressed metadata, relative URLs, arch filters, package-name filters, and bounded `--limit` migrations.
-   - Document exactly what import preserves and what it regenerates.
-   - Make failure messages point to the bad upstream metadata or missing package URL.
+## 🔵 Next — v0.2.0 packaging ergonomics
 
-2. **Client trust path**
-   - Keep signing-key docs explicit: repo metadata is signed; package signatures remain a build-pipeline responsibility.
-   - Ensure GitHub Pages and self-hosted examples use stable imported keys, not throwaway demo keys.
-   - Verify apt and dnf snippets against the published repo layout.
+Milestone: [`v0.2.0 — Packaging ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/2)
 
-3. **Release and Pages dogfood**
-   - Manual dispatch on `main` must publish the Pages demo without creating tags, releases, or GHCR images.
-   - Tag pushes must produce versioned binaries plus stable `latest` download aliases.
-   - Pages artifacts must never contain `keys/private.asc`.
+This milestone is about making `arx pack` and directory workflows feel natural for
+Rust projects and migration-heavy package repos. The goal is **not** to become a
+large packaging framework; it is to delete glue around the common paths.
 
-4. **Operator ergonomics**
-   - Improve first-run docs around `init`, `import`, `publish`, `serve`, backup/restore, and rollback.
-   - Keep the 5-minute path honest: install → import/add → publish → consume.
-   - Prefer deletion and sharper defaults over additional flags.
-   - Roll out service management in order:
-     1. `arx serve` defaults to localhost; public exposure is explicit.
-     2. Document a copy-pasteable systemd unit with an env file, reverse-proxy stance, and journal/debug commands.
-     3. Validate Docker/Compose examples against real containers before promoting them in Pages.
-     4. Only after repeated use, consider a generator such as `arx systemd --print`; do not add it before the docs prove stable.
+### Directory workflow clarification
 
-5. **Adversarial review**
-   - Re-check the README and Pages copy from a user/investor perspective: one clear wedge, no overclaiming, no vague platform promises.
-   - Re-check CI from a maintainer perspective: clear gates, no accidental version bumps, no secret leakage.
+Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs/artifactx/issues/14)
 
-## Parked until after the freeze
+| Candidate | Status | Tracking |
+| --- | --- | --- |
+| Clarify issue #14 scope | 🔵 Open | Confirm whether the request means `arx pack` payload directories, `arx add` / import directory inputs, or both. |
+| Package payload directories | 🔵 Proposed ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
+| Directory inputs for add/import | 🔵 Proposed ([#33](https://github.com/artifactx-rs/artifactx/issues/33)) | [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md): discover existing `.deb` / `.rpm` files from directories with stable ordering and clear failure behavior. |
 
-These are plausible, but intentionally not current focus:
+### Pack v0.2.0 TODO
 
-### v0.2 research candidates
+| Work item | Priority | Why it matters |
+| --- | --- | --- |
+| Cargo target/profile controls | P1 ([#26](https://github.com/artifactx-rs/artifactx/issues/26)) | Current Cargo.toml mode assumes `target/release/<bin>`. v0.2.0 should design `--target`, `--profile`, `--target-dir`, and/or explicit binary path without making `pack` drive `cargo build`. |
+| Rust packaging bridge: cargo-deb + cargo-rpm + arx overlay | P1 ([#27](https://github.com/artifactx-rs/artifactx/issues/27)) | Reuse the useful common subset of `[package.metadata.deb]`, `[package.metadata.generate-rpm]`, and legacy `[package.metadata.rpm]`, then layer `[package.metadata.arx]` on top for ArtifactX-only cross-format and publish-aware behavior. |
+| Config-file marking | P1 ([#28](https://github.com/artifactx-rs/artifactx/issues/28)) | Design deb `conffiles` / equivalent manifest intent before users rely on ad-hoc maintainer scripts for config paths. |
+| Explicit source date CLI | P2 ([#29](https://github.com/artifactx-rs/artifactx/issues/29)) | Consider `arx pack --source-date <epoch>` as a discoverable wrapper around `SOURCE_DATE_EPOCH` while preserving reproducible defaults. |
+| Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | Clearly document limits: no inline package signing, no auto dependency detection, no symlink following, no source packages, and no `.apk` repository add path yet. |
 
-#### v0.2.0 TODO
+### Rust packaging bridge design note
 
-- **Clarify directory workflow from issue #14** — confirm whether the request is
-  `arx pack` package payload directories, `arx add` / import directory inputs,
-  or both before implementation.
-- **Package payload directories** — design `[[dirs]]` manifest entries for
-  deterministic, cross-format directory payloads; tracked by
-  [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md).
-- **Directory inputs for add/import** — design directory discovery for existing
-  `.deb` / `.rpm` package files, including recursion, filtering, stable ordering,
-  and failure behavior; tracked by
-  [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md).
+ArtifactX should be more than a weak compatibility reader. The intended model is:
 
-#### Pack v0.2.0 TODO
+```text
+Cargo.toml
+  [package]
+  [package.metadata.deb]          # existing cargo-deb investment
+  [package.metadata.generate-rpm] # existing cargo-generate-rpm investment
+  [package.metadata.rpm]          # legacy cargo-rpm investment
+  [package.metadata.arx]          # ArtifactX overlay: cross-format + publish-aware
+        ↓
+  arx_pack::Manifest
+        ↓
+  .deb + .rpm + .apk + optional publish/add flow
+```
 
-- **Cargo target selection controls** — design `arx pack` support for the common
-  Cargo build matrix without driving the build itself: `--target`, `--profile`,
-  `--target-dir`, and/or an explicit binary path override. Current Cargo.toml
-  mode assumes `target/release/<bin>`.
-- **Rust packaging bridge: cargo-deb + cargo-rpm, one ArtifactX path** — evaluate
-  reading the useful common subset of `[package.metadata.deb]`,
-  `[package.metadata.generate-rpm]`, and legacy `[package.metadata.rpm]` into the
-  shared `arx_pack::Manifest`, then layer ArtifactX-native
-  `[package.metadata.arx]` on top for cross-format and publish-aware features.
-  The goal is more than compatibility: projects already using cargo-deb plus
-  cargo-generate-rpm/cargo-rpm should be able to keep that Cargo.toml investment,
-  add small ArtifactX-specific overrides where needed, and get one pure-Rust
-  pack/publish path for `.deb`, `.rpm`, and `.apk`. `arx` metadata should win
-  when schemas overlap, and should cover ArtifactX-only features such as shared
-  `[[dirs]]`, publish defaults, deterministic knobs, and future repo integration.
-  Keep rendering in ArtifactX; do not depend on `cargo-deb`, `cargo-generate-rpm`,
-  `cargo-rpm`, or `rpmbuild`.
-- **Config-file marking** — design deb `conffiles` / equivalent manifest intent
-  for config paths before users start relying on ad-hoc postinst behavior.
-- **Explicit source date CLI** — consider `arx pack --source-date <epoch>` as a
-  discoverable wrapper around `SOURCE_DATE_EPOCH`, preserving reproducible
-  defaults while avoiding hidden environment-only behavior.
-- **Pack docs completeness** — document current limitations clearly: no package
-  signing, no auto dependency detection, no symlink following, no source packages,
-  and no `.apk` repository add path yet.
+Rules to design before implementation:
 
-- **HSM / KMS-backed repository signing spike** — explore whether `arx publish` can sign apt/yum metadata through an external signing boundary instead of loading `keys/private.asc` directly. Scope the design first: PKCS#11/HSM, cloud KMS, or `gpg-agent` may have very different tradeoffs. Do not implement before an ADR proves it preserves the one-binary/5-minute path for normal users.
+- `arx` metadata wins when schemas overlap.
+- Existing cargo-deb / cargo-rpm metadata should reduce migration friction, not
+  force ArtifactX to depend on those tools.
+- ArtifactX-native config should cover shared `[[dirs]]`, deterministic knobs,
+  publish defaults, and future repo integration.
+- Rendering stays in ArtifactX: no `cargo-deb`, `cargo-generate-rpm`, `cargo-rpm`,
+  or `rpmbuild` dependency.
 
-### Later product bets
+## 🟣 Later / parked bets
 
-- Auto-dependency detection (`--auto-deps` using ldd or objdump).
-- Multi-arch manifests.
-- `arx pack --sign` inline package signing.
-- Arch Linux `.pkg.tar.zst` support.
-- Object-storage backend such as S3/MinIO.
-- Read-through proxy cache or full upstream mirroring.
-- Large-repo performance work beyond import/publish bottlenecks found during polish.
-- Web UI.
-- Plug-in system for custom checks/transformations.
+These are plausible, but intentionally **not current focus**:
+
+| Idea | Why parked |
+| --- | --- |
+| HSM / KMS-backed repository signing | Needs an ADR proving it preserves the one-binary / 5-minute path. |
+| Auto dependency detection (`--auto-deps`) | Usually needs host tools (`ldd`, `objdump`, package DBs) and can undermine deterministic pack. |
+| Multi-arch manifests | Useful, but wait until single-arch pack ergonomics are excellent. |
+| `arx pack --sign` inline package signing | Package signing is intentionally separate from repository metadata signing today. |
+| Arch Linux `.pkg.tar.zst` support | New package ecosystem; wait until import-first polish is done. |
+| Object storage backend | See [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md); deferred. |
+| Read-through proxy cache / full mirroring platform | ArtifactX is not trying to become Artifactory/aptly. |
+| Large-repo performance beyond current bottlenecks | Optimize when import/publish measurements demand it. |
+| Web UI | Broad surface area; not needed for the 5-minute path. |
+| Plug-in system | Too much platform surface until core workflows settle. |
+
+## Contributor guide for roadmap items
+
+- If the change is non-trivial, start with a `Proposed` ADR.
+- If it affects public workflows, link the ADR, issue, and project item.
+- Prefer designs that delete glue over designs that add modes.
+- Keep `.deb`, `.rpm`, and `.apk` behavior aligned unless an ADR explicitly says otherwise.
+- Do not implement v0.2.0 items until the relevant issue/ADR has enough agreement.
 
 ## Philosophy (from the charter)
 
