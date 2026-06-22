@@ -66,6 +66,10 @@ pub struct RepoMeta {
     pub origin: String,
     pub label: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suite: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codename: Option<String>,
 }
 
 impl Default for RepoMeta {
@@ -74,6 +78,8 @@ impl Default for RepoMeta {
             origin: "ArtifactX".into(),
             label: "ArtifactX".into(),
             description: "Signed package repository managed by ArtifactX".into(),
+            suite: None,
+            codename: None,
         }
     }
 }

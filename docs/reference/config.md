@@ -10,6 +10,9 @@ ArtifactX stores repository configuration in `arx.toml` at the repository root.
 origin = "ArtifactX"
 label = "ArtifactX"
 description = "Signed package repository managed by ArtifactX"
+# Optional apt Release identity overrides. Defaults to [apt].dist.
+# suite = "stable"
+# codename = "stable"
 
 [signing]
 enabled = true
@@ -48,9 +51,15 @@ Human-facing repository identity used in generated metadata.
 | `origin` | apt `Origin` value. |
 | `label` | apt `Label` value. |
 | `description` | Human-readable description. |
+| `suite` | Optional apt `Suite` override. Defaults to `[apt].dist` when omitted. |
+| `codename` | Optional apt `Codename` override. Defaults to `[apt].dist` when omitted. |
 
 Change these before publishing a production repo if clients should see your
-company or project identity instead of the ArtifactX default.
+company or project identity instead of the ArtifactX default. During `arx import --apt`, ArtifactX reads upstream `Release` identity fields (`Origin`,
+`Label`, `Suite`, `Codename`) when available and writes them here so a migrated
+repo can keep apt-secure identity stable across cutover. Edit these values
+intentionally before publish only when you want clients to accept a repository
+identity change.
 
 ## `[signing]`
 

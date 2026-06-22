@@ -301,6 +301,11 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     let packages_dir = upstream.join("dists/stable/main/binary-amd64");
     std::fs::create_dir_all(&pool).unwrap();
     std::fs::create_dir_all(&packages_dir).unwrap();
+    std::fs::write(
+        upstream.join("dists/stable/Release"),
+        "Origin: Example Repository\nLabel: Example Repository\nSuite: oldstable\nCodename: bullseye\n",
+    )
+    .unwrap();
 
     let hashed_name = "c54d87724b58ea5cff53b05a4858_hello_1.0-1_amd64.deb";
     let deb = pool.join(hashed_name);
@@ -336,17 +341,29 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
         "import should preserve upstream aptly-style hash-prefixed basename"
     );
 
+    let config = std::fs::read_to_string(root.join("arx.toml")).unwrap();
+    assert!(config.contains("origin = \"Example Repository\""));
+    assert!(config.contains("label = \"Example Repository\""));
+    assert!(config.contains("suite = \"oldstable\""));
+    assert!(config.contains("codename = \"bullseye\""));
+
     arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
-    let packages =
+    let published_packages =
         std::fs::read_to_string(root.join("apt/dists/stable/main/binary-amd64/Packages")).unwrap();
     assert!(
-        packages.contains("Package: hello\n"),
-        "publish should read identity from .deb control fields, not the hash-prefixed filename:\n{packages}"
+        published_packages.contains("Package: hello\n"),
+        "publish should read identity from .deb control fields, not the hash-prefixed filename:\n{published_packages}"
     );
     assert!(
-        packages.contains(&format!("Filename: pool/main/{hashed_name}\n")),
-        "publish should emit the imported pool path in Packages metadata:\n{packages}"
+        published_packages.contains(&format!("Filename: pool/main/{hashed_name}\n")),
+        "publish should emit the imported pool path in Packages metadata:\n{published_packages}"
     );
+
+    let release = std::fs::read_to_string(root.join("apt/dists/stable/Release")).unwrap();
+    assert!(release.contains("Origin: Example Repository"));
+    assert!(release.contains("Label: Example Repository"));
+    assert!(release.contains("Suite: oldstable"));
+    assert!(release.contains("Codename: bullseye"));
 }
 
 #[test]

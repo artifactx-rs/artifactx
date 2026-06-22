@@ -42,8 +42,10 @@ pub struct ReleaseMeta {
     pub origin: String,
     pub label: String,
     pub description: String,
-    /// Suite/codename (e.g. `stable`). Both `Suite` and `Codename` use this.
+    /// Suite (e.g. `stable`).
     pub suite: String,
+    /// Codename (often the same as `suite`, but upstream repos may differ).
+    pub codename: String,
     /// Days until the `Release` expires (`Valid-Until`). `0` omits the field
     /// (no expiry), preserving the original behavior; a positive value protects
     /// clients against repository freeze/replay (a MITM serving stale metadata).
@@ -63,8 +65,14 @@ impl ReleaseMeta {
             label: label.into(),
             description: description.into(),
             suite: suite.into(),
+            codename: String::new(),
             valid_days: 0,
         }
+    }
+
+    pub fn with_codename(mut self, codename: impl Into<String>) -> Self {
+        self.codename = codename.into();
+        self
     }
 
     /// Set the `Valid-Until` window (days). `0` means no expiry.
@@ -596,7 +604,12 @@ fn render_release(
     out.push_str(&format!("Origin: {}\n", meta.origin));
     out.push_str(&format!("Label: {}\n", meta.label));
     out.push_str(&format!("Suite: {}\n", meta.suite));
-    out.push_str(&format!("Codename: {}\n", meta.suite));
+    let codename = if meta.codename.is_empty() {
+        &meta.suite
+    } else {
+        &meta.codename
+    };
+    out.push_str(&format!("Codename: {codename}\n"));
     out.push_str(&format!("Components: {}\n", components.join(" ")));
     out.push_str(&format!("Architectures: {}\n", arches.join(" ")));
     out.push_str(&format!("Date: {date}\n"));

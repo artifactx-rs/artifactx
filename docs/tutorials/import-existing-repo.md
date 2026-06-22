@@ -18,6 +18,11 @@ cannot be reused because the new repository has its own paths, checksums,
 expiry, and trust boundary. Individual `.deb`/`.rpm` payloads are not rewritten
 or re-signed.
 
+For apt migrations, `arx import --apt` also reads upstream `dists/<dist>/Release`
+when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in
+`arx.toml`. This prevents apt-secure from seeing an accidental identity change
+when clients cut over to the ArtifactX-generated metadata.
+
 ## Prerequisites
 
 - `arx` installed.
@@ -52,7 +57,9 @@ arx publish --root ./repo
 ```
 
 This creates fresh `InRelease` / `Release.gpg` for the imported pool using the
-key configured in `./repo/arx.toml`.
+key configured in `./repo/arx.toml`. If the upstream `Release` file was readable,
+the generated `Release` keeps its `Origin`, `Label`, `Suite`, and `Codename`
+identity unless you deliberately edit `[repo]` in `arx.toml` before publishing.
 
 Serve locally for client testing:
 
@@ -109,6 +116,8 @@ arx publish --root ./repo
 ## Cutover checklist
 
 - The imported package set matches what clients need.
+- For apt, `[repo]` identity in `arx.toml` matches the old repo unless you are
+  intentionally changing `Origin` / `Label` / `Suite` / `Codename`.
 - `arx publish --root ./repo` succeeds without unexpected skipped packages.
 - Clients trust `keys/public.asc` from the ArtifactX repo.
 - At least one apt client and one yum/dnf client, if both formats are used, can
@@ -123,7 +132,8 @@ arx publish --root ./repo
 - It does not take ownership of your upstream repo.
 - It does not re-sign individual package payloads.
 - It does not reuse upstream repository metadata signatures; `publish` signs the
-  new ArtifactX metadata.
+  new ArtifactX metadata. It can preserve apt identity fields, but the signature
+  is still newly generated for the ArtifactX repository.
 - It does not replace your organization key-governance process.
 - It does not make stale upstream packages fresh; it republishes selected
   packages under new repository metadata.
