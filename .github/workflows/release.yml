@@ -80,6 +80,7 @@ jobs:
           for arch in amd64 arm64; do
             mkdir -p /tmp/pack/$arch
             cp arx-${TAG}-$arch /tmp/pack/$arch/arx
+            cp packaging/arx.service /tmp/pack/$arch/arx.service
             cat > /tmp/pack/$arch/arx-deb.toml << TOML
           name = "arx"
           version = "$PKGVER"
@@ -93,6 +94,10 @@ jobs:
           source = "/tmp/pack/$arch/arx"
           dest = "/usr/bin/arx"
           mode = "0755"
+          [[files]]
+          source = "/tmp/pack/$arch/arx.service"
+          dest = "/usr/lib/systemd/system/arx.service"
+          mode = "0644"
           TOML
             rpm_arch="x86_64"; [ "$arch" = "arm64" ] && rpm_arch="aarch64"
             cat > /tmp/pack/$arch/arx-rpm.toml << TOML
@@ -106,6 +111,10 @@ jobs:
           source = "/tmp/pack/$arch/arx"
           dest = "/usr/bin/arx"
           mode = "0755"
+          [[files]]
+          source = "/tmp/pack/$arch/arx.service"
+          dest = "/usr/lib/systemd/system/arx.service"
+          mode = "0644"
           TOML
             ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
             ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
