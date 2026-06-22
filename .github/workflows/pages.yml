@@ -43,15 +43,25 @@ jobs:
           )"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download latest release binary
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Prepare arx binary
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p build
-          gh release download v${{ steps.meta.outputs.version }} \
+          if gh release download v${{ steps.meta.outputs.version }} \
             --repo "$GITHUB_REPOSITORY" \
             --pattern arx-latest-amd64 \
-            --output build/arx
+            --output build/arx; then
+            echo "Using released arx binary for v${{ steps.meta.outputs.version }}"
+          else
+            echo "Release v${{ steps.meta.outputs.version }} is not available yet; building arx from this commit."
+            cargo build --release -p artifactx
+            cp target/release/arx build/arx
+          fi
           chmod +x build/arx
           ./build/arx --version
 
