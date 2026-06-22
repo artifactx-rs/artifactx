@@ -80,3 +80,4 @@ How we'd make this better later, and what would trigger that.
 | [0024](0024-public-roadmap-and-information-hygiene.md) | Public roadmap and information hygiene | Accepted |
 - [ADR-0025: Explicit lifecycle hooks](0025-lifecycle-hooks.md)
 - [ADR-0026: Preflighted live cutover](0026-preflighted-cutover.md)
+- [ADR-0027: CI and verification boundaries](0027-ci-and-verification-boundaries.md)
