@@ -19,7 +19,10 @@ for maintainers. It answers three questions:
 | ✅ Done | [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1) | Shipped | Import → publish → serve/pages → install → rollback is documented, tested, and dogfooded. |
 | 🔵 Active | [`v0.2.0 — Publish/API completeness`](https://github.com/artifactx-rs/artifactx/milestone/2) | Design + implementation | Make publish, migration, GC/search, and HTTP API workflows complete enough for developer-facing use. |
 | 🟢 Planned | [`v0.3.0 — Pack ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/3) | Designed, parked until v0.2 closes | Focus `arx pack`: directory payloads, Cargo metadata bridges, config files, reproducibility knobs, and pack docs. |
-| 🟣 Later | No active milestone | Parked | Plausible bets that wait until publish/API and pack paths are excellent. |
+| 🟡 Future | [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4) | Parked | A focused web console after CLI/API semantics are stable. |
+| 🟠 Future | [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5) | Parked | OCI registry, Helm charts, and Kubernetes/cloud-native integration. |
+| 🟣 Future | [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6) | Parked | Distributed repository replication, edge delivery, and multi-site distribution. |
+| ⚪ Later | No active milestone | Parked | Plausible bets that wait until publish/API, pack, UI, and cloud-native paths are clearer. |
 
 Public project board: <https://github.com/orgs/artifactx-rs/projects/1>
 
@@ -194,7 +197,52 @@ Rules to design before implementation:
 - Rendering stays in ArtifactX: no `cargo-deb`, `cargo-generate-rpm`, `cargo-rpm`,
   or `rpmbuild` dependency.
 
-## 🟣 Later / parked bets
+## 🟡 Future — v0.4.0 UI and console
+
+Milestone: [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4)
+
+This is intentionally parked until v0.2 publish/API and v0.3 pack ergonomics are
+solid. The UI should be a thin, trustworthy console over stable CLI/API semantics,
+not a second product with separate behavior.
+
+| Bet | Why it waits |
+| --- | --- |
+| Repository dashboard | Needs stable publish/history/rollback/search APIs first. |
+| Package/search browser | Needs v0.2 search and package query API to be boring. |
+| Cutover and rollback console | Needs v0.2 cutover preflight and rollback-state semantics. |
+| Auth/user stories | Needs an API compatibility and auth stance before UI commitments. |
+
+## 🟠 Future — v0.5.0 OCI, Helm, and cloud-native integrations
+
+Milestone: [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5)
+
+This lane is for cloud-native distribution only after the native package repo
+story is stable. The goal is to meet teams where they already deploy, not to turn
+ArtifactX into a giant registry platform.
+
+| Bet | Why it waits |
+| --- | --- |
+| OCI artifact support | Needs a tight ADR to preserve the one-binary, boring-ops model. |
+| Helm chart repository / OCI Helm flow | Needs clear boundaries between package repos, charts, and container registries. |
+| Kubernetes deployment examples | Wait until service/API config and auth are stable enough to document cleanly. |
+| Cloud-native signing/provenance hooks | Must compose with repo signing instead of blurring package vs metadata trust. |
+
+## 🟣 Future — v0.6.0 distributed delivery
+
+Milestone: [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6)
+
+This is the bigger bet: distribution, replication, and multi-site delivery. It is
+explicitly after publish/API, pack, UI, and cloud-native fundamentals because it
+adds operational complexity that ArtifactX should only accept with strong demand.
+
+| Bet | Why it waits |
+| --- | --- |
+| Multi-site repository replication | Needs real measurements and failure-mode ADRs before adding moving parts. |
+| Edge/cache-friendly publish model | Needs stable metadata identity, rollback, and retention semantics first. |
+| Signed distribution manifests | Needs a clean trust model across repository metadata and mirrors. |
+| Read-through proxy cache / full mirroring platform | ArtifactX is not trying to become Artifactory/aptly; prove the small version first. |
+
+## ⚪ Later / parked bets
 
 These are plausible, but intentionally **not current focus**:
 
@@ -204,11 +252,9 @@ These are plausible, but intentionally **not current focus**:
 | Auto dependency detection (`--auto-deps`) | Usually needs host tools (`ldd`, `objdump`, package DBs) and can undermine deterministic pack. |
 | Multi-arch manifests | Useful, but wait until single-arch pack ergonomics are excellent. |
 | `arx pack --sign` inline package signing | Package signing is intentionally separate from repository metadata signing today. |
-| Arch Linux `.pkg.tar.zst` support | New package ecosystem; wait until import-first polish is done. |
+| Arch Linux `.pkg.tar.zst` support | New package ecosystem; wait until the apt/yum/apk paths are consistently excellent. |
 | Object storage backend | See [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md); deferred. |
-| Read-through proxy cache / full mirroring platform | ArtifactX is not trying to become Artifactory/aptly. |
 | Large-repo performance beyond current bottlenecks | Optimize when import/publish measurements demand it. |
-| Web UI | Broad surface area; not needed for the 5-minute path. |
 | Plug-in system | Too much platform surface until core workflows settle. |
 
 ## Contributor guide for roadmap items
