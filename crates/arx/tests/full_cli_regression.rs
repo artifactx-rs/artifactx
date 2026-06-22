@@ -906,6 +906,167 @@ fn gc_api_supports_package_scope_and_retention_fields() {
 }
 
 #[test]
+fn api_workflow_covers_documented_publish_history_rollback_and_promote() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let first = tmp.path().join("api-flow_1.0-1_amd64.deb");
+    let second = tmp.path().join("api-flow_2.0-1_amd64.deb");
+    let staged = tmp.path().join("api-promote_1.0-1_amd64.deb");
+    write_deb(&first, "api-flow", "1.0-1", "amd64");
+    write_deb(&second, "api-flow", "2.0-1", "amd64");
+    write_deb(&staged, "api-promote", "1.0-1", "amd64");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+    let client = reqwest::blocking::Client::new();
+
+    for (path, filename, component) in [
+        (&first, "api-flow_1.0-1_amd64.deb", "main"),
+        (&second, "api-flow_2.0-1_amd64.deb", "main"),
+        (&staged, "api-promote_1.0-1_amd64.deb", "staging"),
+    ] {
+        let response: serde_json::Value = client
+            .post(format!("{base}/api/v1/packages"))
+            .bearer_auth("test-token")
+            .header("X-Arx-Filename", filename)
+            .header("X-Arx-Component", component)
+            .body(std::fs::read(path).unwrap())
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .unwrap();
+        assert!(
+            response["published"].as_str().unwrap().contains("apt:"),
+            "upload should publish apt metadata: {response}"
+        );
+    }
+
+    let filtered: serde_json::Value = client
+        .get(format!(
+            "{base}/api/v1/packages?q=api-flow&apt=true&scope=main"
+        ))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(
+        filtered.as_array().unwrap().len(),
+        2,
+        "API search should find both uploaded versions: {filtered}"
+    );
+
+    let dry_run: serde_json::Value = client
+        .post(format!(
+            "{base}/api/v1/gc?name=api-flow&keep=1&apt=true&dry_run=true&ignore_rollback_states=true"
+        ))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(dry_run["dry_run"], true);
+    assert_eq!(
+        dry_run["published"],
+        serde_json::Value::Null,
+        "dry-run GC must not publish: {dry_run}"
+    );
+    assert_eq!(
+        dry_run["pruned"].as_array().unwrap().len(),
+        1,
+        "dry-run GC should report the old version: {dry_run}"
+    );
+
+    let promoted: serde_json::Value = client
+        .post(format!(
+            "{base}/api/v1/promote?name=api-promote&from=staging&to=main&version=1.0-1&apt=true"
+        ))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(promoted["moved"], 1, "promote response: {promoted}");
+
+    let published: serde_json::Value = client
+        .post(format!("{base}/api/v1/publish"))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert!(
+        published["apt"].as_str().unwrap().contains("apt:"),
+        "publish response should include apt summary: {published}"
+    );
+
+    let history: serde_json::Value = client
+        .get(format!("{base}/api/v1/history/stable"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert!(
+        history.as_array().unwrap().len() >= 2,
+        "API history should expose retained published states: {history}"
+    );
+
+    let rollback: serde_json::Value = client
+        .post(format!("{base}/api/v1/rollback/stable"))
+        .bearer_auth("test-token")
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    assert_eq!(
+        rollback["previous"], "stable",
+        "rollback response: {rollback}"
+    );
+    assert!(
+        !rollback["current"].as_str().unwrap().is_empty(),
+        "rollback should report the restored state id: {rollback}"
+    );
+
+    let _ = child.0.kill();
+}
+
+#[test]
 fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
