@@ -184,6 +184,80 @@ async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> R
     }
 }
 
+fn normalize_repo_relative_path(path: &str) -> String {
+    path.trim_start_matches('/')
+        .trim_start_matches("./")
+        .replace('\\', "/")
+}
+
+fn percent_decode_path_lossy(path: &str) -> String {
+    let mut out = Vec::with_capacity(path.len());
+    let mut bytes = path.as_bytes().iter().copied();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let first = bytes.next();
+            let second = bytes.next();
+            if let (Some(first), Some(second)) = (first, second) {
+                let hex = [first, second];
+                if let Ok(hex) = std::str::from_utf8(&hex) {
+                    if let Ok(decoded) = u8::from_str_radix(hex, 16) {
+                        out.push(decoded);
+                        continue;
+                    }
+                }
+                out.push(byte);
+                out.push(first);
+                out.push(second);
+                continue;
+            }
+            out.push(byte);
+            if let Some(first) = first {
+                out.push(first);
+            }
+            continue;
+        }
+        out.push(byte);
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn configured_repo_relative_path(root: &Path, path: &str) -> Option<String> {
+    let path = Path::new(path);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(root).ok()?
+    } else {
+        path
+    };
+    Some(normalize_repo_relative_path(
+        relative.to_string_lossy().as_ref(),
+    ))
+}
+
+fn is_sensitive_static_path(path: &str, root: &Path, cfg: &Config) -> bool {
+    let path = normalize_repo_relative_path(&percent_decode_path_lossy(path));
+    let Some(private_key) = configured_repo_relative_path(root, &cfg.signing.private_key) else {
+        return false;
+    };
+    let sensitive = [
+        private_key.clone(),
+        format!("{private_key}.old"),
+        format!("{private_key}.bak"),
+    ];
+    sensitive.iter().any(|candidate| path == candidate.as_str())
+}
+
+async fn block_sensitive_static_paths(
+    State(st): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if is_sensitive_static_path(req.uri().path(), &st.root, &st.cfg) {
+        tracing::warn!(path = req.uri().path(), "blocked sensitive static path");
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    next.run(req).await
+}
+
 async fn track_metrics(req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let response = next.run(req).await;
@@ -797,6 +871,10 @@ pub async fn serve(
         .route("/api/v1/promote", post(promote_handler))
         .fallback_service(serve_dir)
         .layer(middleware::from_fn(track_metrics))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            block_sensitive_static_paths,
+        ))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
