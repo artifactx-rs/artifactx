@@ -181,6 +181,7 @@ dependencies = [
  "arx-debrepo",
  "arx-pack",
  "axum",
+ "bzip2",
  "chrono",
  "clap",
  "createrepo_rs",
@@ -208,6 +209,7 @@ dependencies = [
  "vergen",
  "vergen-gix",
  "walkdir",
+ "xz2",
 ]
 
 [[package]]

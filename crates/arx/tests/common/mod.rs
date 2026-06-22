@@ -29,5 +29,10 @@ pub fn arx_bin() -> PathBuf {
 }
 
 pub fn arx_command() -> Command {
-    Command::new(arx_bin())
+    let mut cmd = Command::new(arx_bin());
+    // Keep local e2e fixtures deterministic even on developer machines with
+    // HTTP(S)_PROXY configured. The production binary still honors proxies.
+    cmd.env("NO_PROXY", "127.0.0.1,localhost")
+        .env("no_proxy", "127.0.0.1,localhost");
+    cmd
 }

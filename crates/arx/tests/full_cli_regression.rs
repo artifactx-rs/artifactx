@@ -50,6 +50,14 @@ fn gzip(data: &[u8]) -> Vec<u8> {
     out
 }
 
+fn xz(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut e = xz2::write::XzEncoder::new(&mut out, 6);
+    e.write_all(data).unwrap();
+    e.finish().unwrap();
+    out
+}
+
 fn write_deb(path: &Path, name: &str, version: &str, arch: &str) {
     let control = format!(
         "Package: {name}\nVersion: {version}\nArchitecture: {arch}\nMaintainer: T <t@localhost>\nDescription: test\n"
@@ -299,14 +307,12 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     write_deb(&deb, "hello", "1.0-1", "amd64");
     let size = std::fs::metadata(&deb).unwrap().len();
     let sha = sha256_hex(&deb);
-    std::fs::write(
-        packages_dir.join("Packages"),
-        format!(
-            "Package: hello\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/12/9a/{hashed_name}\nSize: {size}\nSHA256: {sha}\n\n"
-        ),
-    )
-    .unwrap();
     let server = start_static_server(upstream);
+    let packages = format!(
+        "Package: hello\nVersion: 1.0-1\nArchitecture: amd64\nFilename: {}/pool/12/9a/{hashed_name}\nSize: {size}\nSHA256: {sha}\n\n",
+        server.base_url
+    );
+    std::fs::write(packages_dir.join("Packages.xz"), xz(packages.as_bytes())).unwrap();
 
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -340,6 +346,80 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     assert!(
         packages.contains(&format!("Filename: pool/main/{hashed_name}\n")),
         "publish should emit the imported pool path in Packages metadata:\n{packages}"
+    );
+}
+
+#[test]
+fn yum_import_accepts_noncanonical_rpm_filenames_and_xz_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let upstream = tmp.path().join("upstream");
+    let object_dir = upstream.join("objects/aa");
+    let repodata = upstream.join("repodata");
+    std::fs::create_dir_all(&object_dir).unwrap();
+    std::fs::create_dir_all(&repodata).unwrap();
+
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm-import.toml");
+    let out = tmp.path().join("dist");
+    std::fs::write(&payload, b"#!/bin/sh\necho rpm-import\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "rpmimport", "1.0.0");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--rpm",
+    ]);
+
+    let rpm_name = "sha256-deadbeef-not-nevra.rpm";
+    let upstream_rpm = object_dir.join(rpm_name);
+    std::fs::copy(out.join("rpmimport-1.0.0-1.x86_64.rpm"), &upstream_rpm).unwrap();
+    let size = std::fs::metadata(&upstream_rpm).unwrap().len();
+    let sha = sha256_hex(&upstream_rpm);
+
+    let server = start_static_server(upstream);
+    let primary = format!(
+        r#"<metadata packages="1">
+  <package type="rpm">
+    <name>rpmimport</name>
+    <arch>x86_64</arch>
+    <version epoch="0" ver="1.0.0" rel="1"/>
+    <checksum type="sha256" pkgid="YES">{sha}</checksum>
+    <size package="{size}" installed="{size}" archive="{size}"/>
+    <location href="{}/objects/aa/{rpm_name}"/>
+  </package>
+</metadata>
+"#,
+        server.base_url
+    );
+    std::fs::write(repodata.join("primary.xml.xz"), xz(primary.as_bytes())).unwrap();
+    std::fs::write(
+        repodata.join("repomd.xml"),
+        r#"<repomd><data type="primary"><location href="repodata/primary.xml.xz"/></data></repomd>
+"#,
+    )
+    .unwrap();
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "import",
+        &server.base_url,
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "staging",
+    ]);
+
+    assert!(
+        root.join("yum/staging/x86_64").join(rpm_name).exists(),
+        "yum import should preserve upstream basename but place rpm under the package arch dir"
+    );
+    arx_ok(&["publish", "--yum", "--root", root.to_str().unwrap()]);
+    assert!(
+        root.join("yum/staging/x86_64/repodata/repomd.xml").exists(),
+        "imported rpm should publish as a normal yum repository"
     );
 }
 
