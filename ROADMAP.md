@@ -16,7 +16,7 @@ for maintainers. It answers three questions:
 | Lane | GitHub milestone | Status | What it means |
 | --- | --- | --- | --- |
 | ✅ Shipped | v0.1.0 / v0.1.x | Done / polish | Core repository + packager exists and is dogfooded. |
-| 🟢 Now | [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1) | Active | Make migration boring: import → publish → serve/pages → install → rollback. |
+| ✅ Done | [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1) | Shipped | Import → publish → serve/pages → install → rollback is documented, tested, and dogfooded. |
 | 🔵 Next | [`v0.2.0 — Packaging ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/2) | Design + selected implementation | Improve `arx pack` and directory workflows without breaking the 5-minute path. |
 | 🟣 Later | No active milestone | Parked | Plausible bets that wait until the core path is excellent. |
 
@@ -59,12 +59,12 @@ Milestone progress is issue-based: completed shipped work is represented by clos
 - E2E coverage exercises apt-get on Debian and dnf on Fedora where host tooling is available.
 - Release workflow builds static binaries, self-packages arx, and dogfoods a signed GitHub Pages repo.
 
-## 🟢 Now — v0.1.x import-first polish
+## ✅ Done — v0.1.x import-first polish
 
 Milestone: [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1)
 
-No new package formats, storage backends, dashboards, or broad CLI surfaces until
-this path feels trustworthy:
+This lane is shipped. The public docs and e2e coverage now make this path
+trustworthy enough for v0.1.x:
 
 ```text
 existing apt/yum repo
@@ -77,17 +77,16 @@ existing apt/yum repo
 
 | Gate | Status | Done means |
 | --- | --- | --- |
-| Import confidence | 🟢 Active ([#16](https://github.com/artifactx-rs/artifactx/issues/16)) | Realistic apt/yum fixtures; clear docs for what import preserves/regenerates; errors name the bad upstream metadata or package URL. |
-| Client trust path | 🟢 Active ([#17](https://github.com/artifactx-rs/artifactx/issues/17)) | Signing docs explain repo metadata vs package signatures; apt/dnf snippets work against published layout. |
-| Release + Pages dogfood | 🟢 Active ([#18](https://github.com/artifactx-rs/artifactx/issues/18)) | Manual Pages publish is safe; tag releases produce binaries and aliases; private keys never enter Pages artifacts. |
-| Operator ergonomics | 🟢 Active ([#19](https://github.com/artifactx-rs/artifactx/issues/19)) | First-run docs cover `init`, `import`, `publish`, `serve`, backup/restore, rollback, systemd, and Docker without overclaiming. |
-| Adversarial review | 🟢 Active ([#31](https://github.com/artifactx-rs/artifactx/issues/31)) | README/Pages/CI are reviewed for a clear wedge, no vague platform promises, no secret leakage. |
+| Import confidence | ✅ Done ([#16](https://github.com/artifactx-rs/artifactx/issues/16)) | Realistic apt/yum fixtures; clear docs for what import preserves/regenerates; errors name the bad upstream metadata or package URL. |
+| Client trust path | ✅ Done ([#17](https://github.com/artifactx-rs/artifactx/issues/17)) | Signing docs explain repo metadata vs package signatures; apt/dnf snippets work against published layout. |
+| Release + Pages dogfood | ✅ Done ([#18](https://github.com/artifactx-rs/artifactx/issues/18)) | Manual Pages publish is safe; tag releases produce binaries and aliases; private keys never enter Pages artifacts. |
+| Operator ergonomics | ✅ Done ([#19](https://github.com/artifactx-rs/artifactx/issues/19)) | First-run docs cover `init`, `import`, `publish`, `serve`, backup/restore, rollback, systemd, and Docker without overclaiming. |
+| Adversarial review | ✅ Done ([#31](https://github.com/artifactx-rs/artifactx/issues/31)) | README/Pages/CI are reviewed for a clear wedge, no vague platform promises, no secret leakage. |
 
 ### Migration hardening TODO from production dogfood
 
-These TODOs come from the 2026-06-22 `d.qg.net` cutover. The happy path worked,
-but the migration promise is not strong enough until these are explicit product
-features or preflight checks.
+These follow-up TODOs come from the 2026-06-22 `d.qg.net` cutover. They do not
+block the v0.1.x polish lane, but they define the next migration-hardening work.
 
 | TODO | Priority | Why it matters |
 | --- | --- | --- |
