@@ -569,6 +569,17 @@ pub fn import_yum(
             }
         }
     }
+    if !skipped.is_empty() {
+        eprintln!(
+            "WARNING: skipped {} invalid yum metadata entr{} during import:",
+            skipped.len(),
+            if skipped.len() == 1 { "y" } else { "ies" }
+        );
+        for reason in &skipped {
+            eprintln!("  - {reason}");
+        }
+        eprintln!("  (use --strict to fail instead of accepting this package delta)");
+    }
     if strict && !skipped.is_empty() {
         bail!(
             "strict yum import refused {} invalid metadata entr{}: {}",

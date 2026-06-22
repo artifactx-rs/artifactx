@@ -619,6 +619,15 @@ fn yum_import_skips_invalid_metadata_entries_and_keeps_importing() {
         root.join("yum/staging/x86_64").join(rpm_name).exists(),
         "valid entry should still be imported"
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("WARNING: skipped 1 invalid yum metadata entry during import"),
+        "best-effort import should summarize the accepted metadata delta: {stderr}"
+    );
+    assert!(
+        stderr.contains("use --strict to fail"),
+        "best-effort summary should point operators at the cutover gate: {stderr}"
+    );
 
     let strict_root = tmp.path().join("repo-strict");
     arx_ok(&["init", strict_root.to_str().unwrap(), "--no-key"]);
