@@ -60,6 +60,8 @@ pub enum Command {
     Compose(ComposeArgs),
     /// Export published metadata into legacy-compatible public layouts.
     Export(ExportArgs),
+    /// Publish, export, preflight, and atomically switch live repository pointers.
+    Cutover(CutoverArgs),
 }
 
 #[derive(Debug, Args)]
@@ -452,6 +454,40 @@ pub struct ExportArgs {
     #[arg(long)]
     pub arch: Vec<String>,
     /// Passphrase file to unlock an encrypted signing key for exported yum metadata.
+    #[arg(long)]
+    pub passphrase_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct CutoverArgs {
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// Live apt path to switch to the staged export. Must be absent or a symlink.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Live flat yum path to switch to the staged export. Must be absent or a symlink.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
+    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    #[arg(long)]
+    pub staging_dir: Option<PathBuf>,
+    /// Yum repo name to export (defaults to `[yum].repo`).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Limit yum export to one or more architectures (default: all arch dirs).
+    #[arg(long)]
+    pub arch: Vec<String>,
+    /// Validate and leave the staged export in place without switching live pointers.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Skip the publish step and cut over the currently published metadata.
+    #[arg(long)]
+    pub no_publish: bool,
+    /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
+    #[arg(long)]
+    pub require_signed_rpms: bool,
+    /// Passphrase file to unlock an encrypted signing key.
     #[arg(long)]
     pub passphrase_file: Option<PathBuf>,
 }

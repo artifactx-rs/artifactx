@@ -162,6 +162,26 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
 
+
+### `arx cutover`
+
+Publishes selected metadata, exports fresh legacy-compatible layouts, validates
+them, then switches live symlink pointers. Live paths must be absent or symlinks;
+ordinary directories are refused so one-time migrations stay explicit.
+
+- `--apt-live <PATH>`: live apt path to switch to the staged `deb` export.
+- `--yum-flat-live <PATH>`: live flat yum path to switch to the staged `repo` export.
+- `--staging-dir <DIR>`: parent directory for versioned cutover exports. Defaults near the first live path.
+- `--repo <REPO>`: yum repo name to export. Defaults to `[yum].repo`.
+- `--arch <ARCH>`: limit yum export to one or more architectures.
+- `--dry-run`: publish/export/preflight but do not switch live pointers.
+- `--no-publish`: cut over currently published metadata.
+- `--require-signed-rpms`: fail if any staged RPM payload is unsigned. This is separate from signed yum repository metadata (`repomd.xml.asc`).
+- `--passphrase-file <FILE>`: unlock encrypted signing key.
+
+A successful second and later cutover leaves `<live>.previous` pointing to the
+previous live target for rollback.
+
 ### `arx export`
 
 - `--apt-out <DIR>`: write a fresh apt public tree containing `dists/` and the configured pool directory.
