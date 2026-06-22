@@ -73,3 +73,5 @@ How we'd make this better later, and what would trigger that.
 | [0017](0017-mirror-one-way-sync.md) | `arx mirror` — one-way upstream sync (not mirroring-as-platform) | Accepted |
 | [0018](0018-directory-entries-for-package-manifests.md) | Directory entries for package manifests | Proposed |
 | [0019](0019-directory-inputs-for-add-and-import.md) | Directory inputs for `arx add` and import workflows | Proposed |
+| [0020](0020-packaged-systemd-service-unit.md) | Packaged systemd service unit | Proposed |
+| [0021](0021-search-and-api-readiness.md) | Package search and API readiness | Proposed |

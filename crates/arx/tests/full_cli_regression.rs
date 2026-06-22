@@ -1094,6 +1094,36 @@ fn compose_generates_deployment_files() {
 }
 
 #[test]
+fn release_packaging_includes_systemd_service_unit() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crate lives under crates/arx");
+    let manifest = std::fs::read_to_string(repo.join("packaging/arx.toml")).unwrap();
+    assert!(
+        manifest.contains("packaging/arx.service"),
+        "packaging/arx.toml must package the service unit"
+    );
+    assert!(
+        manifest.contains("/usr/lib/systemd/system/arx.service"),
+        "packaged service unit should land in systemd's unit directory"
+    );
+
+    let workflow = std::fs::read_to_string(repo.join(".github/workflows/release.yml")).unwrap();
+    assert!(
+        workflow.contains("cp packaging/arx.service /tmp/pack/$arch/arx.service"),
+        "release workflow must stage the service unit for self-packaging"
+    );
+    assert!(
+        workflow
+            .matches("/usr/lib/systemd/system/arx.service")
+            .count()
+            >= 2,
+        "release workflow must include the unit in both deb and rpm manifests"
+    );
+}
+
+#[test]
 fn pack_cli_flags_and_add_place_expected_artifacts() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
