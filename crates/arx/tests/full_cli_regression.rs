@@ -1953,6 +1953,88 @@ fn add_accepts_directory_inputs_recursively_in_stable_order() {
 }
 
 #[test]
+fn cache_v2_survives_process_restart_and_skips_identical_add_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let pkg = tmp.path().join("cached_1.0-1_amd64.deb");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    write_deb(&pkg, "cached", "1.0-1", "amd64");
+
+    arx_ok(&[
+        "add",
+        pkg.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    let dest = root.join("apt/pool/main/cached_1.0-1_amd64.deb");
+    let cache_path = root.join(".arx-cache/v2/package-files.json");
+    assert!(cache_path.exists(), "add should persist package cache v2");
+    let before = std::fs::metadata(&dest).unwrap().modified().unwrap();
+
+    // Ensure a real copy would produce a different mtime on coarse filesystems.
+    std::thread::sleep(Duration::from_millis(1100));
+    arx_ok(&[
+        "add",
+        pkg.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    let after = std::fs::metadata(&dest).unwrap().modified().unwrap();
+    assert_eq!(
+        before, after,
+        "re-adding an unchanged package should reuse persistent cache and leave the pool file untouched"
+    );
+
+    let status = arx_output(&["cache", "--root", root.to_str().unwrap(), "status"]);
+    assert!(status.status.success());
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    assert!(stdout.contains("cache version: 2"), "{stdout}");
+    assert!(stdout.contains("package entries: 1"), "{stdout}");
+
+    arx_ok(&["cache", "--root", root.to_str().unwrap(), "clear"]);
+    assert!(
+        !cache_path.exists(),
+        "cache clear should remove package cache"
+    );
+
+    arx_ok(&["cache", "--root", root.to_str().unwrap(), "rebuild"]);
+    assert!(
+        cache_path.exists(),
+        "cache rebuild should recreate package cache"
+    );
+
+    arx_ok(&["cache", "--root", root.to_str().unwrap(), "clear"]);
+    let tmp_cache = tmp.path().join("tmp-cache");
+    let output = common::arx_command()
+        .env("ARX_CACHE_DIR", &tmp_cache)
+        .args([
+            "cache",
+            "--root",
+            root.to_str().unwrap(),
+            "--jobs",
+            "2",
+            "rebuild",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "cache rebuild with ARX_CACHE_DIR failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !cache_path.exists(),
+        "ARX_CACHE_DIR rebuild should not write the repo-local cache"
+    );
+    assert!(
+        tmp_cache.exists(),
+        "ARX_CACHE_DIR rebuild should write into the configured temporary cache base"
+    );
+}
+
+#[test]
 fn add_directory_without_packages_fails_loudly() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");

@@ -30,6 +30,8 @@ pub enum Command {
     Key(KeyArgs),
     /// Add one or more `.deb`/`.rpm` packages into the repository.
     Add(AddArgs),
+    /// Inspect or rebuild the persistent acceleration cache.
+    Cache(CacheArgs),
     /// Generate and sign repository metadata.
     Publish(PublishArgs),
     /// Roll a target back to its previous published state.
@@ -132,6 +134,28 @@ pub struct AddArgs {
     /// yum repo name (overrides config).
     #[arg(long)]
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct CacheArgs {
+    #[command(subcommand)]
+    pub action: CacheAction,
+    /// Repository root.
+    #[arg(long, default_value = ".", global = true)]
+    pub root: PathBuf,
+    /// Worker threads for cache rebuild/hash work (0 = available CPU parallelism).
+    #[arg(long, default_value_t = 0, global = true)]
+    pub jobs: usize,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CacheAction {
+    /// Show cache version, path, and entry count.
+    Status,
+    /// Rebuild package file cache from the current apt/yum pools.
+    Rebuild,
+    /// Delete the persistent cache.
+    Clear,
 }
 
 #[derive(Debug, Args)]
