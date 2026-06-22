@@ -111,6 +111,12 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Explicit source date CLI | P2 ([#29](https://github.com/artifactx-rs/artifactx/issues/29)) | Consider `arx pack --source-date <epoch>` as a discoverable wrapper around `SOURCE_DATE_EPOCH` while preserving reproducible defaults. |
 | Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | Clearly document limits: no inline package signing, no auto dependency detection, no symlink following, no source packages, and no `.apk` repository add path yet. |
 
+### Engineering quality track
+
+| Work item | Priority | Why it matters |
+| --- | --- | --- |
+| CI slimming + Rust-idiomatic cleanup | P1 ([#34](https://github.com/artifactx-rs/artifactx/issues/34)) | Keep contributor feedback fast by splitting docs/site checks from full Rust CI, then measure and simplify slow paths without trading away deterministic release confidence. |
+
 ### Rust packaging bridge design note
 
 ArtifactX should be more than a weak compatibility reader. The intended model is:
