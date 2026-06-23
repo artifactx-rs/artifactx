@@ -30,10 +30,14 @@ pub struct CachedPackage {
     pub version: String,
     #[serde(default)]
     pub architecture: String,
-    /// Pre-built Contents-* lines for this package. Empty means no installed
-    /// files, or an older manifest that should use the safe fallback path.
+    /// Pre-built Contents-* lines for apt, or filelists XML fragment for yum.
+    /// Empty means no installed files, or an older manifest that should use the
+    /// safe fallback path.
     #[serde(default)]
     pub contents: String,
+    /// Yum other.xml package fragment. Empty for apt and older yum manifests.
+    #[serde(default)]
+    pub other: String,
 }
 
 /// In-memory manifest for one pool component (or one yum arch dir).
