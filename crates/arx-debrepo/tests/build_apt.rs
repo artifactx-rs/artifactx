@@ -6,7 +6,7 @@
 use std::io::Write;
 use std::path::Path;
 
-use arx_debrepo::{build_dist, ReleaseMeta};
+use arx_debrepo::{build_dist, stage_dist, FileManifest, ReleaseMeta};
 
 /// Write a minimal but valid `.deb` (ar archive: debian-binary + control.tar.gz
 /// + empty data.tar.gz) whose control paragraph is `control_text`.
@@ -427,6 +427,41 @@ fn multiple_components_share_one_release() {
     assert!(apt
         .join("dists/stable/contrib/binary-amd64/Packages")
         .exists());
+}
+
+#[test]
+fn incremental_publish_keeps_deb_manifest_hot_across_republishes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    write_deb(
+        &pool.join("foo_1.0_amd64.deb"),
+        &control("foo", "1.0", "amd64"),
+    );
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+
+    stage_dist(&apt, "pool", "stable", &meta, true).unwrap();
+    let first = FileManifest::load(&pool).unwrap();
+    assert_eq!(first.files.len(), 1);
+    let cached = first.files.get("foo_1.0_amd64.deb").unwrap();
+    assert_eq!(cached.package, "foo");
+    assert_eq!(cached.version, "1.0");
+    assert_eq!(cached.architecture, "amd64");
+    assert!(cached.stanza.contains("Package: foo"));
+
+    // The second publish is a pure cache-hit path. It must still write the hit
+    // back into the next manifest; otherwise every other publish loses the hot
+    // cache and re-reads package bodies again.
+    stage_dist(&apt, "pool", "stable", &meta, true).unwrap();
+    let second = FileManifest::load(&pool).unwrap();
+    assert_eq!(second.files.len(), 1);
+    let cached = second.files.get("foo_1.0_amd64.deb").unwrap();
+    assert_eq!(cached.package, "foo");
+    assert_eq!(cached.version, "1.0");
+    assert_eq!(cached.architecture, "amd64");
+    assert!(cached.stanza.contains("Package: foo"));
 }
 
 #[test]
