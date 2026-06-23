@@ -1,6 +1,6 @@
 [package]
 name = "artifactx"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 # apt repo generation + packaging (in-house, permissively licensed sibling crates)
-arx-debrepo = { version = "0.2.2", path = "../arx-debrepo" }
-arx-pack = { version = "0.2.2", path = "../arx-pack" }
+arx-debrepo = { version = "0.2.3", path = "../arx-debrepo" }
+arx-pack = { version = "0.2.3", path = "../arx-pack" }
 
 # yum: reuse our own createrepo_rs library
 createrepo_rs = "0.1.9"

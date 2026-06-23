@@ -19,6 +19,7 @@ for the authoritative option list in your installed version.
 | `arx key` | Generate, import, rotate, revoke, or export signing keys. |
 | `arx add <PACKAGES|DIRS>...` | Add `.deb` and `.rpm` package files, or discover them recursively from directories, into the repository pool. |
 | `arx publish` | Generate and sign apt/yum repository metadata; optionally export and cut over live public symlinks. |
+| `arx publish-dir <DIR>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks. |
 | `arx rollback [TARGET]` | Roll a target back to a retained published state. |
 | `arx history [TARGET]` | List retained published states. |
 | `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, or `.apk` packages from a manifest. |
@@ -70,6 +71,24 @@ Build packages and add them:
 arx pack ./arx.toml --out dist
 arx add dist --root ./repo
 arx publish --root ./repo
+```
+
+Operate a production package drop directory:
+
+```sh
+arx publish-dir /opt/packages \
+  --root /data/arx/prod \
+  --apt-live /srv/deb \
+  --yum-flat-live /srv/repo \
+  --staging-dir /data/arx/public-builds \
+  --repo qgnet
+```
+
+`publish-dir` records source package fingerprints under `.arx-cache/` and turns
+unchanged runs into fast no-ops. External mirror fan-out is opt-in:
+
+```sh
+arx publish-dir /opt/packages --root /data/arx/prod --sync-cmd 'systemctl start --no-block sync-srv'
 ```
 
 Inspect before mutating:
@@ -137,6 +156,31 @@ arx publish --root ./repo \
 ```
 
 This uses the same preflight and atomic symlink switching as `arx cutover`.
+
+### `arx publish-dir`
+
+`publish-dir` is the operational wrapper for package drop directories. It scans
+a directory for `.deb` and `.rpm` files, adds them to the pool, publishes
+metadata, optionally exports live public layouts, and stores source-directory
+state so unchanged runs can exit quickly.
+
+- `<DIR>`: package drop directory. Direct children are scanned by default.
+- `--recursive`: discover packages recursively below `<DIR>`.
+- `--root <DIR>`: ArtifactX repository root.
+- `--component <COMPONENT>` / `--repo <REPO>`: destination apt component or yum repo.
+- `--state-file <FILE>`: override the no-op state file. Defaults under `.arx-cache/`.
+- `--force`: publish even when the source directory state is unchanged.
+- `--full`: rebuild metadata from scratch.
+- `--apt` / `--yum`: limit the publish to one format.
+- `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
+- `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
+- `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
+- `--sync-cmd <COMMAND>`: optional shell command to run after a successful non-no-op publish. ArtifactX does not enable sync by default.
+- `--passphrase-file <FILE>`: unlock encrypted signing key.
+
+Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
+`systemctl start --no-block sync-srv`. The command receives `ARX_ROOT`,
+`ARX_SOURCE_DIR`, and `ARX_PACKAGE_COUNT`. It is skipped for no-op runs.
 
 ### `arx import`
 

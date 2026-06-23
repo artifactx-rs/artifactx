@@ -54,6 +54,7 @@ async fn main() -> Result<()> {
         Command::Rollback(args) => cmd_rollback(&args),
         Command::History(args) => cmd_history(&args),
         Command::Push(args) => cmd_push(&args).await,
+        Command::PublishDir(args) => cmd_publish_dir(&args),
         Command::Rm(args) => {
             let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
             let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
@@ -650,6 +651,435 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
         if let Err(err) = cache.save(root) {
             tracing::warn!(error = %err, "failed to save package cache");
         }
+    }
+    Ok(())
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct PublishDirState {
+    version: u32,
+    source_dir: String,
+    recursive: bool,
+    packages: Vec<PublishDirEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PublishDirEntry {
+    path: String,
+    size: u64,
+    modified_ns: u128,
+    changed_ns: u128,
+    digest: String,
+}
+
+#[derive(Debug)]
+struct PublishDirSource {
+    path: PathBuf,
+    entry: PublishDirEntry,
+}
+
+fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
+    let root = args.root.clone();
+    let cfg = Config::load(&root).context("loading config; run `arx init` first")?;
+    let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
+    let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+    let state_file = publish_dir_state_file(args);
+    let sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
+
+    if sources.is_empty() {
+        println!(
+            "publish-dir: no source packages found in {}",
+            args.dir.display()
+        );
+        return Ok(());
+    }
+
+    let previous = load_publish_dir_state(&state_file)?;
+    if !args.force
+        && publish_dir_fingerprints_match(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
+    {
+        println!(
+            "publish-dir: fast no-op: {} source package(s) unchanged",
+            sources.len()
+        );
+        return Ok(());
+    }
+
+    let sources = collect_publish_dir_sources(&args.dir, args.recursive, true)?;
+    if !args.force
+        && publish_dir_state_matches(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
+    {
+        save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+        println!(
+            "publish-dir: verified no-op: {} source package(s) unchanged",
+            sources.len()
+        );
+        return Ok(());
+    }
+
+    let mut package_cache = cache::PackageFileCache::load(&root);
+    let mut cache_dirty = false;
+    for source in &sources {
+        let (dest, decision) = add_to_pool(
+            &root,
+            &cfg,
+            &source.path,
+            component,
+            repo,
+            &mut package_cache,
+        )?;
+        cache_dirty = true;
+        match decision {
+            cache::CacheDecision::Hit => tracing::info!(file = %dest.display(), "add cache hit"),
+            cache::CacheDecision::Miss => tracing::info!(file = %dest.display(), "added"),
+        }
+        println!("Added {}", dest.display());
+    }
+    if cache_dirty {
+        if let Err(err) = package_cache.save(&root) {
+            tracing::warn!(error = %err, "failed to save package cache");
+        }
+    }
+
+    publish_dir_publish(&root, &cfg, args)?;
+    if args.dry_run {
+        println!("publish-dir: dry-run: source-directory state was not updated");
+        return Ok(());
+    }
+    save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+    println!(
+        "publish-dir: ok: {} source package(s); state={}",
+        sources.len(),
+        state_file.display()
+    );
+
+    if let Some(sync_cmd) = args
+        .sync_cmd
+        .as_deref()
+        .filter(|cmd| !cmd.trim().is_empty())
+    {
+        run_publish_dir_sync(sync_cmd, &root, &args.dir, sources.len())?;
+        println!("publish-dir: sync requested");
+    }
+
+    Ok(())
+}
+
+fn publish_dir_publish(root: &Path, cfg: &Config, args: &cli::PublishDirArgs) -> Result<()> {
+    let key = load_key(root, cfg)?;
+    let passphrase = publish_passphrase(cfg, args.passphrase_file.as_deref())?;
+
+    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
+        if args.apt && args.apt_live.is_none() {
+            bail!("--apt requires --apt-live when publish-dir cutover options are used");
+        }
+        if args.yum && args.yum_flat_live.is_none() {
+            bail!("--yum requires --yum-flat-live when publish-dir cutover options are used");
+        }
+        let report = cutover::run(
+            &cutover::CutoverOptions {
+                root: root.to_path_buf(),
+                apt_live: args.apt_live.clone(),
+                yum_flat_live: args.yum_flat_live.clone(),
+                staging_dir: args.staging_dir.clone(),
+                repo: args.repo.clone(),
+                arch: args.arch.clone(),
+                dry_run: args.dry_run,
+                no_publish: false,
+                full: args.full,
+                require_signed_rpms: args.require_signed_rpms,
+            },
+            cfg,
+            key.as_ref(),
+            &passphrase,
+        )?;
+        println!("publish-dir staging: {}", report.staging_root.display());
+        for line in report.lines {
+            println!("{line}");
+        }
+        return Ok(());
+    }
+
+    let _lock = PublishLock::acquire(root)?;
+    let publish_apt_selected = args.apt || !args.yum;
+    let publish_yum_selected = args.yum || !args.apt;
+    let formats = publish_formats(publish_apt_selected, publish_yum_selected);
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PrePublish,
+        &hooks::HookContext::new().with("ARX_FORMATS", formats.clone()),
+    )?;
+    let incremental = !args.full;
+    let mut lines = Vec::new();
+    if publish_apt_selected {
+        lines.push(
+            publish_apt(
+                root,
+                cfg,
+                key.as_ref(),
+                &passphrase,
+                cfg.apt.strict,
+                incremental,
+            )?
+            .summary,
+        );
+    }
+    if publish_yum_selected {
+        lines.push(publish_yum(
+            root,
+            cfg,
+            key.as_ref(),
+            &passphrase,
+            incremental,
+        )?);
+    }
+    let summary = lines.join("; ");
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PostPublish,
+        &hooks::HookContext::new()
+            .with("ARX_FORMATS", formats)
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    println!("Published: {summary}");
+    Ok(())
+}
+
+fn publish_passphrase(cfg: &Config, passphrase_file: Option<&Path>) -> Result<String> {
+    if cfg.signing.enabled && cfg.signing.encrypted {
+        match resolve_passphrase(passphrase_file)? {
+            Some(p) => Ok(p),
+            None => bail!(
+                "signing key is encrypted; provide --passphrase-file or set ARX_KEY_PASSPHRASE"
+            ),
+        }
+    } else {
+        Ok(String::new())
+    }
+}
+
+fn collect_publish_dir_sources(
+    dir: &Path,
+    recursive: bool,
+    include_digest: bool,
+) -> Result<Vec<PublishDirSource>> {
+    if !dir.is_dir() {
+        bail!("{} is not a directory", dir.display());
+    }
+    let mut sources = Vec::new();
+    let mut walker = walkdir::WalkDir::new(dir).min_depth(1).follow_links(false);
+    if !recursive {
+        walker = walker.max_depth(1);
+    }
+    for entry in walker {
+        let entry = entry.with_context(|| format!("walking {}", dir.display()))?;
+        let path = entry.path();
+        if !entry.file_type().is_file() || !is_supported_package_path(path) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(dir)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let fp = cache::fingerprint(path)?;
+        let digest = if include_digest {
+            cache::content_digest_file(path)?
+        } else {
+            String::new()
+        };
+        sources.push(PublishDirSource {
+            path: path.to_path_buf(),
+            entry: PublishDirEntry {
+                path: rel,
+                size: fp.size,
+                modified_ns: fp.modified_ns,
+                changed_ns: fp.changed_ns,
+                digest,
+            },
+        });
+    }
+    sources.sort_by(|a, b| a.entry.path.cmp(&b.entry.path));
+    Ok(sources)
+}
+
+fn publish_dir_state_file(args: &cli::PublishDirArgs) -> PathBuf {
+    args.state_file.clone().unwrap_or_else(|| {
+        cache::cache_dir(&args.root)
+            .join("publish-dir")
+            .join("state.json")
+    })
+}
+
+fn load_publish_dir_state(path: &Path) -> Result<Option<PublishDirState>> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .with_context(|| format!("parsing {}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+fn save_publish_dir_state(
+    path: &Path,
+    dir: &Path,
+    recursive: bool,
+    sources: &[PublishDirSource],
+) -> Result<()> {
+    let state = PublishDirState {
+        version: 1,
+        source_dir: dir.to_string_lossy().to_string(),
+        recursive,
+        packages: sources.iter().map(|source| source.entry.clone()).collect(),
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let tmp = path.with_extension("json.tmp");
+    let json = serde_json::to_vec_pretty(&state).context("serializing publish-dir state")?;
+    std::fs::write(&tmp, json).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), path.display()))?;
+    Ok(())
+}
+
+fn publish_dir_fingerprints_match(
+    previous: Option<&PublishDirState>,
+    sources: &[PublishDirSource],
+    dir: &Path,
+    recursive: bool,
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    previous.version == 1
+        && previous.source_dir == dir.to_string_lossy()
+        && previous.recursive == recursive
+        && previous.packages.len() == sources.len()
+        && previous.packages.iter().zip(sources).all(|(old, new)| {
+            old.path == new.entry.path
+                && old.size == new.entry.size
+                && old.modified_ns == new.entry.modified_ns
+                && old.changed_ns == new.entry.changed_ns
+        })
+}
+
+fn publish_dir_state_matches(
+    previous: Option<&PublishDirState>,
+    sources: &[PublishDirSource],
+    dir: &Path,
+    recursive: bool,
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    previous.version == 1
+        && previous.source_dir == dir.to_string_lossy()
+        && previous.recursive == recursive
+        && previous
+            .packages
+            .iter()
+            .eq(sources.iter().map(|source| &source.entry))
+}
+
+fn publish_dir_outputs_ok(
+    root: &Path,
+    cfg: &Config,
+    args: &cli::PublishDirArgs,
+    sources: &[PublishDirSource],
+) -> Result<bool> {
+    let has_deb = sources
+        .iter()
+        .any(|source| source.path.extension().and_then(|e| e.to_str()) == Some("deb"));
+    let has_rpm = sources
+        .iter()
+        .any(|source| source.path.extension().and_then(|e| e.to_str()) == Some("rpm"));
+
+    if let Some(live) = &args.apt_live {
+        if !apt_layout_ok(live, cfg) {
+            return Ok(false);
+        }
+    } else if args.apt || (!args.yum && has_deb) {
+        let apt_root = root.join("apt");
+        if !apt_layout_ok(&apt_root, cfg) {
+            return Ok(false);
+        }
+    }
+
+    if let Some(live) = &args.yum_flat_live {
+        if !yum_flat_layout_ok(live) {
+            return Ok(false);
+        }
+    } else if args.yum || (!args.apt && has_rpm) {
+        let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+        let base = cfg.checked_yum_base(root)?.join(repo);
+        if !yum_pool_layout_ok(&base) {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn apt_layout_ok(root: &Path, cfg: &Config) -> bool {
+    root.join("dists")
+        .join(&cfg.apt.dist)
+        .join("Release")
+        .is_file()
+        && root
+            .join("dists")
+            .join(&cfg.apt.dist)
+            .join(&cfg.apt.component)
+            .join("binary-amd64")
+            .join("Packages.gz")
+            .is_file()
+}
+
+fn yum_flat_layout_ok(root: &Path) -> bool {
+    let repomd = root.join("repodata/repomd.xml");
+    repomd.is_file()
+        && std::fs::read_to_string(repomd)
+            .map(|text| text.contains(".xml.gz") && !text.contains(".xml.xz"))
+            .unwrap_or(false)
+}
+
+fn yum_pool_layout_ok(repo_root: &Path) -> bool {
+    walkdir::WalkDir::new(repo_root)
+        .min_depth(2)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .any(|entry| {
+            entry.file_type().is_file()
+                && entry
+                    .path()
+                    .strip_prefix(repo_root)
+                    .map(|rel| rel.ends_with("repodata/repomd.xml"))
+                    .unwrap_or(false)
+        })
+}
+
+fn run_publish_dir_sync(
+    sync_cmd: &str,
+    root: &Path,
+    dir: &Path,
+    package_count: usize,
+) -> Result<()> {
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(sync_cmd)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_PACKAGE_COUNT", package_count.to_string())
+        .status()
+        .with_context(|| format!("running --sync-cmd: {sync_cmd}"))?;
+    if !status.success() {
+        bail!("--sync-cmd failed with status {status}: {sync_cmd}");
     }
     Ok(())
 }

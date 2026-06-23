@@ -10,19 +10,34 @@ clients are allowed to fetch.
 
 ## Recommended chain
 
-Keep the chain explicit:
+For package drop directories, prefer the built-in wrapper and keep downstream
+sync optional:
+
+```sh
+arx publish-dir /opt/packages \
+  --root /data/arx/prod \
+  --apt-live /srv/deb \
+  --yum-flat-live /srv/repo \
+  --staging-dir /data/arx/public-builds
+
+# Optional fan-out only when your environment needs it:
+arx publish-dir /opt/packages --root /data/arx/prod \
+  --sync-cmd 'systemctl start --no-block sync-srv'
+```
+
+The explicit chain is still useful for custom migrations:
 
 ```text
 package drop
--> arx add/import into an ArtifactX root
+-> arx publish-dir, or arx add/import into an ArtifactX root
 -> arx publish
 -> optional arx export for legacy public layouts
 -> validate staged apt/yum clients
--> public-only downstream sync
+-> optional public-only downstream sync
 -> optional debounce or monitoring automation
 ```
 
-The important boundary is between `arx publish` / `arx export` and the external
+The important boundary is between `arx publish-dir` / `arx publish` / `arx export` and the external
 sync step. ArtifactX creates a staged, client-consumable public tree; the sync
 tool distributes that public tree without learning about private repository
 state.
@@ -120,7 +135,9 @@ Before keeping legacy sync automation in the path, verify:
 ## When to remove downstream sync
 
 Keep downstream sync only when it still provides value, such as mirror fan-out,
-CDN upload, or compatibility with an existing public URL. If ArtifactX already
+CDN upload, or compatibility with an existing public URL. In `arx publish-dir`,
+that boundary is `--sync-cmd`: it is optional, skipped for no-op runs, and never
+assumed by default. If ArtifactX already
 serves the repository directly and no separate distribution step is needed,
 removing redundant sync automation reduces cutover risk.
 

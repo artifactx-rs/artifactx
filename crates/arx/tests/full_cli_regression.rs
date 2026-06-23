@@ -369,6 +369,86 @@ fn publish_can_export_and_switch_live_symlink() {
 }
 
 #[test]
+fn publish_dir_ingests_cutovers_and_skips_unchanged_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let public = tmp.path().join("public");
+    let apt_live = public.join("deb");
+    let staging = tmp.path().join("publish-dir-cutovers");
+    let sync_marker = tmp.path().join("sync.log");
+    let deb = drop.join("publish_dir_1.0-1_amd64.deb");
+
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "publish-dir", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    let sync_cmd = format!(
+        "printf 'sync:%s:%s\\n' \"$ARX_PACKAGE_COUNT\" \"$ARX_SOURCE_DIR\" >> {}",
+        sync_marker.display()
+    );
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+        "--sync-cmd",
+        &sync_cmd,
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish-dir should switch the live apt symlink"
+    );
+    let packages =
+        std::fs::read_to_string(apt_live.join("dists/stable/main/binary-amd64/Packages"))
+            .expect("published Packages index");
+    assert!(packages.contains("Package: publish-dir"), "{packages}");
+    assert_eq!(
+        std::fs::read_to_string(&sync_marker).unwrap(),
+        format!("sync:1:{}\n", drop.display())
+    );
+
+    let no_op = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+        "--sync-cmd",
+        &sync_cmd,
+    ]);
+    assert!(
+        no_op.status.success(),
+        "second publish-dir failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&no_op.stdout),
+        String::from_utf8_lossy(&no_op.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&no_op.stdout).contains("fast no-op"),
+        "unchanged publish-dir run should be a fast no-op: {}",
+        String::from_utf8_lossy(&no_op.stdout)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&sync_marker).unwrap(),
+        format!("sync:1:{}\n", drop.display()),
+        "sync command should not run for no-op inputs"
+    );
+}
+
+#[test]
 fn cutover_require_signed_rpms_blocks_unsigned_payloads() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
