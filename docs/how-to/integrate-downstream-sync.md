@@ -38,7 +38,7 @@ package drop
 ```
 
 The important boundary is between `arx publish-dir` / `arx publish` / `arx export` and the external
-sync step. ArtifactX creates a staged, client-consumable public tree; the sync
+sync step. RPM payload signing, when needed, should be an explicit `--rpm-sign-cmd` owned by the operator; downstream sync remains an explicit `--sync-cmd`. ArtifactX creates a staged, client-consumable public tree; the sync
 tool distributes that public tree without learning about private repository
 state.
 
@@ -137,7 +137,8 @@ Before keeping legacy sync automation in the path, verify:
 Keep downstream sync only when it still provides value, such as mirror fan-out,
 CDN upload, or compatibility with an existing public URL. In `arx publish-dir`,
 that boundary is `--sync-cmd`: it is optional, skipped for no-op runs, and never
-assumed by default. If ArtifactX already
+assumed by default. A systemd one-shot can call `arx publish-dir` directly; no
+wrapper script is required unless your site has extra policy checks. If ArtifactX already
 serves the repository directly and no separate distribution step is needed,
 removing redundant sync automation reduces cutover risk.
 
