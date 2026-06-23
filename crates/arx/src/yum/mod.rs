@@ -260,6 +260,10 @@ fn save_yum_manifest(dir: &Path, rpms: &[PathBuf]) {
                         size: sz,
                         sha256: String::new(), // yum side: not used for cache lookups
                         stanza: String::new(), // yum side: not used for cache lookups
+                        package: String::new(),
+                        version: String::new(),
+                        architecture: String::new(),
+                        contents: String::new(),
                     },
                 );
             }

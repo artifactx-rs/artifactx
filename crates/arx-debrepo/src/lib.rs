@@ -311,99 +311,103 @@ pub fn stage_dist(
             // Stat for cache lookup.
             let (mtime, fsize) = stat_mtime_size(&deb_path);
 
-            // Fast path: (mtime, size) match → reuse cached stanza + sha256.
-            // We still parse the control for dedup (it's just control.tar — cheap).
-            let cache_hit = incremental
-                && mtime
+            // Fast path: (mtime, size) match → reuse cached stanza, checksum,
+            // identity, and Contents-* lines without reopening control.tar or
+            // data.tar. Older manifests that do not contain identity fall back
+            // to the safe parse path and refresh themselves on this publish.
+            let cached = if incremental {
+                mtime
                     .zip(fsize)
-                    .is_some_and(|(m, s)| comp_manifest.lookup(&fname, m, s).is_some());
-            let cached = if cache_hit {
-                comp_manifest
-                    .lookup(&fname, mtime.unwrap(), fsize.unwrap())
+                    .and_then(|(m, s)| comp_manifest.lookup(&fname, m, s))
                     .cloned()
             } else {
                 None
             };
+            let cached_identity = cached.as_ref().filter(|c| {
+                !c.package.is_empty() && !c.version.is_empty() && !c.architecture.is_empty()
+            });
 
-            // Always parse the control section (cheap — control.tar is tiny).
-            // On cache miss we also read the full file body for the checksum.
-            let control = match deb::read_control(&deb_path) {
-                Ok(c) => c,
-                Err(reason) => {
-                    skipped.push(SkippedDeb {
-                        path: deb_path.clone(),
-                        reason: format!("{reason:#}"),
-                    });
-                    continue;
-                }
-            };
-            let name = match control.package() {
-                Ok(n) => n.to_string(),
-                Err(e) => {
-                    skipped.push(SkippedDeb {
-                        path: deb_path.clone(),
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-            };
-            let version = match control.version() {
-                Ok(v) => v.to_string(),
-                Err(e) => {
-                    skipped.push(SkippedDeb {
-                        path: deb_path.clone(),
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-            };
-            let arch = match control.architecture() {
-                Ok(a) => a.to_string(),
-                Err(e) => {
-                    skipped.push(SkippedDeb {
-                        path: deb_path.clone(),
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-            };
+            let (name, version, arch, sha, stanza, cached_contents) =
+                if let Some(c) = cached_identity {
+                    (
+                        c.package.clone(),
+                        c.version.clone(),
+                        c.architecture.clone(),
+                        c.sha256.clone(),
+                        c.stanza.clone(),
+                        Some(c.contents.clone()),
+                    )
+                } else {
+                    // Cache miss (or an older incomplete manifest): parse the
+                    // control section. On a true miss we also read the full file
+                    // body for checksums and build a new stanza.
+                    let control = match deb::read_control(&deb_path) {
+                        Ok(c) => c,
+                        Err(reason) => {
+                            skipped.push(SkippedDeb {
+                                path: deb_path.clone(),
+                                reason: format!("{reason:#}"),
+                            });
+                            continue;
+                        }
+                    };
+                    let name = match control.package() {
+                        Ok(n) => n.to_string(),
+                        Err(e) => {
+                            skipped.push(SkippedDeb {
+                                path: deb_path.clone(),
+                                reason: e.to_string(),
+                            });
+                            continue;
+                        }
+                    };
+                    let version = match control.version() {
+                        Ok(v) => v.to_string(),
+                        Err(e) => {
+                            skipped.push(SkippedDeb {
+                                path: deb_path.clone(),
+                                reason: e.to_string(),
+                            });
+                            continue;
+                        }
+                    };
+                    let arch = match control.architecture() {
+                        Ok(a) => a.to_string(),
+                        Err(e) => {
+                            skipped.push(SkippedDeb {
+                                path: deb_path.clone(),
+                                reason: e.to_string(),
+                            });
+                            continue;
+                        }
+                    };
 
-            let (sha, stanza) = if let Some(ref c) = cached {
-                // Cache hit: reuse pre-built stanza + checksum. Never read the
-                // data.tar body. If the cached stanza is somehow stale the
-                // `--full` flag (incremental=false) regenerates everything.
-                (c.sha256.clone(), c.stanza.clone())
-            } else {
-                // Cache miss: read the full file, compute checksum, build stanza.
-                let deb_bytes = match std::fs::read(&deb_path) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        skipped.push(SkippedDeb {
-                            path: deb_path.clone(),
-                            reason: format!("reading: {e}"),
-                        });
-                        continue;
+                    if let Some(ref c) = cached {
+                        (
+                            name,
+                            version,
+                            arch,
+                            c.sha256.clone(),
+                            c.stanza.clone(),
+                            None,
+                        )
+                    } else {
+                        let deb_bytes = match std::fs::read(&deb_path) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                skipped.push(SkippedDeb {
+                                    path: deb_path.clone(),
+                                    reason: format!("reading: {e}"),
+                                });
+                                continue;
+                            }
+                        };
+                        let sha = hex_sha256(&deb_bytes);
+                        let rel = format!("{pool_subdir}/{component}/{fname}");
+                        let stanza = package_stanza(&control, &rel, &deb_bytes);
+                        (name, version, arch, sha, stanza, None)
                     }
                 };
-                let sha = hex_sha256(&deb_bytes);
-                let rel = format!("{pool_subdir}/{component}/{fname}");
-                let s = package_stanza(&control, &rel, &deb_bytes);
-                // Store in the next manifest.
-                if incremental {
-                    if let (Some(m), Some(sz)) = (mtime, fsize) {
-                        next_manifest.insert(
-                            fname.clone(),
-                            manifest::CachedPackage {
-                                mtime: m,
-                                size: sz,
-                                sha256: sha.clone(),
-                                stanza: s.clone(),
-                            },
-                        );
-                    }
-                }
-                (sha, s)
-            };
 
             // Dedup (shared, fast-path and slow-path).
             let key = (name.clone(), version.clone(), arch.clone());
@@ -420,7 +424,7 @@ pub fn stage_dist(
                 }
                 continue;
             }
-            seen.insert(key, (sha, deb_path.clone()));
+            seen.insert(key, (sha.clone(), deb_path.clone()));
 
             // Save Contents arch before arch is moved by the entry() call below.
             let contents_arch = if arch == "all" {
@@ -430,28 +434,53 @@ pub fn stage_dist(
             };
 
             if arch == "all" {
-                all_stanzas.push(stanza);
+                all_stanzas.push(stanza.clone());
             } else {
-                let buf = by_arch.entry(arch).or_default();
+                let buf = by_arch.entry(arch.clone()).or_default();
                 buf.push_str(&stanza);
                 buf.push('\n');
             }
             total += 1;
 
-            // Accumulate Contents-<arch> data for apt-file support.
-            // Failures here are not fatal — we silently skip a .deb whose
-            // data.tar can't be read. The caller can't log (no tracing in
-            // the MIT/Apache lib), but the data is returned in `skipped`.
-            if let Ok(paths) = deb::read_data_paths(&deb_path) {
-                if !paths.is_empty() {
-                    let pkg_line = name.clone();
-                    for fp in paths {
-                        let entry = format!("{}\t{pkg_line}\n", fp.trim_start_matches('/'));
-                        contents
-                            .entry(contents_arch.clone())
-                            .or_default()
-                            .push_str(&entry);
-                    }
+            let package_contents = if let Some(lines) = cached_contents {
+                lines
+            } else {
+                // Accumulate Contents-<arch> data for apt-file support.
+                // Failures here are not fatal — we silently skip a .deb whose
+                // data.tar can't be read. The caller can't log (no tracing in
+                // the MIT/Apache lib), but the data is returned in `skipped`.
+                match deb::read_data_paths(&deb_path) {
+                    Ok(paths) => paths
+                        .into_iter()
+                        .map(|fp| format!("{}\t{name}\n", fp.trim_start_matches('/')))
+                        .collect(),
+                    Err(_) => String::new(),
+                }
+            };
+            if !package_contents.is_empty() {
+                contents
+                    .entry(contents_arch)
+                    .or_default()
+                    .push_str(&package_contents);
+            }
+
+            // Store every indexed file in the next manifest, including cache
+            // hits, so a hot publish stays hot across repeated publishes.
+            if incremental {
+                if let (Some(m), Some(sz)) = (mtime, fsize) {
+                    next_manifest.insert(
+                        fname.clone(),
+                        manifest::CachedPackage {
+                            mtime: m,
+                            size: sz,
+                            sha256: sha.clone(),
+                            stanza,
+                            package: name,
+                            version,
+                            architecture: arch,
+                            contents: package_contents,
+                        },
+                    );
                 }
             }
         }

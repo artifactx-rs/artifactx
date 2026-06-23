@@ -22,6 +22,18 @@ pub struct CachedPackage {
     pub sha256: String,
     /// Pre-built Packages stanza (control fields + Filename/Size/MD5sum/SHA1/SHA256).
     pub stanza: String,
+    /// Cached Debian package identity. Older manifests and yum manifests leave
+    /// these empty, which makes the publisher fall back to parsing control.tar.
+    #[serde(default)]
+    pub package: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub architecture: String,
+    /// Pre-built Contents-* lines for this package. Empty means no installed
+    /// files, or an older manifest that should use the safe fallback path.
+    #[serde(default)]
+    pub contents: String,
 }
 
 /// In-memory manifest for one pool component (or one yum arch dir).

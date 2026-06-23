@@ -1,5 +1,6 @@
 //! ArtifactX (`arx`) entry point.
 
+mod cache;
 mod cli;
 mod compose;
 mod config;
@@ -47,6 +48,7 @@ async fn main() -> Result<()> {
         Command::Init(args) => cmd_init(&args).await,
         Command::Key(args) => cmd_key(&args),
         Command::Add(args) => cmd_add(&args),
+        Command::Cache(args) => cmd_cache(&args),
         Command::Pack(args) => cmd_pack(&args),
         Command::Publish(args) => cmd_publish(&args).await,
         Command::Rollback(args) => cmd_rollback(&args),
@@ -530,7 +532,8 @@ fn add_to_pool(
     pkg: &Path,
     component: &str,
     repo: &str,
-) -> Result<PathBuf> {
+    cache: &mut cache::PackageFileCache,
+) -> Result<(PathBuf, cache::CacheDecision)> {
     let component = scope::validate_scope_name(component, "apt component")?;
     let repo = scope::validate_scope_name(repo, "yum repo")?;
     let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -550,8 +553,42 @@ fn add_to_pool(
     };
     std::fs::create_dir_all(&dest_dir)?;
     let dest = dest_dir.join(pkg.file_name().unwrap());
-    std::fs::copy(pkg, &dest).with_context(|| format!("copying {}", pkg.display()))?;
-    Ok(dest)
+    let decision = copy_package_with_cache(pkg, &dest, cache)?;
+    Ok((dest, decision))
+}
+
+fn copy_package_with_cache(
+    source: &Path,
+    dest: &Path,
+    cache: &mut cache::PackageFileCache,
+) -> Result<cache::CacheDecision> {
+    let source_fp = cache::fingerprint(source)?;
+
+    if let Ok(dest_fp) = cache::fingerprint(dest) {
+        if let Some(entry) = cache.get(dest) {
+            if entry.matches_source(source_fp) && entry.matches_dest(dest_fp) {
+                return Ok(cache::CacheDecision::Hit);
+            }
+        }
+
+        let source_hash = cache::content_digest_file(source)?;
+        let dest_matches = cache
+            .get(dest)
+            .filter(|entry| entry.matches_dest(dest_fp))
+            .is_some_and(|entry| entry.content_digest == source_hash)
+            || cache::content_digest_file(dest)? == source_hash;
+
+        if dest_matches {
+            cache.update(source_fp, dest, dest_fp, source_hash);
+            return Ok(cache::CacheDecision::Hit);
+        }
+    }
+
+    std::fs::copy(source, dest).with_context(|| format!("copying {}", source.display()))?;
+    let dest_fp = cache::fingerprint(dest)?;
+    let source_hash = cache::content_digest_file(source)?;
+    cache.update(source_fp, dest, dest_fp, source_hash);
+    Ok(cache::CacheDecision::Miss)
 }
 
 fn is_supported_package_path(path: &Path) -> bool {
@@ -597,12 +634,79 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
     let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
 
+    let mut cache = cache::PackageFileCache::load(root);
+    let mut cache_dirty = false;
     for pkg in expand_add_inputs(&args.packages)? {
-        let dest = add_to_pool(root, &cfg, &pkg, component, repo)?;
-        tracing::info!(file = %dest.display(), "added");
+        let (dest, decision) = add_to_pool(root, &cfg, &pkg, component, repo, &mut cache)?;
+        cache_dirty = true;
+        match decision {
+            cache::CacheDecision::Hit => tracing::info!(file = %dest.display(), "add cache hit"),
+            cache::CacheDecision::Miss => tracing::info!(file = %dest.display(), "added"),
+        }
         println!("Added {}", dest.display());
     }
+    if cache_dirty {
+        if let Err(err) = cache.save(root) {
+            tracing::warn!(error = %err, "failed to save package cache");
+        }
+    }
     Ok(())
+}
+
+fn cmd_cache(args: &cli::CacheArgs) -> Result<()> {
+    match args.action {
+        cli::CacheAction::Status => {
+            let path = cache::package_cache_path(&args.root);
+            let cache = cache::PackageFileCache::load(&args.root);
+            println!("cache version: {}", cache.version);
+            println!("cache path: {}", path.display());
+            println!("package entries: {}", cache.len());
+            println!("exists: {}", path.exists());
+        }
+        cli::CacheAction::Rebuild => {
+            let cfg = Config::load(&args.root).unwrap_or_default();
+            let paths = collect_pool_package_paths(&args.root, &cfg)?;
+            let count = paths.len();
+            let cache = cache::rebuild_from_paths_with_jobs(&args.root, paths, args.jobs)?;
+            println!(
+                "rebuilt cache v{} at {} with {} package file(s)",
+                cache.version,
+                cache::package_cache_path(&args.root).display(),
+                count
+            );
+        }
+        cli::CacheAction::Clear => {
+            cache::PackageFileCache::clear(&args.root)?;
+            println!(
+                "cleared {}",
+                cache::package_cache_path(&args.root).display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn collect_pool_package_paths(root: &Path, cfg: &Config) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    let roots = [
+        cfg.checked_apt_pool_root(root)?,
+        cfg.checked_yum_base(root)?,
+    ];
+    for base in roots {
+        if !base.exists() {
+            continue;
+        }
+        for entry in walkdir::WalkDir::new(&base).follow_links(false) {
+            let entry = entry.with_context(|| format!("walking {}", base.display()))?;
+            let path = entry.path();
+            if entry.file_type().is_file() && is_supported_package_path(path) {
+                paths.push(path.to_path_buf());
+            }
+        }
+    }
+    paths.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    paths.dedup();
+    Ok(paths)
 }
 
 fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
@@ -827,10 +931,13 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         let cfg = Config::load(&args.root).unwrap_or_default();
         let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
         let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+        let mut cache = cache::PackageFileCache::load(&args.root);
+        let mut cache_dirty = false;
         for p in &built {
             match p.extension().and_then(|e| e.to_str()) {
                 Some("deb" | "rpm") => {
-                    let dest = add_to_pool(&args.root, &cfg, p, component, repo)?;
+                    let (dest, _) = add_to_pool(&args.root, &cfg, p, component, repo, &mut cache)?;
+                    cache_dirty = true;
                     println!("Added {}", dest.display());
                 }
                 Some("apk") => {
@@ -840,6 +947,11 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
                     );
                 }
                 _ => {}
+            }
+        }
+        if cache_dirty {
+            if let Err(err) = cache.save(&args.root) {
+                tracing::warn!(error = %err, "failed to save package cache");
             }
         }
         println!("\nRun `arx publish` to update repository metadata.");
@@ -1398,6 +1510,8 @@ async fn cmd_watch(args: &cli::WatchArgs) -> Result<()> {
         let root = args.root.clone();
         let cfg = cfg.clone();
         let mut added = 0usize;
+        let mut package_cache = cache::PackageFileCache::load(&root);
+        let mut cache_dirty = false;
         for entry in walkdir::WalkDir::new(&dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -1409,13 +1523,26 @@ async fn cmd_watch(args: &cli::WatchArgs) -> Result<()> {
                 && !seen.contains(&p)
             {
                 seen.insert(p.clone());
-                match add_to_pool(&root, &cfg, &p, &cfg.apt.component, &cfg.yum.repo) {
-                    Ok(dest) => {
+                match add_to_pool(
+                    &root,
+                    &cfg,
+                    &p,
+                    &cfg.apt.component,
+                    &cfg.yum.repo,
+                    &mut package_cache,
+                ) {
+                    Ok((dest, _)) => {
+                        cache_dirty = true;
                         println!("Added {}", dest.display());
                         added += 1;
                     }
                     Err(e) => eprintln!("Error adding {}: {e:#}", p.display()),
                 }
+            }
+        }
+        if cache_dirty {
+            if let Err(err) = package_cache.save(&root) {
+                tracing::warn!(error = %err, "failed to save package cache");
             }
         }
         if added > 0 {
