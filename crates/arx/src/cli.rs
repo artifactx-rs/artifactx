@@ -537,9 +537,15 @@ pub struct HistoryArgs {
 
 #[derive(Debug, Args)]
 pub struct ServeArgs {
-    /// Repository root (web root).
+    /// Repository root for the canonical ArtifactX repo and write API state.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
+    /// Also serve this exported apt layout under `/deb/*`.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Also serve this exported flat yum layout under `/repo/*`.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
     /// Listen address (overrides config).
     #[arg(long)]
     pub addr: Option<String>,
@@ -553,6 +559,12 @@ pub struct DaemonizeArgs {
     /// Listen address written into the service ExecStart.
     #[arg(long, default_value = "127.0.0.1:8080")]
     pub addr: String,
+    /// Exported apt layout to serve under `/deb/*`.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Exported flat yum layout to serve under `/repo/*`.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
     /// systemd unit name.
     #[arg(long, default_value = "arx")]
     pub unit: String,

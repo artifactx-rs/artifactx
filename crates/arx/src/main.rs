@@ -1961,7 +1961,11 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
         key,
         passphrase,
     };
-    server::serve(args.root.clone(), addr, handle, token, push).await
+    let mounts = server::StaticMounts {
+        apt_live: args.apt_live.clone(),
+        yum_flat_live: args.yum_flat_live.clone(),
+    };
+    server::serve(args.root.clone(), addr, handle, token, push, mounts).await
 }
 
 fn cmd_daemonize(args: &cli::DaemonizeArgs) -> Result<()> {
@@ -2043,6 +2047,39 @@ fn render_arx_service_unit(args: &cli::DaemonizeArgs) -> String {
     let bin = quote_systemd_value(&args.bin.to_string_lossy());
     let root = quote_systemd_value(&args.root.to_string_lossy());
     let addr = quote_systemd_value(&args.addr);
+    let apt_live_arg = args
+        .apt_live
+        .as_ref()
+        .map(|path| {
+            format!(
+                " \\\n  --apt-live {}",
+                quote_systemd_value(&path.to_string_lossy())
+            )
+        })
+        .unwrap_or_default();
+    let yum_flat_live_arg = args
+        .yum_flat_live
+        .as_ref()
+        .map(|path| {
+            format!(
+                " \\\n  --yum-flat-live {}",
+                quote_systemd_value(&path.to_string_lossy())
+            )
+        })
+        .unwrap_or_default();
+    let mut read_only_paths = String::new();
+    if let Some(path) = args.apt_live.as_ref() {
+        read_only_paths.push_str(&format!(
+            "ReadOnlyPaths={}\n",
+            quote_systemd_value(&path.to_string_lossy())
+        ));
+    }
+    if let Some(path) = args.yum_flat_live.as_ref() {
+        read_only_paths.push_str(&format!(
+            "ReadOnlyPaths={}\n",
+            quote_systemd_value(&path.to_string_lossy())
+        ));
+    }
     format!(
         r#"[Unit]
 Description=ArtifactX package repository
@@ -2056,7 +2093,7 @@ User={user}
 Group={group}
 EnvironmentFile={env_file}
 ExecStart={bin} serve \
-  --root {root} \
+  --root {root}{apt_live_arg}{yum_flat_live_arg} \
   --addr {addr}
 Restart=on-failure
 RestartSec=5s
@@ -2065,7 +2102,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths={root}
-
+{read_only_paths}
 [Install]
 WantedBy=multi-user.target
 "#,
@@ -2074,7 +2111,10 @@ WantedBy=multi-user.target
         env_file = env_file,
         bin = bin,
         root = root,
+        apt_live_arg = apt_live_arg,
+        yum_flat_live_arg = yum_flat_live_arg,
         addr = addr,
+        read_only_paths = read_only_paths,
     )
 }
 

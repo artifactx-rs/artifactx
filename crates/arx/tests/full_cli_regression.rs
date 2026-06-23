@@ -257,11 +257,17 @@ fn daemonize_dry_run_generates_unit_and_token_without_writing() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo root");
     let env_file = tmp.path().join("arx.env");
+    let apt_live = tmp.path().join("public deb");
+    let yum_live = tmp.path().join("public-repo");
     let output = arx_output(&[
         "daemonize",
         "--dry-run",
         "--root",
         root.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
         "--env-file",
         env_file.to_str().unwrap(),
         "--unit",
@@ -275,6 +281,9 @@ fn daemonize_dry_run_generates_unit_and_token_without_writing() {
         "{stdout}"
     );
     assert!(stdout.contains("--root "), "{stdout}");
+    assert!(stdout.contains("--apt-live "), "{stdout}");
+    assert!(stdout.contains("--yum-flat-live "), "{stdout}");
+    assert!(stdout.contains("ReadOnlyPaths="), "{stdout}");
     assert!(stdout.contains("arx-test.service"), "{stdout}");
     assert!(!env_file.exists(), "dry-run must not write env file");
 }
@@ -1834,6 +1843,128 @@ fn serve_does_not_expose_private_signing_keys() {
         .send()
         .unwrap();
     assert_eq!(public.status(), reqwest::StatusCode::OK);
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let apt_live = tmp.path().join("public-deb");
+    let yum_live = tmp.path().join("public-repo");
+    let deb = tmp.path().join("servedlive_1.0-1_amd64.deb");
+    let payload = tmp.path().join("servedlive.sh");
+    let manifest = tmp.path().join("servedlive-rpm.toml");
+    write_deb(&deb, "servedlive", "1.0-1", "amd64");
+    std::fs::write(&payload, b"#!/bin/sh\necho servedlive\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "servedlive", "1.0.0");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--add",
+        "--root",
+        root.to_str().unwrap(),
+        "--repo",
+        "servedrepo",
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "publish",
+        "--root",
+        root.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
+        "--repo",
+        "servedrepo",
+        "--arch",
+        "x86_64",
+    ]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--apt-live",
+                apt_live.to_str().unwrap(),
+                "--yum-flat-live",
+                yum_live.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let canonical_apt = client
+        .get(format!("{base}/apt/dists/stable/Release"))
+        .send()
+        .unwrap();
+    assert_eq!(canonical_apt.status(), reqwest::StatusCode::OK);
+
+    let legacy_apt = client
+        .get(format!("{base}/deb/dists/stable/Release"))
+        .send()
+        .unwrap();
+    assert_eq!(legacy_apt.status(), reqwest::StatusCode::OK);
+
+    let legacy_yum = client
+        .get(format!("{base}/repo/repodata/repomd.xml"))
+        .send()
+        .unwrap();
+    assert_eq!(legacy_yum.status(), reqwest::StatusCode::OK);
+
+    let packages: serde_json::Value = client
+        .get(format!("{base}/api/v1/packages?name_prefix=servedlive"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    let kinds: std::collections::BTreeSet<_> = packages
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        std::collections::BTreeSet::from(["apt", "yum"]),
+        "API list must still read canonical --root, not the live static dirs: {packages}"
+    );
+
+    let private = client
+        .get(format!("{base}/keys/private.asc"))
+        .send()
+        .unwrap();
+    assert_eq!(private.status(), reqwest::StatusCode::NOT_FOUND);
 
     let _ = child.0.kill();
 }
