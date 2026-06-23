@@ -6,14 +6,6 @@ ArtifactX stores repository configuration in `arx.toml` at the repository root.
 ## Example
 
 ```toml
-[repo]
-origin = "ArtifactX"
-label = "ArtifactX"
-description = "Signed package repository managed by ArtifactX"
-# Optional apt Release identity overrides. Defaults to [apt].dist.
-# suite = "stable"
-# codename = "stable"
-
 [signing]
 enabled = true
 encrypted = false
@@ -31,6 +23,14 @@ component = "main"
 valid_days = 7
 strict = false
 pool_dir = "pool"
+
+[apt.release]
+origin = "ArtifactX"
+label = "ArtifactX"
+description = "Signed package repository managed by ArtifactX"
+# Optional apt Release identity overrides. Defaults to [apt].dist.
+# suite = "stable"
+# codename = "stable"
 
 [yum]
 repo = "myrepo"
@@ -50,24 +50,30 @@ command = "sh"
 args = ["-c", "printf '%s\n' \"$ARX_SUMMARY\" >> publish.log"]
 ```
 
-## `[repo]`
+## `[apt.release]`
 
-Human-facing repository identity used in generated metadata.
+apt-only repository identity written into generated `Release`, `InRelease`, and
+`Release.gpg` metadata. Yum/dnf repositories do not use these fields; yum repo
+selection is `[yum].repo`.
 
 | Key | Meaning |
 | --- | --- |
 | `origin` | apt `Origin` value. |
 | `label` | apt `Label` value. |
-| `description` | Human-readable description. |
+| `description` | apt `Description` value. |
 | `suite` | Optional apt `Suite` override. Defaults to `[apt].dist` when omitted. |
 | `codename` | Optional apt `Codename` override. Defaults to `[apt].dist` when omitted. |
 
-Change these before publishing a production repo if clients should see your
-company or project identity instead of the ArtifactX default. During `arx import --apt`, ArtifactX reads upstream `Release` identity fields (`Origin`,
-`Label`, `Suite`, `Codename`) when available and writes them here so a migrated
-repo can keep apt-secure identity stable across cutover. Edit these values
-intentionally before publish only when you want clients to accept a repository
-identity change.
+Change these before publishing a production apt repo if clients should see your
+company or project identity instead of the ArtifactX default. During
+`arx import --apt`, ArtifactX reads upstream apt `Release` identity fields
+(`Origin`, `Label`, `Suite`, `Codename`) when available and writes them here so a
+migrated repo can keep apt-secure identity stable across cutover. Edit these
+values intentionally before publish only when you want apt clients to accept a
+repository identity change.
+
+Legacy configs that still use top-level `[repo]` for these apt fields continue
+to load, but new configs should use `[apt.release]`.
 
 ## `[signing]`
 

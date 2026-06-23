@@ -19,8 +19,8 @@ operator chose it deliberately.
 ## Decision
 
 During `arx import --apt`, read upstream `dists/<dist>/Release` when available and
-copy the `Origin`, `Label`, `Suite`, and `Codename` fields into `[repo]` in
-`arx.toml`.
+copy the `Origin`, `Label`, `Suite`, and `Codename` fields into `[apt.release]` in
+`arx.toml`. Older configs used `[repo]`; that remains a compatibility alias.
 
 During `arx publish --apt`, render `Suite` and `Codename` from those config
 fields when present; otherwise fall back to `[apt].dist` for both fields.
@@ -36,7 +36,7 @@ under ArtifactX control.
   `Codename` values.
 - Cost: `arx import --apt` now mutates repository config when upstream identity
   is readable.
-- Cost: intentional identity changes require operators to edit `[repo]` and
+- Cost: intentional identity changes require operators to edit `[apt.release]` and
   understand that clients may need explicit acceptance.
 
 ## Alternatives considered

@@ -175,21 +175,24 @@ state so unchanged runs can exit quickly.
 - `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
 - `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
-- `--rpm-sign-cmd <COMMAND>`: optional shell command used to sign unsigned source RPM payloads before ingest. ArtifactX skips already-signed RPMs and verifies the command actually signed the payload.
+- `--sign-rpms`: sign unsigned source RPM payloads with the system `rpm --addsign` backend before ingest. ArtifactX skips already-signed RPMs and verifies each payload is signed.
+- `--rpm-sign-cmd <COMMAND>`: optional custom signer for environments that do not use the default RPM signing backend.
 - `--sync-cmd <COMMAND>`: optional shell command to run after a successful non-no-op publish. ArtifactX does not enable sync by default.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
 
-Use `--rpm-sign-cmd` only when your drop directory receives unsigned RPM
-payloads and clients require `gpgcheck=1`, for example:
+Use `--sign-rpms` when your drop directory receives unsigned RPM payloads and
+clients require `gpgcheck=1`:
 
 ```sh
 arx publish-dir /opt/packages --root /data/arx/prod \
-  --require-signed-rpms \
-  --rpm-sign-cmd 'rpm --addsign "$ARX_RPM_PATH" </dev/null'
+  --sign-rpms \
+  --require-signed-rpms
 ```
 
-The RPM signer receives `ARX_ROOT`, `ARX_SOURCE_DIR`, `ARX_RPM_PATH`, and
-`ARX_PACKAGE_PATH`; it is skipped for RPMs that are already signed.
+`--sign-rpms` uses the system RPM signing backend (`rpm --addsign`) and relies on
+the operator's normal RPM/GPG key configuration. Use `--rpm-sign-cmd` only for a
+custom signer; it receives `ARX_ROOT`, `ARX_SOURCE_DIR`, `ARX_RPM_PATH`, and
+`ARX_PACKAGE_PATH`. Both signers are skipped for RPMs that are already signed.
 
 Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
 `systemctl start --no-block sync-srv`. The command receives `ARX_ROOT`,
@@ -205,7 +208,7 @@ Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
 - `--match-name <PREFIX>`: import packages whose names match the prefix.
 - `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, or fails size/checksum validation. Use this for production cutover gates; omit it for best-effort migrations.
 
-For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[repo]`.
+For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[apt.release]`.
 
 ### `arx search`
 

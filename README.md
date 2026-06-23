@@ -51,7 +51,7 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 - **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
 - **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, GC, rollback.
 - **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
-- **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection, optional RPM payload signing, and optional external sync.
+- **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection, first-class optional RPM payload signing, and optional external sync.
 - **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
 - **Rollbackable** — keep published states and flip back when a bad release escapes.
 - **CI-friendly** — `arx push` uploads to `arx serve`; token or GitHub OIDC auth.
@@ -390,7 +390,7 @@ Back it up with `tar`. Restore by extracting. Metadata is deterministic; if gene
 The `arx.toml` defaults are intentionally boring and branded:
 
 ```toml
-[repo]
+[apt.release]
 origin = "ArtifactX"
 label = "ArtifactX"
 description = "Signed package repository managed by ArtifactX"
@@ -406,7 +406,7 @@ user_id = "ArtifactX Repository Signing <signing@artifactx.local>"
 addr = "127.0.0.1:8080"
 ```
 
-Change `origin`, `label`, `description`, and `signing.user_id` before generating or importing a production key if your repo should present your company identity instead of the ArtifactX default.
+Change `[apt.release]` `origin`, `label`, `description`, and `signing.user_id` before generating or importing a production key if your apt repo should present your company identity instead of the ArtifactX default.
 
 ## Verified
 

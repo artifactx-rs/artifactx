@@ -284,16 +284,16 @@ fn preserve_apt_release_identity(
 
     let mut next = cfg.clone();
     if let Some(origin) = identity.origin {
-        next.repo.origin = origin;
+        next.apt.release.origin = origin;
     }
     if let Some(label) = identity.label {
-        next.repo.label = label;
+        next.apt.release.label = label;
     }
     if let Some(suite) = identity.suite {
-        next.repo.suite = Some(suite);
+        next.apt.release.suite = Some(suite);
     }
     if let Some(codename) = identity.codename {
-        next.repo.codename = Some(codename);
+        next.apt.release.codename = Some(codename);
     }
     next.save(root)?;
     println!("preserved upstream apt Release identity from {release_url}");

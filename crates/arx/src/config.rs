@@ -13,8 +13,8 @@ pub const CONFIG_FILE: &str = "arx.toml";
 /// Top-level repository configuration, persisted as `arx.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    /// Human-facing repository identity (used in apt `Release: Origin`/`Label`).
-    #[serde(default)]
+    /// Deprecated alias for apt Release identity. New configs use `[apt.release]`.
+    #[serde(default, skip_serializing_if = "RepoMeta::is_default")]
     pub repo: RepoMeta,
     /// PGP signing configuration.
     #[serde(default)]
@@ -106,7 +106,7 @@ pub struct HookCommand {
     pub args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoMeta {
     pub origin: String,
     pub label: String,
@@ -115,6 +115,12 @@ pub struct RepoMeta {
     pub suite: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codename: Option<String>,
+}
+
+impl RepoMeta {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 impl Default for RepoMeta {
@@ -180,6 +186,9 @@ impl Default for Server {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Apt {
+    /// apt Release identity (`Origin`, `Label`, `Suite`, `Codename`, `Description`).
+    #[serde(default)]
+    pub release: RepoMeta,
     /// Default distribution (suite/codename) for `arx add`.
     pub dist: String,
     /// Default component.
@@ -207,6 +216,7 @@ fn default_pool_dir() -> String {
 impl Default for Apt {
     fn default() -> Self {
         Self {
+            release: RepoMeta::default(),
             dist: "stable".into(),
             component: "main".into(),
             valid_days: 0,
@@ -247,6 +257,18 @@ impl Config {
         let cfg: Config =
             toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         Ok(cfg)
+    }
+
+    /// apt Release identity. New config lives at `[apt.release]`; non-default
+    /// legacy `[repo]` is still honored for older repositories.
+    pub fn apt_release(&self) -> &RepoMeta {
+        if !self.apt.release.is_default() {
+            &self.apt.release
+        } else if !self.repo.is_default() {
+            &self.repo
+        } else {
+            &self.apt.release
+        }
     }
 
     /// Persist `arx.toml` to a repository root directory.
@@ -308,7 +330,9 @@ mod tests {
         let cfg = Config::default();
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
-        assert_eq!(back.repo.origin, cfg.repo.origin);
+        assert_eq!(back.apt.release.origin, cfg.apt.release.origin);
+        assert!(!text.contains("[repo]"));
+        assert!(text.contains("[apt.release]"));
         assert_eq!(back.signing.private_key, "keys/private.asc");
         assert_eq!(back.server.addr, "127.0.0.1:8080");
         assert_eq!(back.apt.dist, "stable");
@@ -326,5 +350,22 @@ addr = "127.0.0.1:9000"
         assert_eq!(cfg.server.addr, "127.0.0.1:9000");
         assert_eq!(cfg.apt.component, "main");
         assert!(cfg.signing.enabled);
+    }
+
+    #[test]
+    fn legacy_repo_section_still_feeds_apt_release_identity() {
+        let text = r#"
+[repo]
+origin = "LegacyCo"
+label = "Legacy"
+description = "old config"
+
+[apt]
+dist = "stable"
+component = "main"
+"#;
+        let cfg: Config = toml::from_str(text).unwrap();
+        assert_eq!(cfg.apt_release().origin, "LegacyCo");
+        assert_eq!(cfg.apt_release().label, "Legacy");
     }
 }
