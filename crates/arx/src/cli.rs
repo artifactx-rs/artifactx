@@ -56,6 +56,8 @@ pub enum Command {
     Promote(PromoteArgs),
     /// Serve the repository over HTTP.
     Serve(ServeArgs),
+    /// Install/update a systemd service for `arx serve` and generate a write token.
+    Daemonize(DaemonizeArgs),
     /// Mirror an upstream apt/yum repository (sync + keep up-to-date).
     Mirror(MirrorArgs),
     /// Watch a directory for new packages (auto-add + publish).
@@ -541,6 +543,43 @@ pub struct ServeArgs {
     /// Listen address (overrides config).
     #[arg(long)]
     pub addr: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DaemonizeArgs {
+    /// Repository root served by the daemon.
+    #[arg(long, default_value = "/var/lib/arx/repo")]
+    pub root: PathBuf,
+    /// Listen address written into the service ExecStart.
+    #[arg(long, default_value = "127.0.0.1:8080")]
+    pub addr: String,
+    /// systemd unit name.
+    #[arg(long, default_value = "arx")]
+    pub unit: String,
+    /// User that runs the service.
+    #[arg(long, default_value = "arx")]
+    pub user: String,
+    /// Group that runs the service.
+    #[arg(long, default_value = "arx")]
+    pub group: String,
+    /// Environment file that stores ARX_SERVE_TOKEN.
+    #[arg(long, default_value = "/etc/arx/arx.env")]
+    pub env_file: PathBuf,
+    /// Path to the arx binary used in ExecStart.
+    #[arg(long, default_value = "/usr/bin/arx")]
+    pub bin: PathBuf,
+    /// Reuse an existing ARX_SERVE_TOKEN from the env file when present.
+    #[arg(long)]
+    pub reuse_token: bool,
+    /// Enable the service after writing it.
+    #[arg(long)]
+    pub enable: bool,
+    /// Start or restart the service after writing it. Implies `--enable`.
+    #[arg(long)]
+    pub start: bool,
+    /// Print the files/actions without writing or calling systemctl.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args)]

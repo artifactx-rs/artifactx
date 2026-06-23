@@ -30,6 +30,7 @@ for the authoritative option list in your installed version.
 | `arx gc [NAME]` | Prune old package versions from the pool, optionally scoped to one package name, then publish. |
 | `arx promote --from <FROM> --to <TO> <NAME>` | Promote packages between apt components or yum repos. |
 | `arx serve` | Serve the repository tree and API over HTTP. |
+| `arx daemonize` | Install/update a systemd `arx serve` unit and generate a write token. |
 | `arx mirror <URL>` | Mirror an upstream apt/yum repository. |
 | `arx watch [DIR]` | Watch a directory for new packages and auto-publish. |
 | `arx compose` | Generate `docker-compose.yml` and `Dockerfile`. |
@@ -239,6 +240,26 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
 
+`arx serve` exposes static apt/yum repository files, `/metrics`,
+`/api/v1/...` JSON APIs, `/api/openapi.yaml`, and `/api/docs` Swagger UI.
+
+### `arx daemonize`
+
+- `--root <ROOT>`: repository root served by systemd. Default:
+  `/var/lib/arx/repo`.
+- `--addr <ADDR>`: listen address written into the unit. Default:
+  `127.0.0.1:8080`.
+- `--unit <NAME>`: systemd unit name. Default: `arx`.
+- `--env-file <PATH>`: environment file for generated `ARX_SERVE_TOKEN`.
+  Default: `/etc/arx/arx.env`.
+- `--reuse-token`: keep an existing `ARX_SERVE_TOKEN` when present.
+- `--enable`: run `systemctl enable`.
+- `--start`: run `systemctl restart`; implies enable behavior.
+- `--dry-run`: print files/actions without writing or calling systemd.
+
+`arx daemonize` writes a hardened `arx serve` unit, creates a random 32-byte
+bearer token for write API access, stores it in a mode `0600` env file, verifies
+the unit with `systemd-analyze verify`, and reloads systemd.
 
 ### `arx cutover`
 

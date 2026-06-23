@@ -18,10 +18,12 @@ mod signing;
 mod yum;
 
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use pgp::composed::SignedSecretKey;
+use rand::RngCore;
 
 use crate::cli::{Cli, Command, KeyAction};
 use crate::config::Config;
@@ -140,6 +142,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => cmd_serve(&args).await,
+        Command::Daemonize(args) => cmd_daemonize(&args),
         Command::Watch(args) => cmd_watch(&args).await,
         Command::Compose(args) => {
             compose::generate(&args.root, &args.out, &args.addr)?;
@@ -1959,6 +1962,205 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
         passphrase,
     };
     server::serve(args.root.clone(), addr, handle, token, push).await
+}
+
+fn cmd_daemonize(args: &cli::DaemonizeArgs) -> Result<()> {
+    let unit_name = systemd_unit_name(&args.unit)?;
+    let unit_path = PathBuf::from("/etc/systemd/system").join(&unit_name);
+    let token = if args.reuse_token {
+        read_existing_serve_token(&args.env_file)?.unwrap_or_else(generate_token)
+    } else {
+        generate_token()
+    };
+    let env_text = format!("ARX_SERVE_TOKEN={token}\n");
+    let unit_text = render_arx_service_unit(args);
+
+    if args.dry_run {
+        println!("would write {}", args.env_file.display());
+        print!("{env_text}");
+        println!("would write {}", unit_path.display());
+        print!("{unit_text}");
+        if args.enable || args.start {
+            println!("would run: systemctl enable {unit_name}");
+        }
+        if args.start {
+            println!("would run: systemctl restart {unit_name}");
+        }
+        return Ok(());
+    }
+
+    if let Some(parent) = args.env_file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::create_dir_all(&args.root)
+        .with_context(|| format!("creating {}", args.root.display()))?;
+    std::fs::write(&args.env_file, env_text)
+        .with_context(|| format!("writing {}", args.env_file.display()))?;
+    set_owner_only_permissions(&args.env_file)?;
+
+    std::fs::write(&unit_path, unit_text)
+        .with_context(|| format!("writing {}", unit_path.display()))?;
+    run_systemctl_or_analyze("systemd-analyze", "verify", &unit_path)?;
+    run_command(&["systemctl", "daemon-reload"])?;
+    if args.enable || args.start {
+        run_command(&["systemctl", "enable", unit_name.as_str()])?;
+    }
+    if args.start {
+        run_command(&["systemctl", "restart", unit_name.as_str()])?;
+    }
+
+    println!("wrote {}", args.env_file.display());
+    println!("wrote {}", unit_path.display());
+    println!("generated ARX_SERVE_TOKEN in {}", args.env_file.display());
+    if args.start {
+        println!("started {unit_name}");
+    } else if args.enable {
+        println!("enabled {unit_name}");
+    } else {
+        println!("next: systemctl enable --now {unit_name}");
+    }
+    Ok(())
+}
+
+fn systemd_unit_name(unit: &str) -> Result<String> {
+    let name = unit.strip_suffix(".service").unwrap_or(unit);
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '@' | '.'))
+    {
+        bail!("invalid systemd unit name {unit:?}");
+    }
+    Ok(format!("{name}.service"))
+}
+
+fn render_arx_service_unit(args: &cli::DaemonizeArgs) -> String {
+    let env_file = quote_systemd_value(&args.env_file.to_string_lossy());
+    let bin = quote_systemd_value(&args.bin.to_string_lossy());
+    let root = quote_systemd_value(&args.root.to_string_lossy());
+    let addr = quote_systemd_value(&args.addr);
+    format!(
+        r#"[Unit]
+Description=ArtifactX package repository
+Documentation=https://github.com/artifactx-rs/artifactx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+Group={group}
+EnvironmentFile={env_file}
+ExecStart={bin} serve \
+  --root {root} \
+  --addr {addr}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={root}
+
+[Install]
+WantedBy=multi-user.target
+"#,
+        user = args.user,
+        group = args.group,
+        env_file = env_file,
+        bin = bin,
+        root = root,
+        addr = addr,
+    )
+}
+
+fn quote_systemd_value(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | ':' | '@'))
+    {
+        return value.to_string();
+    }
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for ch in value.chars() {
+        if matches!(ch, '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(ch);
+    }
+    quoted.push('"');
+    quoted
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+fn read_existing_serve_token(path: &Path) -> Result<Option<String>> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("ARX_SERVE_TOKEN=") {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Ok(Some(value.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn set_owner_only_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)
+        .with_context(|| format!("stat {}", path.display()))?
+        .permissions();
+    perms.set_mode(0o600);
+    std::fs::set_permissions(path, perms).with_context(|| format!("chmod 0600 {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn run_systemctl_or_analyze(program: &str, arg: &str, path: &Path) -> Result<()> {
+    let status = ProcessCommand::new(program)
+        .arg(arg)
+        .arg(path)
+        .status()
+        .with_context(|| format!("running {program} {arg}"))?;
+    if !status.success() {
+        bail!("{program} {arg} failed with status {status}");
+    }
+    Ok(())
+}
+
+fn run_command(args: &[&str]) -> Result<()> {
+    let Some((program, rest)) = args.split_first() else {
+        bail!("empty command");
+    };
+    let status = ProcessCommand::new(program)
+        .args(rest)
+        .status()
+        .with_context(|| format!("running {}", args.join(" ")))?;
+    if !status.success() {
+        bail!("{} failed with status {status}", args.join(" "));
+    }
+    Ok(())
 }
 
 /// Resolve a rollback target to its versioned symlink path. A target containing

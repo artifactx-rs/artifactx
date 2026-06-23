@@ -419,6 +419,7 @@ Change `[apt.release]` `origin`, `label`, `description`, and `signing.user_id` b
 
 - [Documentation](docs/README.md)
 - [HTTP API reference](docs/reference/http-api.md) / [OpenAPI](docs/reference/openapi.yaml)
+- Running servers expose OpenAPI at `/api/openapi.yaml` and Swagger UI at `/api/docs`.
 - [GitHub Pages deployment guide](docs/how-to/publish-with-github-pages.md)
 - [Roadmap](ROADMAP.md)
 - [Operations guide](docs/OPERATIONS.md)

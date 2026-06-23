@@ -6,7 +6,30 @@ reverse proxy or on an internal host.
 `arx serve` defaults to `127.0.0.1:8080`. Keep that default unless you are
 intentionally exposing the service on another interface.
 
-## 1. Prepare directories
+## Quick path: let `arx daemonize` write the unit
+
+On Linux hosts with systemd, use the one-shot setup command:
+
+```sh
+sudo arx daemonize --root /var/lib/arx/repo --enable --start
+```
+
+This creates `/etc/arx/arx.env` with a random `ARX_SERVE_TOKEN`, writes
+`/etc/systemd/system/arx.service`, verifies the unit, reloads systemd, enables
+the service, and starts it.
+
+Use `--dry-run` first to inspect the exact unit and token file without writing:
+
+```sh
+arx daemonize --dry-run
+```
+
+Use `--reuse-token` when re-running the command and you want to keep the
+existing bearer token.
+
+## Manual path
+
+### 1. Prepare directories
 
 ```sh
 sudo install -d -o arx -g arx /var/lib/arx/repo
@@ -22,7 +45,7 @@ sudo -u arx arx init /var/lib/arx/repo
 For production, use your organization signing key or passphrase-encrypted key.
 See [Use custom signing keys](use-custom-signing-keys.md).
 
-## 2. Optional write token
+### 2. Optional write token
 
 If the HTTP API should accept writes, create an environment file:
 
@@ -37,7 +60,7 @@ sudo chmod 0600 /etc/arx/arx.env
 If `ARX_SERVE_TOKEN` is unset, reads still work but write API operations are
 disabled unless OIDC is configured.
 
-## 3. Create the unit
+### 3. Create the unit
 
 ```ini
 [Unit]
@@ -65,7 +88,7 @@ WantedBy=multi-user.target
 
 Write it to `/etc/systemd/system/arx.service`.
 
-## 4. Enable and start
+### 4. Enable and start
 
 ```sh
 sudo systemctl daemon-reload
@@ -79,7 +102,7 @@ Health check:
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
-## 5. Expose publicly through a reverse proxy
+### 5. Expose publicly through a reverse proxy
 
 Put Caddy, nginx, or another TLS reverse proxy in front of the localhost service.
 Public examples should terminate TLS at the proxy and forward to
