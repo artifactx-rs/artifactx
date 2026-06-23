@@ -4,10 +4,10 @@
 //! dumping) and replicates the orchestration that its binary performs in
 //! `src/main.rs`, then PGP-signs `repomd.xml` into `repomd.xml.asc`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use createrepo_rs::compression::gzip_compress;
 use createrepo_rs::pool::{Job, ProcessingResult, WorkerPool};
 use createrepo_rs::types::{Package, Repomd, RepomdRecord};
@@ -96,16 +96,19 @@ pub fn build_repodata(
         return Ok(rpms.len());
     }
 
-    let packages = parse_rpms(&rpms)?;
     let repodata = prepare_staging_dir(dir)?;
-    write_repodata(&repodata, packages.as_slice(), key, passphrase)?;
+    let package_count = if incremental {
+        let metadata = load_or_build_incremental_metadata(dir, &rpms)?;
+        write_repodata_from_fragments(&repodata, metadata.as_slice(), key, passphrase)?;
+        metadata.len()
+    } else {
+        let packages = parse_rpms(&rpms)?;
+        write_repodata(&repodata, packages.as_slice(), key, passphrase)?;
+        packages.len()
+    };
     commit_repodata(dir, &repodata)?;
 
-    if incremental {
-        save_yum_manifest(dir, &rpms);
-    }
-
-    Ok(packages.len())
+    Ok(package_count)
 }
 
 fn scan_rpms(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -127,9 +130,13 @@ fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
             on_disk.insert(fname.to_string());
             if all_match {
                 let (mtime, size) = stat_mtime_size(rpm);
-                all_match = mtime
-                    .zip(size)
-                    .is_some_and(|(m, s)| manifest.lookup(fname, m, s).is_some());
+                all_match = mtime.zip(size).is_some_and(|(m, s)| {
+                    manifest.lookup(fname, m, s).is_some_and(|cached| {
+                        !cached.stanza.is_empty()
+                            && !cached.contents.is_empty()
+                            && !cached.other.is_empty()
+                    })
+                });
             }
         }
     }
@@ -147,6 +154,13 @@ fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
 }
 
 fn parse_rpms(rpms: &[PathBuf]) -> Result<Vec<Package>> {
+    Ok(parse_rpms_with_paths(rpms)?
+        .into_iter()
+        .map(|(_, pkg)| pkg)
+        .collect())
+}
+
+fn parse_rpms_with_paths(rpms: &[PathBuf]) -> Result<Vec<(PathBuf, Package)>> {
     // Parse RPMs via createrepo_rs's worker pool, which yields fully-populated
     // `types::Package` values (the conversion the library performs internally).
     let workers = std::thread::available_parallelism()
@@ -166,7 +180,7 @@ fn parse_rpms(rpms: &[PathBuf]) -> Result<Vec<Package>> {
             .recv()
             .context("worker pool channel closed early")?
         {
-            ProcessingResult::Success(_, pkg) => packages.push(pkg),
+            ProcessingResult::Success(path, pkg) => packages.push((path, pkg)),
             ProcessingResult::Error(path, err) => bail!("processing {}: {err}", path.display()),
         }
     }
@@ -192,18 +206,84 @@ fn write_repodata(
     key: Option<&pgp::composed::SignedSecretKey>,
     passphrase: &str,
 ) -> Result<()> {
-    let revision = now_unix();
-
     let primary_xml =
         dump::primary::dump_primary_xml(packages, true).context("generating primary.xml")?;
     let filelists_xml = dump::filelists::dump_filelists_xml(packages, false, true)
         .context("generating filelists.xml")?;
     let other_xml = dump::other::dump_other_xml(packages, true).context("generating other.xml")?;
 
+    write_repodata_xml(
+        repodata,
+        &primary_xml,
+        &filelists_xml,
+        &other_xml,
+        key,
+        passphrase,
+    )
+}
+
+#[derive(Debug, Clone)]
+struct YumPackageMetadata {
+    filename: String,
+    mtime: u64,
+    size: u64,
+    primary: String,
+    filelists: String,
+    other: String,
+}
+
+fn write_repodata_from_fragments(
+    repodata: &Path,
+    packages: &[YumPackageMetadata],
+    key: Option<&pgp::composed::SignedSecretKey>,
+    passphrase: &str,
+) -> Result<()> {
+    let primary_xml = render_xml_stream(
+        "metadata",
+        "http://linux.duke.edu/metadata/common",
+        Some("http://linux.duke.edu/metadata/rpm"),
+        packages.len(),
+        packages.iter().map(|p| p.primary.as_str()),
+    );
+    let filelists_xml = render_xml_stream(
+        "filelists",
+        "http://linux.duke.edu/metadata/filelists",
+        None,
+        packages.len(),
+        packages.iter().map(|p| p.filelists.as_str()),
+    );
+    let other_xml = render_xml_stream(
+        "otherdata",
+        "http://linux.duke.edu/metadata/other",
+        None,
+        packages.len(),
+        packages.iter().map(|p| p.other.as_str()),
+    );
+
+    write_repodata_xml(
+        repodata,
+        primary_xml.as_bytes(),
+        filelists_xml.as_bytes(),
+        other_xml.as_bytes(),
+        key,
+        passphrase,
+    )
+}
+
+fn write_repodata_xml(
+    repodata: &Path,
+    primary_xml: &[u8],
+    filelists_xml: &[u8],
+    other_xml: &[u8],
+    key: Option<&pgp::composed::SignedSecretKey>,
+    passphrase: &str,
+) -> Result<()> {
+    let revision = now_unix();
+
     let records = vec![
-        write_stream(repodata, "primary", &primary_xml, revision)?,
-        write_stream(repodata, "filelists", &filelists_xml, revision)?,
-        write_stream(repodata, "other", &other_xml, revision)?,
+        write_stream(repodata, "primary", primary_xml, revision)?,
+        write_stream(repodata, "filelists", filelists_xml, revision)?,
+        write_stream(repodata, "other", other_xml, revision)?,
     ];
 
     let repomd = Repomd {
@@ -246,28 +326,180 @@ fn commit_repodata(dir: &Path, repodata: &Path) -> Result<()> {
     Ok(())
 }
 
-fn save_yum_manifest(dir: &Path, rpms: &[PathBuf]) {
-    // Save the file manifest for the NEXT incremental publish.
-    let mut manifest = arx_debrepo::manifest::FileManifest::default();
+fn load_or_build_incremental_metadata(
+    dir: &Path,
+    rpms: &[PathBuf],
+) -> Result<Vec<YumPackageMetadata>> {
+    let manifest = arx_debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
+    let mut on_disk = HashSet::new();
+    let mut pending = Vec::new();
+    let mut metadata_by_name: HashMap<String, YumPackageMetadata> = HashMap::new();
+
     for rpm in rpms {
-        if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
-            let (mtime, size) = stat_mtime_size(rpm);
-            if let (Some(mt), Some(sz)) = (mtime, size) {
-                manifest.insert(
-                    fname.to_string(),
-                    arx_debrepo::manifest::CachedPackage {
-                        mtime: mt,
-                        size: sz,
-                        sha256: String::new(), // yum side: not used for cache lookups
-                        stanza: String::new(), // yum side: not used for cache lookups
-                        package: String::new(),
-                        version: String::new(),
-                        architecture: String::new(),
-                        contents: String::new(),
+        let fname = match rpm.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        on_disk.insert(fname.clone());
+        let (mtime, size) = stat_mtime_size(rpm);
+        let cached = mtime
+            .zip(size)
+            .and_then(|(m, s)| manifest.lookup(&fname, m, s));
+        if let (Some(mtime), Some(size), Some(cached)) = (mtime, size, cached) {
+            if !cached.stanza.is_empty() && !cached.contents.is_empty() && !cached.other.is_empty()
+            {
+                metadata_by_name.insert(
+                    fname.clone(),
+                    YumPackageMetadata {
+                        filename: fname,
+                        mtime,
+                        size,
+                        primary: cached.stanza.clone(),
+                        filelists: cached.contents.clone(),
+                        other: cached.other.clone(),
                     },
                 );
+                continue;
             }
         }
+        pending.push(rpm.clone());
     }
+
+    for (path, package) in parse_rpms_with_paths(&pending)? {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow!("rpm path has no file name: {}", path.display()))?
+            .to_string();
+        let (mtime, size) = stat_mtime_size(&path);
+        let (mtime, size) = mtime
+            .zip(size)
+            .ok_or_else(|| anyhow!("stat failed for {}", path.display()))?;
+        let fragments = package_fragments(&package)?;
+        metadata_by_name.insert(
+            fname.clone(),
+            YumPackageMetadata {
+                filename: fname,
+                mtime,
+                size,
+                primary: fragments.primary,
+                filelists: fragments.filelists,
+                other: fragments.other,
+            },
+        );
+    }
+
+    let mut ordered = Vec::with_capacity(rpms.len());
+    for rpm in rpms {
+        if let Some(fname) = rpm.file_name().and_then(|n| n.to_str()) {
+            let meta = metadata_by_name
+                .remove(fname)
+                .ok_or_else(|| anyhow!("missing yum metadata for {}", rpm.display()))?;
+            ordered.push(meta);
+        }
+    }
+
+    save_yum_manifest(dir, &ordered, &on_disk);
+    Ok(ordered)
+}
+
+#[derive(Debug)]
+struct YumXmlFragments {
+    primary: String,
+    filelists: String,
+    other: String,
+}
+
+fn package_fragments(package: &Package) -> Result<YumXmlFragments> {
+    let one = std::slice::from_ref(package);
+    Ok(YumXmlFragments {
+        primary: xml_body(
+            dump::primary::dump_primary_xml(one, true).context("generating cached primary.xml")?,
+            "metadata",
+        )?,
+        filelists: xml_body(
+            dump::filelists::dump_filelists_xml(one, false, true)
+                .context("generating cached filelists.xml")?,
+            "filelists",
+        )?,
+        other: xml_body(
+            dump::other::dump_other_xml(one, true).context("generating cached other.xml")?,
+            "otherdata",
+        )?,
+    })
+}
+
+fn xml_body(xml: Vec<u8>, root: &str) -> Result<String> {
+    let text = String::from_utf8(xml).context("yum metadata XML was not UTF-8")?;
+    let decl_end = text
+        .find("?>")
+        .ok_or_else(|| anyhow!("missing XML declaration for {root}"))?
+        + 2;
+    let root_start = text[decl_end..]
+        .find('>')
+        .ok_or_else(|| anyhow!("missing XML root for {root}"))?
+        + decl_end
+        + 1;
+    let closing = format!("</{root}>");
+    let root_end = text
+        .rfind(&closing)
+        .ok_or_else(|| anyhow!("missing XML closing tag for {root}"))?;
+    Ok(text[root_start..root_end].to_string())
+}
+
+fn render_xml_stream<'a>(
+    root: &str,
+    namespace: &str,
+    rpm_namespace: Option<&str>,
+    package_count: usize,
+    fragments: impl Iterator<Item = &'a str>,
+) -> String {
+    let mut out = String::new();
+    out.push_str(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+"#,
+    );
+    out.push('<');
+    out.push_str(root);
+    out.push_str(r#" xmlns=""#);
+    out.push_str(namespace);
+    out.push('"');
+    if let Some(rpm_namespace) = rpm_namespace {
+        out.push_str(r#" xmlns:rpm=""#);
+        out.push_str(rpm_namespace);
+        out.push('"');
+    }
+    out.push_str(r#" packages=""#);
+    out.push_str(&package_count.to_string());
+    out.push_str(r#"">"#);
+    for fragment in fragments {
+        out.push_str(fragment);
+    }
+    out.push_str("</");
+    out.push_str(root);
+    out.push('>');
+    out
+}
+
+fn save_yum_manifest(dir: &Path, packages: &[YumPackageMetadata], keep: &HashSet<String>) {
+    // Save the file manifest for the NEXT incremental publish.
+    let mut manifest = arx_debrepo::manifest::FileManifest::default();
+    for package in packages {
+        manifest.insert(
+            package.filename.clone(),
+            arx_debrepo::manifest::CachedPackage {
+                mtime: package.mtime,
+                size: package.size,
+                sha256: String::new(), // yum side: not used for cache lookups
+                stanza: package.primary.clone(),
+                package: String::new(),
+                version: String::new(),
+                architecture: String::new(),
+                contents: package.filelists.clone(),
+                other: package.other.clone(),
+            },
+        );
+    }
+    manifest.retain(keep);
     let _ = manifest.save(dir);
 }

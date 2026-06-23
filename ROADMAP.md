@@ -130,6 +130,7 @@ contract that must be boring before v0.3 pack work becomes the main focus.
 | Search command + package query API | P0 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Operators can query package families/versions/scopes before `gc`, `rm`, `promote`, or cutover; JSON output is available. |
 | Package-scoped GC + rollback-state retention | P1 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Old package families such as `demo-*` can be dry-run and pruned safely, with rollback-state pinning explained and controllable. |
 | Directory inputs for add/import | P1 | [#33](https://github.com/artifactx-rs/artifactx/issues/33) | Existing `.deb` / `.rpm` drop directories can be discovered in stable order with clear failure behavior. |
+| Small-add publish latency | P0 | [#77](https://github.com/artifactx-rs/artifactx/issues/77) | Yum incremental publish reuses cached XML fragments; production dogfood small-add publish measured ~18s → ~1s after one-time backfill. |
 | CI slimming + Rust-idiomatic cleanup | P1 | [#34](https://github.com/artifactx-rs/artifactx/issues/34) | Contributor feedback stays fast while release confidence remains deterministic. |
 
 ### v0.2 definition of done

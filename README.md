@@ -52,6 +52,7 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 - **One binary** — pack, add, import, publish, serve, push, promote, GC, rollback.
 - **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
 - **Atomic publish** — build metadata in staging, then flip the live state.
+- **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
 - **Rollbackable** — keep published states and flip back when a bad release escapes.
 - **CI-friendly** — `arx push` uploads to `arx serve`; token or GitHub OIDC auth.
 - **No daemon required** — static binary, Docker image, or GitHub Pages-hosted repo. Public Pages repos should use a stable imported signing key.
