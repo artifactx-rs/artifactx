@@ -102,7 +102,7 @@ arx push ./dist/*.deb --url https://repo.example.com   # token or GitHub OIDC
 ## Configuration (`arx.toml`)
 
 `arx init` writes `arx.toml` at the repo root: repository identity
-(`Origin`/`Label`), signing key paths, default apt `dist`/`component`, default yum
+(`[apt.release]` `Origin`/`Label`), signing key paths, default apt `dist`/`component`, default yum
 `repo`, and the server listen address. CLI flags override config values.
 
 Two `[apt]` keys govern publishing behavior:

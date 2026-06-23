@@ -828,6 +828,11 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     );
 
     let config = std::fs::read_to_string(root.join("arx.toml")).unwrap();
+    assert!(config.contains("[apt.release]"), "{config}");
+    assert!(
+        !config.contains("[repo]"),
+        "new apt imports should not write legacy [repo]: {config}"
+    );
     assert!(config.contains("origin = \"Example Repository\""));
     assert!(config.contains("label = \"Example Repository\""));
     assert!(config.contains("suite = \"oldstable\""));

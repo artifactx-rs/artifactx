@@ -59,7 +59,7 @@ arx publish --root ./repo
 This creates fresh `InRelease` / `Release.gpg` for the imported pool using the
 key configured in `./repo/arx.toml`. If the upstream `Release` file was readable,
 the generated `Release` keeps its `Origin`, `Label`, `Suite`, and `Codename`
-identity unless you deliberately edit `[repo]` in `arx.toml` before publishing.
+identity unless you deliberately edit `[apt.release]` in `arx.toml` before publishing.
 
 Serve locally for client testing:
 
@@ -116,7 +116,7 @@ arx publish --root ./repo
 ## Cutover checklist
 
 - The imported package set matches what clients need.
-- For apt, `[repo]` identity in `arx.toml` matches the old repo unless you are
+- For apt, `[apt.release]` identity in `arx.toml` matches the old repo unless you are
   intentionally changing `Origin` / `Label` / `Suite` / `Codename`.
 - `arx publish --root ./repo` succeeds without unexpected skipped packages.
 - Clients trust `keys/public.asc` from the ArtifactX repo.

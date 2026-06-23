@@ -38,7 +38,7 @@ package drop
 ```
 
 The important boundary is between `arx publish-dir` / `arx publish` / `arx export` and the external
-sync step. RPM payload signing, when needed, should be an explicit `--rpm-sign-cmd` owned by the operator; downstream sync remains an explicit `--sync-cmd`. ArtifactX creates a staged, client-consumable public tree; the sync
+sync step. RPM payload signing, when needed, should be explicit `--sign-rpms` or a custom `--rpm-sign-cmd` owned by the operator; downstream sync remains an explicit `--sync-cmd`. ArtifactX creates a staged, client-consumable public tree; the sync
 tool distributes that public tree without learning about private repository
 state.
 

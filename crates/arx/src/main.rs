@@ -775,13 +775,10 @@ fn maybe_sign_publish_dir_rpms(
     root: &Path,
     sources: &[PublishDirSource],
 ) -> Result<bool> {
-    let Some(sign_cmd) = args
-        .rpm_sign_cmd
-        .as_deref()
-        .filter(|cmd| !cmd.trim().is_empty())
-    else {
+    let signer = publish_dir_rpm_signer(args);
+    if signer.is_none() {
         return Ok(false);
-    };
+    }
 
     let mut signed = 0usize;
     for source in sources {
@@ -791,10 +788,15 @@ fn maybe_sign_publish_dir_rpms(
         if rpm_payload_is_signed(&source.path)? {
             continue;
         }
-        run_publish_dir_rpm_sign(sign_cmd, root, &args.dir, &source.path)?;
+        run_publish_dir_rpm_sign(
+            signer.as_ref().expect("checked above"),
+            root,
+            &args.dir,
+            &source.path,
+        )?;
         if !rpm_payload_is_signed(&source.path)? {
             bail!(
-                "--rpm-sign-cmd completed but {} is still unsigned",
+                "RPM signer completed but {} is still unsigned",
                 source.path.display()
             );
         }
@@ -807,6 +809,24 @@ fn maybe_sign_publish_dir_rpms(
     Ok(signed > 0)
 }
 
+enum PublishDirRpmSigner<'a> {
+    SystemRpm,
+    Command(&'a str),
+}
+
+fn publish_dir_rpm_signer(args: &cli::PublishDirArgs) -> Option<PublishDirRpmSigner<'_>> {
+    match (
+        args.sign_rpms,
+        args.rpm_sign_cmd
+            .as_deref()
+            .filter(|cmd| !cmd.trim().is_empty()),
+    ) {
+        (true, _) => Some(PublishDirRpmSigner::SystemRpm),
+        (false, Some(cmd)) => Some(PublishDirRpmSigner::Command(cmd)),
+        (false, None) => None,
+    }
+}
+
 fn rpm_payload_is_signed(path: &Path) -> Result<bool> {
     let reader = createrepo_rs::rpm::RpmReader::open(path)
         .with_context(|| format!("opening {}", path.display()))?;
@@ -814,6 +834,41 @@ fn rpm_payload_is_signed(path: &Path) -> Result<bool> {
 }
 
 fn run_publish_dir_rpm_sign(
+    signer: &PublishDirRpmSigner<'_>,
+    root: &Path,
+    dir: &Path,
+    rpm_path: &Path,
+) -> Result<()> {
+    match signer {
+        PublishDirRpmSigner::SystemRpm => run_system_rpm_sign(root, dir, rpm_path),
+        PublishDirRpmSigner::Command(sign_cmd) => {
+            run_publish_dir_shell_sign(sign_cmd, root, dir, rpm_path)
+        }
+    }
+}
+
+fn run_system_rpm_sign(root: &Path, dir: &Path, rpm_path: &Path) -> Result<()> {
+    let status = std::process::Command::new("rpm")
+        .arg("--addsign")
+        .arg(rpm_path)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_RPM_PATH", rpm_path)
+        .env("ARX_PACKAGE_PATH", rpm_path)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .with_context(|| format!("running rpm --addsign for {}", rpm_path.display()))?;
+    if !status.success() {
+        bail!(
+            "rpm --addsign failed with status {status} for {}",
+            rpm_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_publish_dir_shell_sign(
     sign_cmd: &str,
     root: &Path,
     dir: &Path,
@@ -1787,13 +1842,14 @@ fn publish_apt(
     let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
     let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
 
+    let release = cfg.apt_release();
     let meta = arx_debrepo::ReleaseMeta::new(
-        cfg.repo.origin.as_str(),
-        cfg.repo.label.as_str(),
-        cfg.repo.description.as_str(),
-        cfg.repo.suite.as_deref().unwrap_or(dist),
+        release.origin.as_str(),
+        release.label.as_str(),
+        release.description.as_str(),
+        release.suite.as_deref().unwrap_or(dist),
     )
-    .with_codename(cfg.repo.codename.as_deref().unwrap_or(dist))
+    .with_codename(release.codename.as_deref().unwrap_or(dist))
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.

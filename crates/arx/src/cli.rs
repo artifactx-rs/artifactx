@@ -311,11 +311,19 @@ pub struct PublishDirArgs {
     /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
     #[arg(long)]
     pub require_signed_rpms: bool,
+    /// Sign unsigned RPM payloads before ingest using the system RPM signing backend.
+    ///
+    /// This runs `rpm --addsign <rpm>` for unsigned RPMs and verifies each
+    /// payload is signed before continuing. No RPM signing is attempted unless
+    /// this option or `--rpm-sign-cmd` is set.
+    #[arg(long, conflicts_with = "rpm_sign_cmd")]
+    pub sign_rpms: bool,
     /// Optional shell command used to sign unsigned RPM payloads before ingesting them.
     ///
-    /// The command is skipped for already-signed RPMs and receives
-    /// `ARX_RPM_PATH`/`ARX_PACKAGE_PATH` plus repository context in its
-    /// environment. No RPM signing is attempted unless this option is set.
+    /// Prefer `--sign-rpms` for the default RPM signing backend. This escape hatch
+    /// is for environments that use a custom signer. The command is skipped for
+    /// already-signed RPMs and receives `ARX_RPM_PATH`/`ARX_PACKAGE_PATH` plus
+    /// repository context in its environment.
     #[arg(long)]
     pub rpm_sign_cmd: Option<String>,
     /// Optional shell command to run after a successful non-no-op publish.
