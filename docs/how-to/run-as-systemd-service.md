@@ -27,6 +27,18 @@ arx daemonize --dry-run
 Use `--reuse-token` when re-running the command and you want to keep the
 existing bearer token.
 
+If your public clients already use exported legacy paths, include them in the
+generated service. The API still writes to `--root`; the live paths are served
+read-only under `/deb/*` and `/repo/*`:
+
+```sh
+sudo arx daemonize \
+  --root /data/arx/prod \
+  --apt-live /srv/deb \
+  --yum-flat-live /srv/repo \
+  --enable --start
+```
+
 ## Manual path
 
 ### 1. Prepare directories

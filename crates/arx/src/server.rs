@@ -1045,6 +1045,15 @@ pub struct PushContext {
     pub passphrase: String,
 }
 
+/// Optional exported public layouts mounted alongside the canonical repo root.
+#[derive(Debug, Clone, Default)]
+pub struct StaticMounts {
+    /// Serve this exported apt layout at `/deb/*`.
+    pub apt_live: Option<PathBuf>,
+    /// Serve this exported flat yum layout at `/repo/*`.
+    pub yum_flat_live: Option<PathBuf>,
+}
+
 /// Serve `root` over HTTP on `addr` until the process is signalled.
 pub async fn serve(
     root: PathBuf,
@@ -1052,6 +1061,7 @@ pub async fn serve(
     metrics: PrometheusHandle,
     token: Option<String>,
     push: PushContext,
+    mounts: StaticMounts,
 ) -> Result<()> {
     let authed = token.is_some();
     let state = AppState {
@@ -1064,7 +1074,7 @@ pub async fn serve(
     };
 
     let serve_dir = ServeDir::new(&root).append_index_html_on_directories(false);
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/metrics", get(metrics_handler))
         .route("/api/docs", get(api_docs_handler))
         .route("/api/openapi.yaml", get(openapi_handler))
@@ -1076,7 +1086,22 @@ pub async fn serve(
         .route(ROLLBACK_ROUTE, post(rollback_handler))
         .route(HISTORY_ROUTE, get(history_handler))
         .route("/api/v1/import", post(import_handler))
-        .route("/api/v1/promote", post(promote_handler))
+        .route("/api/v1/promote", post(promote_handler));
+
+    if let Some(apt_live) = mounts.apt_live.as_ref() {
+        app = app.nest_service(
+            "/deb",
+            ServeDir::new(apt_live).append_index_html_on_directories(false),
+        );
+    }
+    if let Some(yum_flat_live) = mounts.yum_flat_live.as_ref() {
+        app = app.nest_service(
+            "/repo",
+            ServeDir::new(yum_flat_live).append_index_html_on_directories(false),
+        );
+    }
+
+    let app = app
         .fallback_service(serve_dir)
         .layer(middleware::from_fn(track_metrics))
         .layer(middleware::from_fn_with_state(
@@ -1090,7 +1115,14 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
-    tracing::info!(%addr, root = %root.display(), auth = authed, "arx serving repository");
+    tracing::info!(
+        %addr,
+        root = %root.display(),
+        apt_live = mounts.apt_live.as_ref().map(|p| p.display().to_string()),
+        yum_flat_live = mounts.yum_flat_live.as_ref().map(|p| p.display().to_string()),
+        auth = authed,
+        "arx serving repository"
+    );
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

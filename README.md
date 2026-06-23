@@ -300,6 +300,14 @@ ARX_SERVE_TOKEN=change-me
 ARX_KEY_PASSPHRASE=optional-if-your-repo-key-is-encrypted
 ```
 
+If you need the same process to expose legacy public paths, mount exported live
+layouts explicitly. Writes and API state still use `--root`; `/deb/*` and
+`/repo/*` are read-only static mounts:
+
+```bash
+arx serve --root /data/arx/prod --apt-live /srv/deb --yum-flat-live /srv/repo
+```
+
 If you really want direct LAN exposure without a reverse proxy, be explicit:
 
 ```bash

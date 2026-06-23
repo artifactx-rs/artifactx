@@ -236,12 +236,27 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
 
 ### `arx serve`
 
-- `--root <ROOT>`: repository root to serve. Default: `.`.
+- `--root <ROOT>`: canonical ArtifactX repository root and write API state.
+  Default: `.`. Static fallback serves this root, so canonical paths such as
+  `/apt/...` and `/yum/<repo>/<arch>/...` remain available.
+- `--apt-live <DIR>`: also serve an exported apt public layout at `/deb/*`.
+  This is for legacy client URLs like `deb https://host/deb stable main` while
+  writes still publish into `--root`.
+- `--yum-flat-live <DIR>`: also serve an exported flat yum layout at `/repo/*`.
+  This is for legacy client URLs like `baseurl=https://host/repo` while writes
+  still publish into `--root`.
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
 
-`arx serve` exposes static apt/yum repository files, `/metrics`,
-`/api/v1/...` JSON APIs, `/api/openapi.yaml`, and `/api/docs` Swagger UI.
+`arx serve` exposes static apt/yum repository files, optional legacy `/deb` and
+`/repo` live mounts, `/metrics`, `/api/v1/...` JSON APIs, `/api/openapi.yaml`,
+and `/api/docs` Swagger UI.
+
+Example production-shaped service behind a reverse proxy:
+
+```sh
+arx serve --root /data/arx/prod --apt-live /srv/deb --yum-flat-live /srv/repo
+```
 
 ### `arx daemonize`
 
@@ -249,6 +264,10 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
   `/var/lib/arx/repo`.
 - `--addr <ADDR>`: listen address written into the unit. Default:
   `127.0.0.1:8080`.
+- `--apt-live <DIR>`: add `--apt-live` to the generated `ExecStart` and grant
+  the unit read-only access to that directory.
+- `--yum-flat-live <DIR>`: add `--yum-flat-live` to the generated `ExecStart`
+  and grant the unit read-only access to that directory.
 - `--unit <NAME>`: systemd unit name. Default: `arx`.
 - `--env-file <PATH>`: environment file for generated `ARX_SERVE_TOKEN`.
   Default: `/etc/arx/arx.env`.
