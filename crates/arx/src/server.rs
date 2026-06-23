@@ -35,6 +35,7 @@ use axum::{
 use metrics_exporter_prometheus::PrometheusHandle;
 use pgp::composed::SignedSecretKey;
 use serde::{Deserialize, Serialize};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -1110,6 +1111,18 @@ pub async fn serve(
         ))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([
+                    Method::GET,
+                    Method::HEAD,
+                    Method::POST,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&addr)
