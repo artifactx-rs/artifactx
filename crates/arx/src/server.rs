@@ -26,9 +26,9 @@ use anyhow::{bail, Context, Result};
 use axum::{
     body::Bytes,
     extract::{Path as AxPath, Query, Request, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{header, HeaderMap, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -40,6 +40,7 @@ use tower_http::trace::TraceLayer;
 
 const ROLLBACK_ROUTE: &str = "/api/v1/rollback/*target";
 const HISTORY_ROUTE: &str = "/api/v1/history/*target";
+const OPENAPI_YAML: &str = include_str!("openapi.yaml");
 
 use crate::config::Config;
 use crate::pool;
@@ -127,6 +128,44 @@ impl AppState {
 
 async fn metrics_handler(State(st): State<AppState>) -> String {
     st.metrics.render()
+}
+
+async fn openapi_handler() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/yaml; charset=utf-8")],
+        OPENAPI_YAML,
+    )
+}
+
+async fn api_docs_handler() -> Html<&'static str> {
+    Html(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ArtifactX API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/api/openapi.yaml",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true
+    });
+  </script>
+</body>
+</html>"##,
+    )
 }
 
 /// Bearer-token gate: static `ARX_SERVE_TOKEN` OR OIDC JWT (ADR-0014).
@@ -1027,6 +1066,8 @@ pub async fn serve(
     let serve_dir = ServeDir::new(&root).append_index_html_on_directories(false);
     let app = Router::new()
         .route("/metrics", get(metrics_handler))
+        .route("/api/docs", get(api_docs_handler))
+        .route("/api/openapi.yaml", get(openapi_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/packages", get(list_handler).post(upload_handler))
         .route("/api/v1/packages/:name", delete(delete_handler))
@@ -1073,6 +1114,14 @@ mod tests {
         routing::{get, post},
         Router,
     };
+
+    #[test]
+    fn embedded_openapi_matches_reference_doc() {
+        assert_eq!(
+            super::OPENAPI_YAML,
+            include_str!("../../../docs/reference/openapi.yaml")
+        );
+    }
 
     #[test]
     fn rollback_and_history_routes_use_axum_0_7_wildcards() {

@@ -224,14 +224,59 @@ fn every_cli_subcommand_is_wired_into_help() {
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     for cmd in [
-        "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
-        "search", "gc", "promote", "serve", "mirror", "watch", "compose", "export", "cutover",
+        "init",
+        "key",
+        "add",
+        "publish",
+        "rollback",
+        "history",
+        "pack",
+        "push",
+        "rm",
+        "import",
+        "search",
+        "gc",
+        "promote",
+        "serve",
+        "daemonize",
+        "mirror",
+        "watch",
+        "compose",
+        "export",
+        "cutover",
     ] {
         assert!(
             help.contains(cmd),
             "help output missing command {cmd}:\n{help}"
         );
     }
+}
+
+#[test]
+fn daemonize_dry_run_generates_unit_and_token_without_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo root");
+    let env_file = tmp.path().join("arx.env");
+    let output = arx_output(&[
+        "daemonize",
+        "--dry-run",
+        "--root",
+        root.to_str().unwrap(),
+        "--env-file",
+        env_file.to_str().unwrap(),
+        "--unit",
+        "arx-test",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ARX_SERVE_TOKEN="), "{stdout}");
+    assert!(
+        stdout.contains("ExecStart=/usr/bin/arx serve \\"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("--root "), "{stdout}");
+    assert!(stdout.contains("arx-test.service"), "{stdout}");
+    assert!(!env_file.exists(), "dry-run must not write env file");
 }
 
 #[test]
@@ -1682,6 +1727,24 @@ fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let client = reqwest::blocking::Client::new();
     let public_health = client.get(format!("{base}/api/v1/health")).send().unwrap();
     assert_eq!(public_health.status(), reqwest::StatusCode::OK);
+    let openapi = client
+        .get(format!("{base}/api/openapi.yaml"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(openapi.starts_with("openapi: 3.1.0"), "{openapi}");
+    let docs = client
+        .get(format!("{base}/api/docs"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(docs.contains("SwaggerUIBundle"), "{docs}");
 
     let unauthenticated_write = client.post(format!("{base}/api/v1/gc")).send().unwrap();
     assert_eq!(

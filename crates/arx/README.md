@@ -91,7 +91,8 @@ operations as the CLI, for tools and CI. Reads are public. Writes require
 
 See the full [HTTP API reference](../../docs/reference/http-api.md) and
 [OpenAPI spec](../../docs/reference/openapi.yaml) for endpoints, schemas, status
-codes, auth, and `curl` examples.
+codes, auth, and `curl` examples. A running server also serves the spec at
+`/api/openapi.yaml` and Swagger UI at `/api/docs`.
 
 Push from CI in one line:
 
