@@ -18,7 +18,7 @@ for the authoritative option list in your installed version.
 | `arx init [PATH]` | Scaffold a repository with `arx.toml`, directories, and signing key. |
 | `arx key` | Generate, import, rotate, revoke, or export signing keys. |
 | `arx add <PACKAGES|DIRS>...` | Add `.deb` and `.rpm` package files, or discover them recursively from directories, into the repository pool. |
-| `arx publish` | Generate and sign apt/yum repository metadata. |
+| `arx publish` | Generate and sign apt/yum repository metadata; optionally export and cut over live public symlinks. |
 | `arx rollback [TARGET]` | Roll a target back to a retained published state. |
 | `arx history [TARGET]` | List retained published states. |
 | `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, or `.apk` packages from a manifest. |
@@ -115,11 +115,28 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--yum`: publish only yum metadata.
 - `--full`: rebuild all metadata from scratch.
 - `--strict`: fail if packages are skipped.
+- `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink.
+- `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink.
+- `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set.
+- `--repo <REPO>` / `--arch <ARCH>`: select the yum repo/architectures for `--yum-flat-live`.
+- `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
+- `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
 
 Configured `pre_publish` hooks run before metadata changes, and `post_publish`
 hooks run after a successful publish. See
 [`[hooks]`](config.md#hooks) for command shape and environment variables.
+
+For production public roots that are symlinks, prefer the single-command form:
+
+```sh
+arx publish --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo \
+  --staging-dir ./public/.arx-cutovers
+```
+
+This uses the same preflight and atomic symlink switching as `arx cutover`.
 
 ### `arx import`
 

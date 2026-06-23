@@ -127,11 +127,11 @@ removing redundant sync automation reduces cutover risk.
 
 ## Preflighted local cutover
 
-Use `arx cutover` when the public apt/yum paths are live symlinks to versioned
-exports:
+Use `arx publish` with live paths when the public apt/yum paths are symlinks to
+versioned exports:
 
 ```bash
-arx cutover \
+arx publish \
   --root ./repo \
   --apt-live ./public/deb \
   --yum-flat-live ./public/repo \
@@ -143,6 +143,9 @@ Add `--dry-run` to publish, export, and validate without switching live pointers
 Add `--require-signed-rpms` when yum clients enforce RPM payload signatures with
 `gpgcheck=1`. ArtifactX signs repository metadata, but it does not re-sign RPM
 payloads during import.
+
+`arx cutover` remains available for the less-common case where you want to
+switch previously published metadata with `--no-publish`.
 
 Keep downstream file replication outside the cutover command. If replication or
 notifications are needed, configure lifecycle hooks with generic commands.
