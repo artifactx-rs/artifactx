@@ -6,7 +6,7 @@ info:
     JSON API exposed by `arx serve` for package repository operations. Static
     apt/yum repository files are served from the same origin.
 servers:
-  - url: http://127.0.0.1:8080
+  - url: /
 security: []
 tags:
   - name: health
