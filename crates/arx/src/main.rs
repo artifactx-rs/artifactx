@@ -296,6 +296,7 @@ fn cmd_cutover(args: &cli::CutoverArgs) -> Result<()> {
             arch: args.arch.clone(),
             dry_run: args.dry_run,
             no_publish: args.no_publish,
+            full: false,
             require_signed_rpms: args.require_signed_rpms,
         },
         &cfg,
@@ -1009,6 +1010,37 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     } else {
         String::new()
     };
+
+    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
+        if args.apt && args.apt_live.is_none() {
+            bail!("--apt requires --apt-live when publish cutover options are used");
+        }
+        if args.yum && args.yum_flat_live.is_none() {
+            bail!("--yum requires --yum-flat-live when publish cutover options are used");
+        }
+        let report = cutover::run(
+            &cutover::CutoverOptions {
+                root,
+                apt_live: args.apt_live.clone(),
+                yum_flat_live: args.yum_flat_live.clone(),
+                staging_dir: args.staging_dir.clone(),
+                repo: args.repo.clone(),
+                arch: args.arch.clone(),
+                dry_run: args.dry_run,
+                no_publish: false,
+                full: args.full,
+                require_signed_rpms: args.require_signed_rpms,
+            },
+            &cfg,
+            key.as_ref(),
+            &passphrase,
+        )?;
+        println!("publish staging: {}", report.staging_root.display());
+        for line in report.lines {
+            println!("{line}");
+        }
+        return Ok(());
+    }
 
     // Hold an exclusive lock for the whole publish.
     let _lock = PublishLock::acquire(&root)?;

@@ -300,6 +300,75 @@ fn cutover_exports_validates_and_switches_live_symlink() {
 }
 
 #[test]
+fn publish_can_export_and_switch_live_symlink() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let public = tmp.path().join("public");
+    let apt_live = public.join("deb");
+    let yum_live = public.join("repo");
+    let staging = tmp.path().join("publish-cutovers");
+    let deb = tmp.path().join("publish_live_1.0-1_amd64.deb");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+    write_deb(&deb, "publish-live", "1.0-1", "amd64");
+    std::fs::write(&payload, "#!/bin/sh\necho publish-live\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "publish-live-rpm", "1.0.0");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--add",
+        "--root",
+        repo.to_str().unwrap(),
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+
+    arx_ok(&[
+        "publish",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish --apt-live should atomically switch the live symlink"
+    );
+    assert!(
+        std::fs::symlink_metadata(&yum_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish --yum-flat-live should atomically switch the live symlink"
+    );
+    assert!(apt_live.join("dists/stable/Release").exists());
+    assert!(yum_live.join("repodata/repomd.xml").exists());
+    assert!(yum_live
+        .join("publish-live-rpm-1.0.0-1.x86_64.rpm")
+        .exists());
+    let packages =
+        std::fs::read_to_string(apt_live.join("dists/stable/main/binary-amd64/Packages"))
+            .expect("published Packages index");
+    assert!(packages.contains("Package: publish-live"), "{packages}");
+}
+
+#[test]
 fn cutover_require_signed_rpms_blocks_unsigned_payloads() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

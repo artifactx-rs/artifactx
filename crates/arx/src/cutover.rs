@@ -20,6 +20,7 @@ pub struct CutoverOptions {
     pub arch: Vec<String>,
     pub dry_run: bool,
     pub no_publish: bool,
+    pub full: bool,
     pub require_signed_rpms: bool,
 }
 
@@ -44,6 +45,7 @@ pub fn run(
     let _lock = crate::PublishLock::acquire(&opts.root)?;
 
     if !opts.no_publish {
+        let incremental = !opts.full;
         hooks::run(
             &opts.root,
             cfg,
@@ -52,11 +54,20 @@ pub fn run(
         )?;
         let mut published = Vec::new();
         if opts.apt_live.is_some() {
-            published
-                .push(publish_apt(&opts.root, cfg, key, passphrase, cfg.apt.strict, true)?.summary);
+            published.push(
+                publish_apt(
+                    &opts.root,
+                    cfg,
+                    key,
+                    passphrase,
+                    cfg.apt.strict,
+                    incremental,
+                )?
+                .summary,
+            );
         }
         if opts.yum_flat_live.is_some() {
-            published.push(publish_yum(&opts.root, cfg, key, passphrase, true)?);
+            published.push(publish_yum(&opts.root, cfg, key, passphrase, incremental)?);
         }
         let summary = published.join("; ");
         hooks::run(

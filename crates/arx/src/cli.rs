@@ -178,6 +178,27 @@ pub struct PublishArgs {
     /// publishing the rest. Also settable as `[apt].strict` in `arx.toml`.
     #[arg(long)]
     pub strict: bool,
+    /// Also export the apt public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Also export a flat yum public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
+    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    #[arg(long)]
+    pub staging_dir: Option<PathBuf>,
+    /// Yum repo name to export when `--yum-flat-live` is set (defaults to `[yum].repo`).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Limit yum export to one or more architectures when `--yum-flat-live` is set.
+    #[arg(long)]
+    pub arch: Vec<String>,
+    /// Validate staged export without switching live pointers.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
+    #[arg(long)]
+    pub require_signed_rpms: bool,
     /// Passphrase file to unlock an encrypted signing key; falls back to
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]

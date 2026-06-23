@@ -322,7 +322,7 @@ cargo build --release
 | `arx import` | Migrate packages from an existing apt/yum repo into ArtifactX |
 | `arx pack` | Build `.deb`, `.rpm`, `.apk` from a manifest or `Cargo.toml` |
 | `arx add` | Put existing `.deb` / `.rpm` files into the pool |
-| `arx publish` | Generate and sign apt + yum metadata atomically |
+| `arx publish` | Generate and sign apt + yum metadata; optionally export + cut over live public symlinks |
 | `arx serve` | Serve apt/dnf-compatible repo + REST API + `/metrics` |
 | `arx push` | Upload packages to a remote `arx serve` from CI |
 | `arx promote` | Move packages between staging/prod components or repos |
