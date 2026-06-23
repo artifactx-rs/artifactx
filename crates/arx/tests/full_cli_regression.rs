@@ -1926,6 +1926,33 @@ fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
     });
 
     let client = reqwest::blocking::Client::new();
+    let preflight = client
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/v1/packages"))
+        .header(reqwest::header::ORIGIN, "https://ted.example")
+        .header(reqwest::header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+        .header(
+            reqwest::header::ACCESS_CONTROL_REQUEST_HEADERS,
+            "authorization, content-type",
+        )
+        .send()
+        .unwrap();
+    assert_eq!(preflight.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        preflight
+            .headers()
+            .get(reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+    let allowed_headers = preflight
+        .headers()
+        .get(reqwest::header::ACCESS_CONTROL_ALLOW_HEADERS)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(allowed_headers.contains("authorization"));
+    assert!(allowed_headers.contains("content-type"));
+
     let canonical_apt = client
         .get(format!("{base}/apt/dists/stable/Release"))
         .send()
