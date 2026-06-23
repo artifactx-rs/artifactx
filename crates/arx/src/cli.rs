@@ -311,6 +311,13 @@ pub struct PublishDirArgs {
     /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
     #[arg(long)]
     pub require_signed_rpms: bool,
+    /// Optional shell command used to sign unsigned RPM payloads before ingesting them.
+    ///
+    /// The command is skipped for already-signed RPMs and receives
+    /// `ARX_RPM_PATH`/`ARX_PACKAGE_PATH` plus repository context in its
+    /// environment. No RPM signing is attempted unless this option is set.
+    #[arg(long)]
+    pub rpm_sign_cmd: Option<String>,
     /// Optional shell command to run after a successful non-no-op publish.
     #[arg(long)]
     pub sync_cmd: Option<String>,

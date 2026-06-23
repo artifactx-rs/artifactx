@@ -175,8 +175,21 @@ state so unchanged runs can exit quickly.
 - `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
 - `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
+- `--rpm-sign-cmd <COMMAND>`: optional shell command used to sign unsigned source RPM payloads before ingest. ArtifactX skips already-signed RPMs and verifies the command actually signed the payload.
 - `--sync-cmd <COMMAND>`: optional shell command to run after a successful non-no-op publish. ArtifactX does not enable sync by default.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
+
+Use `--rpm-sign-cmd` only when your drop directory receives unsigned RPM
+payloads and clients require `gpgcheck=1`, for example:
+
+```sh
+arx publish-dir /opt/packages --root /data/arx/prod \
+  --require-signed-rpms \
+  --rpm-sign-cmd 'rpm --addsign "$ARX_RPM_PATH" </dev/null'
+```
+
+The RPM signer receives `ARX_ROOT`, `ARX_SOURCE_DIR`, `ARX_RPM_PATH`, and
+`ARX_PACKAGE_PATH`; it is skipped for RPMs that are already signed.
 
 Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
 `systemctl start --no-block sync-srv`. The command receives `ARX_ROOT`,

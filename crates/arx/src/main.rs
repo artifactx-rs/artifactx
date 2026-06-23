@@ -684,7 +684,7 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
     let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
     let state_file = publish_dir_state_file(args);
-    let sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
+    let mut sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
 
     if sources.is_empty() {
         println!(
@@ -692,6 +692,9 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
             args.dir.display()
         );
         return Ok(());
+    }
+    if maybe_sign_publish_dir_rpms(args, &root, &sources)? {
+        sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
     }
 
     let previous = load_publish_dir_state(&state_file)?;
@@ -764,6 +767,74 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
         println!("publish-dir: sync requested");
     }
 
+    Ok(())
+}
+
+fn maybe_sign_publish_dir_rpms(
+    args: &cli::PublishDirArgs,
+    root: &Path,
+    sources: &[PublishDirSource],
+) -> Result<bool> {
+    let Some(sign_cmd) = args
+        .rpm_sign_cmd
+        .as_deref()
+        .filter(|cmd| !cmd.trim().is_empty())
+    else {
+        return Ok(false);
+    };
+
+    let mut signed = 0usize;
+    for source in sources {
+        if source.path.extension().and_then(|e| e.to_str()) != Some("rpm") {
+            continue;
+        }
+        if rpm_payload_is_signed(&source.path)? {
+            continue;
+        }
+        run_publish_dir_rpm_sign(sign_cmd, root, &args.dir, &source.path)?;
+        if !rpm_payload_is_signed(&source.path)? {
+            bail!(
+                "--rpm-sign-cmd completed but {} is still unsigned",
+                source.path.display()
+            );
+        }
+        signed += 1;
+        println!("publish-dir: signed rpm {}", source.path.display());
+    }
+    if signed > 0 {
+        println!("publish-dir: signed {signed} rpm payload(s)");
+    }
+    Ok(signed > 0)
+}
+
+fn rpm_payload_is_signed(path: &Path) -> Result<bool> {
+    let reader = createrepo_rs::rpm::RpmReader::open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    Ok(reader.is_signed())
+}
+
+fn run_publish_dir_rpm_sign(
+    sign_cmd: &str,
+    root: &Path,
+    dir: &Path,
+    rpm_path: &Path,
+) -> Result<()> {
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(sign_cmd)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_RPM_PATH", rpm_path)
+        .env("ARX_PACKAGE_PATH", rpm_path)
+        .status()
+        .with_context(|| format!("running --rpm-sign-cmd for {}", rpm_path.display()))?;
+    if !status.success() {
+        bail!(
+            "--rpm-sign-cmd failed with status {status} for {}: {sign_cmd}",
+            rpm_path.display()
+        );
+    }
     Ok(())
 }
 

@@ -449,6 +449,67 @@ fn publish_dir_ingests_cutovers_and_skips_unchanged_sources() {
 }
 
 #[test]
+fn publish_dir_rpm_sign_cmd_runs_before_strict_payload_gate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let public = tmp.path().join("public");
+    let marker = tmp.path().join("rpm-sign-marker.txt");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::write(&payload, "#!/bin/sh\necho publish-dir-sign\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "publish-dir-sign", "1.0.0");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--out",
+        drop.to_str().unwrap(),
+    ]);
+
+    let sign_cmd = format!(
+        "printf '%s:%s\\n' \"$ARX_ROOT\" \"$ARX_RPM_PATH\" > {}",
+        marker.display()
+    );
+    let output = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--yum",
+        "--yum-flat-live",
+        public.join("repo").to_str().unwrap(),
+        "--staging-dir",
+        tmp.path().join("cutovers").to_str().unwrap(),
+        "--require-signed-rpms",
+        "--rpm-sign-cmd",
+        &sign_cmd,
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "fake signer should not satisfy strict RPM payload signing"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("still unsigned"),
+        "publish-dir should verify the signer actually signed the payload: {stderr}"
+    );
+    let marker_text = std::fs::read_to_string(&marker).expect("sign command marker");
+    assert!(
+        marker_text.contains(repo.to_str().unwrap()) && marker_text.contains(".rpm"),
+        "sign command should receive repository and rpm path context: {marker_text}"
+    );
+    assert!(
+        !public.join("repo").exists(),
+        "failed RPM signing must leave live yum path untouched"
+    );
+}
+
+#[test]
 fn cutover_require_signed_rpms_blocks_unsigned_payloads() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
