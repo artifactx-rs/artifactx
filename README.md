@@ -49,9 +49,9 @@ Most package repo setups become a pile of special cases: one path for `.deb`, an
 ArtifactX keeps the package repository as a directory you can inspect, back up, move, and rebuild:
 
 - **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
-- **One binary** — pack, add, import, publish, serve, push, promote, GC, rollback.
+- **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, GC, rollback.
 - **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
-- **Atomic publish** — build metadata in staging, then flip the live state.
+- **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection.
 - **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
 - **Rollbackable** — keep published states and flip back when a bad release escapes.
 - **CI-friendly** — `arx push` uploads to `arx serve`; token or GitHub OIDC auth.
@@ -330,6 +330,7 @@ cargo build --release
 | `arx gc` | Prune old versions with version-aware retention |
 | `arx rollback` | Restore a previous published state |
 | `arx history` | Inspect retained published states |
+| `arx publish-dir` | Ingest a drop directory, publish, cut over live symlinks, and optionally trigger external sync |
 | `arx watch` | Watch a directory and auto-add + publish new packages |
 | `arx key` | Generate, import, rotate, revoke, or export signing keys |
 
