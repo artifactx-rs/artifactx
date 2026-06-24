@@ -253,6 +253,17 @@ fn every_cli_subcommand_is_wired_into_help() {
 }
 
 #[test]
+fn version_output_includes_build_metadata() {
+    let output = arx_output(&["--version"]);
+    assert!(output.status.success());
+    let version = String::from_utf8_lossy(&output.stdout);
+    assert!(version.starts_with("arx 0.2.6 ("), "{version}");
+    assert!(version.contains(", built "), "{version}");
+    assert!(version.contains(", rustc "), "{version}");
+    assert!(version.trim_end().ends_with(')'), "{version}");
+}
+
+#[test]
 fn daemonize_dry_run_generates_unit_and_token_without_writing() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo root");

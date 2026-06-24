@@ -11,22 +11,22 @@ categories = ["development-tools::build-utils"]
 
 [dependencies]
 anyhow.workspace = true
-walkdir.workspace = true
-sha2.workspace = true
-hex.workspace = true
+ar.workspace = true
 chrono.workspace = true
+flate2.workspace = true
+hex.workspace = true
+md-5.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tar.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+xz2.workspace = true
 sha1 = "0.10"
-md-5 = "0.10"
-ar = "0.9"
-tar = "0.4"
-flate2 = "1"
-xz2 = "0.1"
 zstd = "0.13"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
 
 [dev-dependencies]
-tempfile = "3"
-ar = "0.9"
-tar = "0.4"
-flate2 = "1"
+ar.workspace = true
+flate2.workspace = true
+tar.workspace = true
+tempfile.workspace = true

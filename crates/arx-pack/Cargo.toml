@@ -10,25 +10,25 @@ keywords = ["packaging", "deb", "rpm", "debian", "rpm-build"]
 categories = ["development-tools::build-utils"]
 
 [dependencies]
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+anyhow.workspace = true
+serde.workspace = true
+toml.workspace = true
 
 # Native .deb assembly: ar archive + gzip-compressed tarballs.
-ar = "0.9"
-tar = "0.4"
-flate2 = "1"
-md-5 = "0.10"
+ar.workspace = true
+tar.workspace = true
+flate2.workspace = true
+md-5.workspace = true
 
 # Native .rpm assembly: the same crate createrepo_rs uses.
 rpm = "0.14"
 
 # Deterministic staging directory.
-tempfile = "3"
+tempfile.workspace = true
 
 [dev-dependencies]
 # Tests re-parse the .deb inline (ar + tar + flate2) instead of depending on the
 # sibling `arx-debrepo` crate, so this crate stays standalone.
-ar = "0.9"
-tar = "0.4"
-flate2 = "1"
+ar.workspace = true
+tar.workspace = true
+flate2.workspace = true
