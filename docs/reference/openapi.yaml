@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ArtifactX HTTP API
-  version: 0.3.1
+  version: 0.3.2
   description: |
     JSON API exposed by `arx serve` for package repository operations. Static
     apt/yum repository files are served from the same origin.

@@ -1,6 +1,6 @@
 [package]
 name = "artifactx"
-version = "0.3.1"
+version = "0.3.2"
 edition.workspace = true
 authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 # apt repo generation + packaging (in-house, permissively licensed sibling crates)
-arx-debrepo = { version = "0.3.1", path = "../arx-debrepo" }
-arx-pack = { version = "0.3.1", path = "../arx-pack" }
+arx-debrepo = { version = "0.3.2", path = "../arx-debrepo" }
+arx-pack = { version = "0.3.2", path = "../arx-pack" }
 
 # yum repository metadata generation (local createrepo_rs subset)
 bzip2 = "0.4"
@@ -44,7 +44,7 @@ tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 
 # OIDC JWT validation + GitHub JWKS
-jsonwebtoken = "10"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 serde_json = "1"
 
 # observability

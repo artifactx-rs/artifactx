@@ -138,6 +138,34 @@ fn is_jwt(token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Serialize;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct ProviderSmokeClaims {
+        sub: String,
+        exp: u64,
+    }
+
+    #[test]
+    fn jsonwebtoken_crypto_provider_is_configured() {
+        let claims = ProviderSmokeClaims {
+            sub: "provider-smoke".to_string(),
+            exp: 4_102_444_800, // 2100-01-01
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"artifactx-test"),
+        )
+        .expect("HS256 token can be encoded");
+        let decoded = jsonwebtoken::decode::<ProviderSmokeClaims>(
+            &token,
+            &jsonwebtoken::DecodingKey::from_secret(b"artifactx-test"),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        )
+        .expect("HS256 token can be decoded with configured crypto provider");
+        assert_eq!(decoded.claims.sub, "provider-smoke");
+    }
 
     #[test]
     fn glob_prefix_matches() {
