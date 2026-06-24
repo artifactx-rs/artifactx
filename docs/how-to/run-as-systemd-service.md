@@ -122,3 +122,6 @@ Public examples should terminate TLS at the proxy and forward to
 
 Only bind `arx serve` to `0.0.0.0:8080` when the host firewall, network, and auth
 model are intentionally designed for that exposure.
+
+For concrete Caddy/nginx snippets, see
+[Secure `arx serve` behind a TLS proxy](secure-serve-behind-proxy.md).

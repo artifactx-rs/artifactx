@@ -14,9 +14,12 @@ front of you.
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
 | Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
 | Keep legacy sync or mirror automation during migration | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
+| Prune old package versions safely | [Prune old packages with GC](how-to/prune-and-gc.md) |
+| Push packages from CI | [Push packages from CI](how-to/push-from-ci.md) |
 | Run local E2E checks before changing publish/API flows | [Run local E2E checks](how-to/run-local-e2e.md) |
 | Run ArtifactX with Docker Compose | [Run with Docker Compose](how-to/run-with-docker-compose.md) |
 | Run the server under systemd | [Run as a systemd service](how-to/run-as-systemd-service.md) |
+| Expose `arx serve` with production TLS | [Secure `arx serve` behind a TLS proxy](how-to/secure-serve-behind-proxy.md) |
 | Use your organization signing key | [Use custom signing keys](how-to/use-custom-signing-keys.md) |
 | Find every CLI command and option | [CLI reference](reference/cli.md) |
 | Integrate with `arx serve` over HTTP | [HTTP API reference](reference/http-api.md) / [OpenAPI](reference/openapi.yaml) |

@@ -3,7 +3,7 @@
 //! Synthesizes minimal `.deb` files (ar + control.tar.gz) on disk, runs the
 //! generator, and asserts the produced `Packages`/`Release` content.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use arx_debrepo::{build_dist, stage_dist, FileManifest, ReleaseMeta};
@@ -11,6 +11,10 @@ use arx_debrepo::{build_dist, stage_dist, FileManifest, ReleaseMeta};
 /// Write a minimal but valid `.deb` (ar archive: debian-binary + control.tar.gz
 /// + empty data.tar.gz) whose control paragraph is `control_text`.
 fn write_deb(path: &Path, control_text: &str) {
+    write_deb_with_data(path, control_text, &[]);
+}
+
+fn write_deb_with_data(path: &Path, control_text: &str, files: &[(&str, &[u8])]) {
     // control.tar.gz containing ./control
     let mut control_tar = Vec::new();
     {
@@ -26,10 +30,19 @@ fn write_deb(path: &Path, control_text: &str) {
     }
     let control_gz = gzip(&control_tar);
 
-    // empty data.tar.gz
     let mut data_tar = Vec::new();
     {
         let mut tb = tar::Builder::new(&mut data_tar);
+        for (path, bytes) in files {
+            let mut header = tar::Header::new_gnu();
+            header
+                .set_path(format!("./{}", path.trim_start_matches('/')))
+                .unwrap();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tb.append(&header, *bytes).unwrap();
+        }
         tb.finish().unwrap();
     }
     let data_gz = gzip(&data_tar);
@@ -524,6 +537,49 @@ fn read_data_paths_extracts_installed_files() {
         paths.iter().any(|p| p.contains("usr/bin/foo")),
         "must contain the installed file: {paths:?}"
     );
+}
+
+#[test]
+fn writes_contents_indices_for_apt_file_clients() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let pool = apt.join("pool/main");
+    std::fs::create_dir_all(&pool).unwrap();
+
+    write_deb_with_data(
+        &pool.join("tool_1_amd64.deb"),
+        &control("tool", "1", "amd64"),
+        &[
+            ("usr/bin/tool", b"#!/bin/sh\n"),
+            ("usr/share/doc/tool/README", b"tool docs\n"),
+        ],
+    );
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    build_dist(&apt, "stable", &meta).unwrap();
+
+    let contents = std::fs::read_to_string(apt.join("dists/stable/Contents-amd64")).unwrap();
+    assert!(contents.contains("usr/bin/tool\ttool"));
+    assert!(contents.contains("usr/share/doc/tool/README\ttool"));
+
+    let gz = std::fs::File::open(apt.join("dists/stable/Contents-amd64.gz")).unwrap();
+    let mut gz_body = String::new();
+    flate2::read::GzDecoder::new(gz)
+        .read_to_string(&mut gz_body)
+        .unwrap();
+    assert_eq!(contents, gz_body);
+
+    let release = std::fs::read_to_string(apt.join("dists/stable/Release")).unwrap();
+    assert!(release.contains("Contents-amd64"));
+    assert!(release.contains("Contents-amd64.gz"));
+
+    let sha = {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(contents.as_bytes());
+        hex::encode(h.finalize())
+    };
+    assert!(apt.join("dists/stable/by-hash/SHA256").join(sha).exists());
 }
 
 #[test]

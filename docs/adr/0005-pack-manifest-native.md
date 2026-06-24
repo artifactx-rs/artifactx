@@ -27,8 +27,9 @@ determinism.
 
 - Good: correct scripts/deps on every format; deterministic, reproducible output;
   zero host dependencies — runs identically on a laptop and in CI.
-- Good: `pack` is a single embeddable crate — `cargo add pack`. This is the moat
-  over `nfpm` (Go, not embeddable) and `FPM` (Ruby): we also *publish* what we build.
+- Good: `arx-pack` is a single embeddable crate — `cargo add arx-pack`. This is
+  the moat over `nfpm` (Go, not embeddable) and `FPM` (Ruby): we also *publish*
+  what we build.
 - Bad: we don't yet cover every field (triggers, conffiles, epoch nuances).
 - Bad: the Docker fallback is a stub.
 

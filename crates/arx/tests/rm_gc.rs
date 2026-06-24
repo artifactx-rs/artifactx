@@ -63,6 +63,22 @@ fn arx(root: &Path, args: &[&str]) {
     assert!(status.success(), "arx {args:?} failed");
 }
 
+fn arx_output(root: &Path, args: &[&str]) -> String {
+    let output = common::arx_command()
+        .args(args)
+        .arg("--root")
+        .arg(root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "arx {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 /// Add three versions of one package, each newer by mtime, into the apt pool.
 fn seed_three_versions(pool: &Path) {
     std::fs::create_dir_all(pool).unwrap();
@@ -175,7 +191,10 @@ fn gc_keeps_rollback_pins_by_default_and_can_ignore_them_explicitly() {
         std::thread::sleep(std::time::Duration::from_millis(1100));
     }
 
-    arx(&root, &["gc", "rollbackpin", "--keep", "1", "--apt"]);
+    let output = arx_output(&root, &["gc", "rollbackpin", "--keep", "1", "--apt"]);
+    assert!(output.contains("pinned by retained rollback states"));
+    assert!(output.contains("--ignore-rollback-states"));
+    assert!(output.contains("rollback states may no longer be valid"));
     assert!(
         pool.join("rollbackpin_1.0_amd64.deb").exists(),
         "default gc must keep packages pinned by rollback states"

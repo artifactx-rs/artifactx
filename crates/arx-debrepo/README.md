@@ -22,12 +22,12 @@ is a few hundred lines of focused, synchronous code with a tiny dependency tree
 ## Usage
 
 ```rust
-use arx_debrepo::{build_apt, ReleaseMeta};
+use arx_debrepo::{build_dist, ReleaseMeta};
 use std::path::Path;
 
 // Expects packages under <apt_root>/pool/<component>/*.deb
 let meta = ReleaseMeta::new("MyOrg", "MyOrg", "My package repository", "stable");
-let build = build_apt(Path::new("./apt"), "stable", "main", &meta)?;
+let build = build_dist(Path::new("./apt"), "stable", &meta)?;
 
 println!("indexed {} packages for {:?}", build.packages, build.architectures);
 
@@ -41,22 +41,29 @@ It writes:
 
 ```
 <apt_root>/dists/<dist>/<component>/binary-<arch>/Packages{,.gz}
+<apt_root>/dists/<dist>/Contents-<arch>{,.gz}
 <apt_root>/dists/<dist>/Release
 ```
 
 `Architecture: all` packages are folded into every concrete-architecture index.
+`Contents-<arch>` files support `apt-file`-style installed-path search. `Release`
+lists generated indices and `by-hash/SHA256/` copies are written for client cache
+consistency across publishes.
 
 ## API
 
-- [`build_apt`] — scan a pool, write `Packages`/`Release`, return [`AptBuild`].
+- [`build_dist`] — scan a pool, stage/commit `Packages`, `Contents`, and `Release`.
+- [`stage_dist`] / [`commit_dist`] — sign `Release` before atomically committing.
 - [`ReleaseMeta`] — `Origin`/`Label`/`Description`/`Suite` written into `Release`.
 - [`deb`] — `.deb` inspection: [`deb::read_control`] / [`deb::parse_control`].
 
 ## Status & limitations
 
-Early but tested (`cargo test -p arx-debrepo`). Not yet implemented: incremental
-updates, `by-hash`, `Contents-<arch>` files, multi-component consolidation into a
-single `Release`, and `.deb` source packages. Contributions welcome.
+Tested with multi-component distributions, incremental manifests, by-hash index
+copies, `Contents-<arch>` files, rollback state directories, and `Architecture:
+all` folding. Not yet implemented: `.deb` source package indices and compressed
+formats beyond the current `Packages.gz` / `Contents.gz` outputs. Contributions
+welcome.
 
 ## License
 

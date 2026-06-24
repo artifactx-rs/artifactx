@@ -12,8 +12,8 @@ the [charter](../CLAUDE.md)). For the *why* behind specific choices, read the
 
 | Pillar | Where | What |
 | --- | --- | --- |
-| **Package** | `crates/pack` | A manifest → native `.deb`/`.rpm`, pure Rust, no toolchain. |
-| **Publish (apt)** | `crates/debrepo` | A pool of `.deb` → signed `Packages`/`Release`. |
+| **Package** | `crates/arx-pack` | A manifest → native `.deb`/`.rpm`/`.apk`, pure Rust, no toolchain. |
+| **Publish (apt)** | `crates/arx-debrepo` | A pool of `.deb` → signed `Packages`/`Release`/`Contents`. |
 | **Publish (yum)** | `createrepo_rs` (dep) | A pool of `.rpm` → signed `repodata`. |
 | **Orchestration** | `crates/arx` | The CLI + HTTP server that wires it all together. |
 
@@ -73,16 +73,17 @@ gets `InRelease`/`Release.gpg`, yum gets `repomd.xml.asc`. See
 
 ## Crates & licensing
 
-`debrepo` and `pack` are **independent, MIT/Apache** libraries — embeddable by
-anyone (`cargo add pack`). `arx` links the GPL `createrepo_rs`, so the binary is
+ArtifactX is one Cargo workspace with split crate boundaries:
+`arx-debrepo` and `arx-pack` are **independent, MIT/Apache** libraries,
+while `artifactx` (`crates/arx`) links the GPL `createrepo_rs`, so the binary is
 GPL. See [ADR-0001](adr/0001-workspace-and-licensing.md).
 
 ## Where to start reading the code
 
 - `crates/arx/src/main.rs` — every subcommand is a `cmd_*` function.
-- `crates/debrepo/src/lib.rs` — `stage_dist` → `commit_dist` is the whole apt engine.
+- `crates/arx-debrepo/src/lib.rs` — `stage_dist` → `commit_dist` is the whole apt engine.
 - `crates/arx/src/server.rs` — the HTTP API.
-- `crates/pack/src/{deb,rpm}.rs` — the two native builders.
+- `crates/arx-pack/src/{deb,rpm,apk}.rs` — the native package builders.
 
 ## Non-goals
 

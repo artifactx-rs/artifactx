@@ -248,6 +248,12 @@ sudo install -m 755 arx-latest-amd64 /usr/local/bin/arx
 arx --version
 ```
 
+### Nix
+
+```bash
+nix run github:artifactx-rs/artifactx -- --version
+```
+
 ### Docker
 
 ```bash

@@ -10,7 +10,7 @@
 `repo` (apt + yum generation/publish) is the deepest, most-verified part of
 ArtifactX — strategic bet #1 (*depth > breadth*). Before we invest further in
 `pack`, `repo` must clear a **product-ready bar**: a user can trust it in
-production. An evidence-based audit of `crates/debrepo` and `crates/arx`
+production. An evidence-based audit of `crates/arx-debrepo` and `crates/arx`
 confirmed the atomic core is sound — `stage_dist` writes only a staging
 directory and `commit_dist` flips a symlink, so a failed publish (bad package,
 disk-full, partial write) **never touches the live repo** and self-heals on the

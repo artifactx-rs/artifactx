@@ -156,6 +156,10 @@ Configured `pre_publish` hooks run before metadata changes, and `post_publish`
 hooks run after a successful publish. See
 [`[hooks]`](config.md#hooks) for command shape and environment variables.
 
+APT publishes also generate `Contents-<arch>` and `Contents-<arch>.gz` indices
+so `apt-file`-style clients can search installed file paths. These files are
+listed in `Release` and get by-hash copies like `Packages`.
+
 For production public roots that are symlinks, prefer the single-command form:
 
 ```sh
@@ -240,8 +244,10 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
 - `--dry-run`: report what would be pruned without deleting.
 - `--ignore-rollback-states`: allow pruning files referenced by retained rollback
   states. By default, ArtifactX keeps rollback-referenced files so old states do
-  not 404.
+  not 404. Use this only after deciding those rollback states may become invalid.
 - `--apt` / `--yum`: restrict to one pool; omitting both scans both.
+
+For an operator recipe, see [Prune old packages with GC](../how-to/prune-and-gc.md).
 
 ### `arx serve`
 

@@ -135,7 +135,8 @@ async fn main() -> Result<()> {
             }
             if report.retained_for_rollback > 0 {
                 println!(
-                    "Kept {} older file(s) pinned by retained rollback states.",
+                    "Kept {} older file(s) pinned by retained rollback states. \
+                     Rerun with --ignore-rollback-states only if those rollback states may no longer be valid.",
                     report.retained_for_rollback
                 );
             }

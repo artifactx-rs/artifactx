@@ -64,6 +64,10 @@ Supported write authentication modes:
 If neither `ARX_SERVE_TOKEN` nor `[oidc].enabled = true` is configured, read
 endpoints still work and write endpoints return `403 Forbidden`.
 
+For GitHub Actions examples, see [Push packages from CI](../how-to/push-from-ci.md).
+For production TLS exposure, put `arx serve` behind a reverse proxy; see
+[Secure `arx serve` behind a TLS proxy](../how-to/secure-serve-behind-proxy.md).
+
 ## Common status codes
 
 | Status | Meaning |

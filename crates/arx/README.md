@@ -15,6 +15,7 @@ It turns a directory into a **signed apt + yum repository** that `apt-get` and
 ```bash
 cargo install artifactx                # from crates.io
 # or, from a checkout: cargo build --release -p artifactx
+# or with Nix: nix run github:artifactx-rs/artifactx -- --version
 ```
 
 The binary is `arx`. A static single-file build:
