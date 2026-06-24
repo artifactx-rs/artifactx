@@ -51,7 +51,10 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     // Files are read from their host source paths and installed at their expanded destinations.
     for entry in &payload.files {
         let dest = format!("/{}", entry.rel);
-        let options = FileOptions::new(dest.clone()).mode(FileMode::regular(entry.mode as u16));
+        let mut options = FileOptions::new(dest.clone()).mode(FileMode::regular(entry.mode as u16));
+        if entry.config {
+            options = options.is_config_noreplace();
+        }
         builder = builder
             .with_file(&entry.source, options)
             .with_context(|| format!("adding file {} -> {}", entry.source, dest))?;

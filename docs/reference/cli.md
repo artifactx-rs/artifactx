@@ -78,6 +78,13 @@ arx publish --root ./repo
 entries for payload trees. Directory entries are expanded deterministically and
 reject symlinks, special files, and duplicate destinations.
 
+Configuration files can be marked with `config = true` on a `[[files]]` entry,
+or by listing absolute installed paths in top-level `config_files` when a file
+comes from `[[dirs]]`. Listed paths must match installed regular files. The
+marker writes Debian `conffiles` and RPM `%config(noreplace)` metadata; APK
+builds accept the marker but keep the file as ordinary payload until
+Alpine-specific backup semantics are added.
+
 For Rust crates, omitting `MANIFEST` reads `./Cargo.toml`; passing a path named
 `Cargo.toml` derives package identity from `[package]` and packaging details from
 `[package.metadata.arx]`. It also bridges useful metadata from
@@ -101,7 +108,9 @@ Compat metadata is read directly by ArtifactX. No external `cargo-deb`,
 `cargo-generate-rpm`, `cargo-rpm`, `rpmbuild`, or `dpkg-deb` invocation is
 required. Compat `target/release/...` asset sources are resolved through the
 selected Cargo output layout; cargo-deb `$auto` dependencies are skipped rather
-than guessed from the host system.
+than guessed from the host system. cargo-deb `conf-files` and RPM-style
+`config = true` asset markers are normalized into the same manifest-level config
+marker before package rendering.
 
 `pack` uses deterministic timestamps. `--source-date <EPOCH>` wins for that
 invocation; otherwise `SOURCE_DATE_EPOCH` is honored; otherwise epoch `0` is

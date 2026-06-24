@@ -30,7 +30,7 @@ determinism.
 - Good: `arx-pack` is a single embeddable crate — `cargo add arx-pack`. This is
   the moat over `nfpm` (Go, not embeddable) and `FPM` (Ruby): we also *publish*
   what we build.
-- Bad: we don't yet cover every field (triggers, conffiles, epoch nuances).
+- Bad: we don't yet cover every field (triggers, source-package nuances).
 - Bad: the Docker fallback is a stub.
 
 ## Alternatives considered
@@ -41,6 +41,6 @@ determinism.
 
 ## Future improvements
 
-`--from <staging-dir>` (checkinstall's value without mutating the host); `.apk`/arch
+`--from <staging-dir>` (checkinstall's value without mutating the host); Arch
 output; the real Docker backend for builds that truly need a foreign toolchain;
-conffiles/triggers; `arx pack` already exposes this on the CLI.
+triggers and source packages.

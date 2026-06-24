@@ -84,6 +84,7 @@ pub(crate) struct ExpandedFile {
     pub source: String,
     pub rel: String,
     pub mode: u32,
+    pub config: bool,
     pub data: Vec<u8>,
 }
 
@@ -101,6 +102,7 @@ pub(crate) fn expand_payload(manifest: &Manifest) -> Result<ExpandedPayload, any
     let mut files = Vec::new();
     let mut dirs: BTreeMap<String, u32> = BTreeMap::new();
     let mut seen_files = BTreeSet::new();
+    let marked_config_rels = config_rels(&manifest.config_files)?;
 
     for entry in &manifest.files {
         validate_regular_source(&entry.source)?;
@@ -113,6 +115,7 @@ pub(crate) fn expand_payload(manifest: &Manifest) -> Result<ExpandedPayload, any
             .with_context(|| format!("reading source file {}", entry.source))?;
         files.push(ExpandedFile {
             source: entry.source.clone(),
+            config: entry.config || marked_config_rels.contains(&rel),
             rel,
             mode: entry.mode_bits()?,
             data,
@@ -165,6 +168,7 @@ pub(crate) fn expand_payload(manifest: &Manifest) -> Result<ExpandedPayload, any
                         .with_context(|| format!("reading source file {}", path.display()))?;
                     files.push(ExpandedFile {
                         source: path.to_string_lossy().into_owned(),
+                        config: marked_config_rels.contains(&package_rel),
                         rel: package_rel,
                         mode: file_mode,
                         data,
@@ -177,6 +181,15 @@ pub(crate) fn expand_payload(manifest: &Manifest) -> Result<ExpandedPayload, any
                     );
                 }
             }
+        }
+    }
+
+    for rel in &marked_config_rels {
+        if !seen_files.contains(rel) {
+            bail!(
+                "config_files entry {:?} does not match any installed file",
+                format!("/{rel}")
+            );
         }
     }
 
@@ -233,6 +246,21 @@ pub(crate) fn expand_payload(manifest: &Manifest) -> Result<ExpandedPayload, any
             bail!("{label} dest {:?} contains an invalid path component", dest);
         }
         Ok(rel.to_string())
+    }
+
+    fn config_rels(paths: &[String]) -> Result<BTreeSet<String>, anyhow::Error> {
+        paths
+            .iter()
+            .map(|path| {
+                if !path.starts_with('/') {
+                    bail!(
+                        "config_files entry {:?} must be an absolute package path",
+                        path
+                    );
+                }
+                dest_to_rel(path, "config file")
+            })
+            .collect()
     }
 
     fn insert_parent_dirs(dirs: &mut BTreeMap<String, u32>, rel: &str, mode: u32) {

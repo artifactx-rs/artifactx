@@ -273,6 +273,7 @@ fn cargo_toml_reads_cargo_deb_metadata_assets_and_relationships() {
         conflicts = ["old-greeter"]
         provides = "greeter-cli"
         replaces = ["legacy-greeter"]
+        conf-files = ["/usr/share/doc/greeter/README"]
         assets = [
           ["target/release/greeter", "usr/bin/", "755"],
           ["README.md", "/usr/share/doc/greeter/README", "644"],
@@ -292,6 +293,10 @@ fn cargo_toml_reads_cargo_deb_metadata_assets_and_relationships() {
     assert_eq!(m.conflicts, vec!["old-greeter".to_string()]);
     assert_eq!(m.provides, vec!["greeter-cli".to_string()]);
     assert_eq!(m.replaces, vec!["legacy-greeter".to_string()]);
+    assert_eq!(
+        m.config_files,
+        vec!["/usr/share/doc/greeter/README".to_string()]
+    );
     assert_eq!(m.files.len(), 2);
     assert_eq!(
         m.files[0].source,
@@ -333,6 +338,7 @@ fn cargo_toml_reads_generate_rpm_metadata_assets() {
         source = "target/release/rpmtool"
         dest = "/usr/bin/rpmtool"
         mode = "755"
+        config = true
     "#;
     let options = CargoManifestOptions {
         target_dir: Some(target_dir.clone()),
@@ -355,6 +361,7 @@ fn cargo_toml_reads_generate_rpm_metadata_assets() {
     );
     assert_eq!(m.files[0].dest, "/usr/bin/rpmtool");
     assert_eq!(m.files[0].mode, "0755");
+    assert!(m.files[0].config);
 }
 
 #[test]
@@ -373,7 +380,7 @@ fn cargo_toml_reads_legacy_rpm_files_and_targets() {
         requires = { bash = "*" }
 
         [package.metadata.rpm.files]
-        "etc/legacy.conf" = { path = "/etc/legacy.conf", mode = "600" }
+        "etc/legacy.conf" = { path = "/etc/legacy.conf", mode = "600", config = true }
 
         [package.metadata.rpm.targets]
         legacytool = { path = "/usr/bin/legacytool" }
@@ -396,6 +403,7 @@ fn cargo_toml_reads_legacy_rpm_files_and_targets() {
     );
     assert_eq!(m.files[0].dest, "/etc/legacy.conf");
     assert_eq!(m.files[0].mode, "0600");
+    assert!(m.files[0].config);
     assert_eq!(
         m.files[1].source,
         target_dir
@@ -623,6 +631,154 @@ fn builds_apk() {
         }
     }
     assert!(has_pkinfo, "APK must contain .PKGINFO");
+}
+
+#[test]
+fn config_file_marking_maps_to_deb_conffiles_and_rpm_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let conf = dir.path().join("app.conf");
+    let bin = dir.path().join("demo");
+    std::fs::write(&conf, b"listen = 127.0.0.1\n").unwrap();
+    std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+
+    let toml = format!(
+        r#"
+        name = "config-demo"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "config demo"
+        license = "MIT"
+
+        [[files]]
+        source = "{}"
+        dest = "/etc/config-demo/app.conf"
+        mode = "0644"
+        config = true
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/config-demo"
+        mode = "0755"
+        "#,
+        conf.display(),
+        bin.display()
+    );
+    let manifest = Manifest::from_toml_str(&toml).unwrap();
+
+    let deb = arx_pack::build_deb(&manifest, &dir.path().join("deb")).unwrap();
+    let conffiles = read_deb_control_entry(&deb, "conffiles");
+    assert_eq!(conffiles, "/etc/config-demo/app.conf\n");
+
+    let rpm = arx_pack::build_rpm(&manifest, &dir.path().join("rpm")).unwrap();
+    let pkg = rpm::Package::open(&rpm).unwrap();
+    let entries = pkg.metadata.get_file_entries().unwrap();
+    let rpm_conf = entries
+        .iter()
+        .find(|f| f.path == Path::new("/etc/config-demo/app.conf"))
+        .unwrap_or_else(|| panic!("rpm missing config file entry: {entries:?}"));
+    assert_eq!(
+        rpm_conf.flags,
+        rpm::FileFlags::CONFIG | rpm::FileFlags::NOREPLACE
+    );
+
+    // APK has no package-level config marker in the package metadata we emit;
+    // the config flag is intentionally a no-op there until Alpine-specific
+    // backup semantics are designed.
+    let apk = arx_pack::build_apk(&manifest, &dir.path().join("apk")).unwrap();
+    let apk_names = read_apk_names(&apk);
+    assert!(
+        apk_names
+            .iter()
+            .any(|n| n.trim_start_matches('.') == "etc/config-demo/app.conf"),
+        "apk should still carry the config file as a normal payload: {apk_names:?}"
+    );
+}
+
+#[test]
+fn config_files_marks_expanded_directory_payloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let etc = dir.path().join("etc");
+    std::fs::create_dir_all(&etc).unwrap();
+    std::fs::write(etc.join("settings.toml"), b"enabled = true\n").unwrap();
+    std::fs::write(etc.join("runtime.toml"), b"workers = 2\n").unwrap();
+
+    let toml = format!(
+        r#"
+        name = "dir-config"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "dir config"
+        license = "MIT"
+        config_files = ["/etc/dir-config/settings.toml"]
+
+        [[dirs]]
+        source = "{}"
+        dest = "/etc/dir-config"
+        "#,
+        etc.display()
+    );
+    let manifest = Manifest::from_toml_str(&toml).unwrap();
+    let deb = arx_pack::build_deb(&manifest, &dir.path().join("deb")).unwrap();
+    let conffiles = read_deb_control_entry(&deb, "conffiles");
+    assert_eq!(conffiles, "/etc/dir-config/settings.toml\n");
+}
+
+#[test]
+fn config_files_paths_are_validated_against_installed_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"x\n").unwrap();
+
+    let missing = Manifest::from_toml_str(&format!(
+        r#"
+        name = "bad-config"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "bad config"
+        license = "MIT"
+        config_files = ["/etc/bad-config/missing.toml"]
+
+        [[files]]
+        source = "{}"
+        dest = "/etc/bad-config/present.toml"
+        mode = "0644"
+        "#,
+        payload.display()
+    ))
+    .unwrap();
+    let err = arx_pack::validate_sources(&missing).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("does not match any installed file"),
+        "missing config path should fail loud, got: {err}"
+    );
+
+    let relative = Manifest::from_toml_str(&format!(
+        r#"
+        name = "relative-config"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "relative config"
+        license = "MIT"
+        config_files = ["etc/relative.conf"]
+
+        [[files]]
+        source = "{}"
+        dest = "/etc/relative.conf"
+        mode = "0644"
+        "#,
+        payload.display()
+    ))
+    .unwrap();
+    let err = arx_pack::validate_sources(&relative).unwrap_err();
+    assert!(
+        err.to_string().contains("must be an absolute package path"),
+        "relative config path should fail loud, got: {err}"
+    );
 }
 
 #[test]
@@ -860,18 +1016,23 @@ fn read_control_tar_names(path: &Path) -> Vec<String> {
 
 /// Extract and return the `control` file text from a `.deb`.
 fn read_deb_control(path: &Path) -> String {
+    read_deb_control_entry(path, "control")
+}
+
+/// Extract a named text file from a `.deb`'s `control.tar.gz`.
+fn read_deb_control_entry(path: &Path, wanted: &str) -> String {
     let tar_gz = read_ar_member(path, "control.tar.gz");
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tar_gz.as_slice()));
     for entry in archive.entries().unwrap() {
         let mut entry = entry.unwrap();
         let name = entry.path().unwrap().to_string_lossy().into_owned();
-        if name.trim_start_matches("./") == "control" {
+        if name.trim_start_matches("./") == wanted {
             let mut s = String::new();
             entry.read_to_string(&mut s).unwrap();
             return s;
         }
     }
-    panic!("control file not found in control.tar.gz");
+    panic!("{wanted} file not found in control.tar.gz");
 }
 
 /// Return the entry names inside a `.deb`'s `data.tar.gz`.

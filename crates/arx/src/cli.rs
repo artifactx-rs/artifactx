@@ -38,7 +38,7 @@ pub enum Command {
     Rollback(RollbackArgs),
     /// List retained published states (all targets, or one).
     History(HistoryArgs),
-    /// Build a `.deb`/`.rpm` from a manifest (the Package pillar).
+    /// Build a `.deb`/`.rpm`/`.apk` from a manifest (the Package pillar).
     Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
     Push(PushArgs),

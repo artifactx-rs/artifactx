@@ -71,6 +71,11 @@ pub struct Manifest {
     #[serde(default)]
     pub replaces: Vec<String>,
 
+    /// Absolute installed paths that should be treated as package-managed
+    /// configuration files.
+    #[serde(default, alias = "config-files", alias = "conf-files")]
+    pub config_files: Vec<String>,
+
     /// Files to install, with host source, install destination, and mode.
     #[serde(default)]
     pub files: Vec<FileEntry>,
@@ -94,6 +99,9 @@ pub struct FileEntry {
     /// Unix permission bits. In TOML write this as a string (`"0755"`) so the
     /// leading zero and octal intent survive; see [`FileEntry::mode_bits`].
     pub mode: String,
+    /// Mark this installed path as a package-managed configuration file.
+    #[serde(default)]
+    pub config: bool,
 }
 
 impl FileEntry {
@@ -250,6 +258,7 @@ impl Manifest {
             conflicts: arx_conflicts,
             provides: arx_provides,
             replaces: arx_replaces,
+            config_files: arx_config_files,
             files: arx_files,
             dirs: arx_dirs,
             scripts: arx_scripts,
@@ -270,6 +279,7 @@ impl Manifest {
                 source: src,
                 dest: format!("/usr/bin/{bin_name}"),
                 mode: "0755".to_string(),
+                config: false,
             }]
         };
 
@@ -302,6 +312,7 @@ impl Manifest {
             conflicts: prefer_overlay(arx_conflicts, compat.conflicts.clone()),
             provides: prefer_overlay(arx_provides, compat.provides.clone()),
             replaces: prefer_overlay(arx_replaces, compat.replaces.clone()),
+            config_files: prefer_overlay(arx_config_files, compat.config_files.clone()),
             files,
             dirs: arx_dirs,
             scripts: arx_scripts,
@@ -329,6 +340,7 @@ struct CompatMeta {
     conflicts: Vec<String>,
     provides: Vec<String>,
     replaces: Vec<String>,
+    config_files: Vec<String>,
     files: Vec<FileEntry>,
 }
 
@@ -375,6 +387,7 @@ impl CompatMeta {
         set_vec_missing(&mut self.conflicts, other.conflicts);
         set_vec_missing(&mut self.provides, other.provides);
         set_vec_missing(&mut self.replaces, other.replaces);
+        set_vec_missing(&mut self.config_files, other.config_files);
         set_vec_missing(&mut self.files, other.files);
     }
 }
@@ -417,6 +430,10 @@ fn parse_deb_metadata(
     meta.conflicts = relationship_field(table, "conflicts");
     meta.provides = relationship_field(table, "provides");
     meta.replaces = relationship_field(table, "replaces");
+    meta.config_files = string_list_field(table, "conf-files")
+        .into_iter()
+        .chain(string_list_field(table, "config-files"))
+        .collect();
     meta.files = array_assets(table.get("assets"), crate_root, cargo_base, "deb assets")?;
     Ok(meta)
 }
@@ -488,8 +505,36 @@ fn string_field(table: &toml::Table, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn bool_field(table: &toml::Table, key: &str) -> bool {
+    table.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
 fn relationship_field(table: &toml::Table, key: &str) -> Vec<String> {
     table.get(key).map(relationship_values).unwrap_or_default()
+}
+
+fn string_list_field(table: &toml::Table, key: &str) -> Vec<String> {
+    table.get(key).map(string_list_values).unwrap_or_default()
+}
+
+fn string_list_values(value: &toml::Value) -> Vec<String> {
+    match value {
+        toml::Value::String(s) => s
+            .lines()
+            .flat_map(|line| line.split(','))
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect(),
+        toml::Value::Array(items) => items
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn relationship_values(value: &toml::Value) -> Vec<String> {
@@ -575,7 +620,7 @@ fn compat_asset(item: &toml::Value, crate_root: &Path, cargo_base: &Path) -> Res
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("asset dest must be a string"))?;
             let mode = parts.get(2).map(normalize_mode_value).transpose()?;
-            compat_file_entry(source, dest, mode, crate_root, cargo_base)
+            compat_file_entry(source, dest, mode, false, crate_root, cargo_base)
         }
         toml::Value::Table(table) => {
             let source = string_field(table, "source")
@@ -584,7 +629,8 @@ fn compat_asset(item: &toml::Value, crate_root: &Path, cargo_base: &Path) -> Res
                 .or_else(|| string_field(table, "path"))
                 .ok_or_else(|| anyhow!("asset dest/path must be a string"))?;
             let mode = table.get("mode").map(normalize_mode_value).transpose()?;
-            compat_file_entry(&source, &dest, mode, crate_root, cargo_base)
+            let config = bool_field(table, "config");
+            compat_file_entry(&source, &dest, mode, config, crate_root, cargo_base)
         }
         _ => anyhow::bail!("asset must be an array or table"),
     }
@@ -614,7 +660,8 @@ fn legacy_rpm_files(
                     .or_else(|| string_field(spec, "dest"))
                     .ok_or_else(|| anyhow!("rpm file spec for {source:?} needs path/dest"))?;
                 let mode = spec.get("mode").map(normalize_mode_value).transpose()?;
-                compat_file_entry(source, &dest, mode, crate_root, cargo_base)
+                let config = bool_field(spec, "config");
+                compat_file_entry(source, &dest, mode, config, crate_root, cargo_base)
             })
             .collect(),
         _ => Ok(Vec::new()),
@@ -634,6 +681,7 @@ fn legacy_rpm_targets(value: &toml::Value, cargo_base: &Path) -> Result<Vec<File
                     source: cargo_base.join(bin_name).to_string_lossy().into_owned(),
                     dest: normalize_install_dest(&dest, bin_name)?,
                     mode: "0755".to_string(),
+                    config: false,
                 })
             })
             .collect(),
@@ -645,6 +693,7 @@ fn legacy_rpm_targets(value: &toml::Value, cargo_base: &Path) -> Result<Vec<File
                     source: cargo_base.join(bin_name).to_string_lossy().into_owned(),
                     dest: format!("/usr/bin/{bin_name}"),
                     mode: "0755".to_string(),
+                    config: false,
                 })
             })
             .collect(),
@@ -656,6 +705,7 @@ fn compat_file_entry(
     source: &str,
     dest: &str,
     mode: Option<String>,
+    config: bool,
     crate_root: &Path,
     cargo_base: &Path,
 ) -> Result<FileEntry> {
@@ -664,6 +714,7 @@ fn compat_file_entry(
         source: source_path.to_string_lossy().into_owned(),
         dest: normalize_install_dest(dest, source)?,
         mode: mode.unwrap_or_else(|| default_mode_for_source(source)),
+        config,
     })
 }
 
@@ -957,6 +1008,8 @@ struct ArxMeta {
     conflicts: Vec<String>,
     provides: Vec<String>,
     replaces: Vec<String>,
+    #[serde(default, alias = "config-files", alias = "conf-files")]
+    config_files: Vec<String>,
     files: Vec<FileEntry>,
     dirs: Vec<DirEntry>,
     scripts: Scripts,

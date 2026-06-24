@@ -209,6 +209,11 @@ Cargo's `debug` directory; custom profile names map to their own directory.
   pipelines at zero cost (default `0` = today's deterministic bytes). Wrong-arch/
   wrong-file footguns become loud, shared-gate errors. Rust workspace members get
   zero-config packaging with explicit, ordered target-dir resolution.
+- Good: configuration-file intent is expressed once (`[[files]].config = true`
+  or top-level `config_files`) and validated against the expanded regular-file
+  payload before rendering. Debian gets `conffiles`; RPM gets
+  `%config(noreplace)`; APK currently accepts the marker while emitting ordinary
+  payload until Alpine-specific backup semantics are designed.
 - Bad / cost: a fixed epoch shows the rpm "Build Date" as 1970 unless
   `SOURCE_DATE_EPOCH` is set (cosmetic; documented). Workspace discovery walks the
   filesystem (small, one-off per `pack` invocation). The `[[bin]].name` heuristic
@@ -220,8 +225,6 @@ Cargo's `debug` directory; custom profile names map to their own directory.
   toolchain need appears. Not required for product-ready (native is the common case).
 - **Dependency auto-detection** (`$auto`/`ldd`): out — needs host tools and is
   non-deterministic (ADR-0005).
-- **deb `conffiles`**: configuration-file marking (ADR-0005 future item; not
-  needed for arx's own use). Reiterated here so readers don't assume it's covered.
 - **SUID/setgid/capabilities/SELinux contexts**, **streaming very large files**,
   **`.changes`/source packages**: out of scope; revisit on real demand.
 

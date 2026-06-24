@@ -1,19 +1,19 @@
 # arx-pack
 
-**Pure-Rust packager: build `.deb` and `.rpm` from a single TOML manifest — no native toolchain required for the common case.**
+**Pure-Rust packager: build `.deb`, `.rpm`, and `.apk` from a single TOML manifest — no native toolchain required for the common case.**
 
 `arx-pack` is the *Package* pillar of ArtifactX. You describe a package once — its
-metadata and the files it installs — and `arx-pack` emits both a Debian `.deb` and
-an RPM `.rpm`. No `dpkg-deb`, no `rpmbuild`, no root, and no container runtime
+metadata and the files it installs — and `arx-pack` emits Debian `.deb`, RPM
+`.rpm`, and Alpine `.apk` packages. No `dpkg-deb`, no `rpmbuild`, no root, and no container runtime
 needed for ordinary "stage these files at these paths with this metadata"
 packaging. The same code runs identically on a developer laptop and in CI.
 
-> Status: **proof of concept.** The native `.deb` and `.rpm` builders are
-> implemented and tested. The Docker backend is a documented stub (see below).
+> Status: **proof of concept.** The native `.deb`, `.rpm`, and `.apk` builders
+> are implemented and tested. The Docker backend is a documented stub (see below).
 
 ## Philosophy: native-first, Docker as a fallback, hygiene always
 
-1. **Prefer the native host build.** Building `.deb` and `.rpm` in pure Rust is
+1. **Prefer the native host build.** Building `.deb`, `.rpm`, and `.apk` in pure Rust is
    fast, dependency-light, and toolchain-free. This is the default and the
    common case.
 2. **Fall back to Docker only when native genuinely can't do it.** Some packages
@@ -44,11 +44,18 @@ depends   = ["libc6"]
 conflicts = ["hello-old"]  # deb Conflicts / rpm Conflicts
 provides  = ["greeter"]    # virtual package / capability
 replaces  = ["hello-old"]  # deb Replaces / rpm Obsoletes
+# config_files = ["/etc/hello/extra.toml"] # optional for files expanded from [[dirs]]
 
 [[files]]
 source = "build/hello"     # path on the build host
 dest   = "/usr/bin/hello"  # install path inside the target system
 mode   = "0755"            # octal, as a string so the leading zero survives
+
+[[files]]
+source = "config/hello.toml"
+dest   = "/etc/hello/config.toml"
+mode   = "0644"
+config = true              # same as listing this dest in config_files
 
 [[dirs]]
 source = "assets"          # recursively include this host directory
@@ -61,6 +68,14 @@ dir_mode  = "0755"         # optional; defaults to 0755
 # postinst = "scripts/postinst.sh"
 # prerm    = "scripts/prerm.sh"
 ```
+
+Configuration files are ordinary payload files with package-manager policy
+attached. Mark an explicit `[[files]]` entry with `config = true`, or list an
+absolute installed path in `config_files` when the file comes from `[[dirs]]`.
+Every `config_files` entry must match an installed regular file so typos fail
+before any package is written. The marker maps to Debian `conffiles` and RPM
+`%config(noreplace)`; APK output currently carries the file as normal payload
+because this packager has no Alpine-specific backup marker yet.
 
 ## From a Cargo project (zero config)
 
@@ -113,11 +128,12 @@ to override the environment for one `arx pack` invocation.
 `arx pack` also understands the useful, pure-metadata subset of common Rust
 packaging tables before applying the ArtifactX overlay:
 
-- `[package.metadata.deb]`: maintainer, section, relationships, and `assets`.
+- `[package.metadata.deb]`: maintainer, section, relationships, `assets`, and
+  `conf-files`.
 - `[package.metadata.generate-rpm]`: summary/license, relationships, and
-  `assets`.
+  `assets` including `config = true` asset markers.
 - legacy `[package.metadata.rpm]`: summary/group, relationships, `files`, and
-  `targets`.
+  `targets`; `files` entries can carry `config = true`.
 
 `[package.metadata.arx]` wins when it supplies the same field, so projects can
 reuse existing cargo-deb / cargo-generate-rpm / cargo-rpm metadata and add only

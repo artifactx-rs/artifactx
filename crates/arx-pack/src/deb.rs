@@ -36,6 +36,7 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         .map(|entry| StagedFile {
             rel: entry.rel.clone(),
             mode: entry.mode,
+            config: entry.config,
             data: entry.data.clone(),
         })
         .collect();
@@ -50,8 +51,9 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 
     let data_tar = build_data_tar(&staged, &staged_dirs, epoch).context("building data.tar.gz")?;
     let md5sums = md5sums(&staged);
+    let conffiles = conffiles(&staged);
     let control = render_control(manifest, arch, installed_size(&staged));
-    let control_tar = build_control_tar(manifest, &control, &md5sums, epoch)
+    let control_tar = build_control_tar(manifest, &control, &md5sums, conffiles.as_deref(), epoch)
         .context("building control.tar.gz")?;
 
     std::fs::create_dir_all(out_dir)
@@ -80,6 +82,7 @@ pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 struct StagedFile {
     rel: String,
     mode: u32,
+    config: bool,
     data: Vec<u8>,
 }
 
@@ -167,6 +170,19 @@ fn md5sums(staged: &[StagedFile]) -> String {
     out
 }
 
+/// Compute the optional Debian `conffiles` body: absolute installed paths, one per line.
+fn conffiles(staged: &[StagedFile]) -> Option<String> {
+    let mut out = String::new();
+    for f in staged.iter().filter(|f| f.config) {
+        let _ = writeln!(out, "/{}", f.rel);
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 /// Build `data.tar.gz` from the staged files, creating parent directory entries
 /// deterministically so the archive matches across rebuilds.
 fn build_data_tar(staged: &[StagedFile], dirs: &[StagedDir], epoch: u32) -> Result<Vec<u8>> {
@@ -206,6 +222,7 @@ fn build_control_tar(
     manifest: &Manifest,
     control: &str,
     md5sums: &str,
+    conffiles: Option<&str>,
     epoch: u32,
 ) -> Result<Vec<u8>> {
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
@@ -213,6 +230,9 @@ fn build_control_tar(
     tar.mode(tar::HeaderMode::Deterministic);
 
     append_text(&mut tar, "./control", control, 0o644, epoch)?;
+    if let Some(conffiles) = conffiles {
+        append_text(&mut tar, "./conffiles", conffiles, 0o644, epoch)?;
+    }
     append_text(&mut tar, "./md5sums", md5sums, 0o644, epoch)?;
 
     // Maintainer scripts are mode 0755 and read from their host paths.
