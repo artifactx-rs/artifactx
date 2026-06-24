@@ -153,7 +153,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Candidate | Status | Tracking |
 | --- | --- | --- |
 | Clarify issue #14 scope | ✅ Closed ([#14](https://github.com/artifactx-rs/artifactx/issues/14)) | v0.2 kept repository directory ingestion separate; v0.3 owns the remaining `arx pack` payload-directory follow-up. |
-| Package payload directories | 🔵 Accepted ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
+| Package payload directories | ✅ Closed ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared package-output semantics. |
 
 ### Pack v0.3.0 TODO
 
@@ -163,7 +163,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Rust packaging bridge: cargo-deb + cargo-rpm + arx overlay | P1 ([#27](https://github.com/artifactx-rs/artifactx/issues/27)) | Reuse the useful common subset of `[package.metadata.deb]`, `[package.metadata.generate-rpm]`, and legacy `[package.metadata.rpm]`, then layer `[package.metadata.arx]` on top for ArtifactX-only cross-format and publish-aware behavior. |
 | Config-file marking | P1 ([#28](https://github.com/artifactx-rs/artifactx/issues/28)) | Design deb `conffiles` / equivalent manifest intent before users rely on ad-hoc maintainer scripts for config paths. |
 | Explicit source date CLI | P2 ([#29](https://github.com/artifactx-rs/artifactx/issues/29)) | Consider `arx pack --source-date <epoch>` as a discoverable wrapper around `SOURCE_DATE_EPOCH` while preserving reproducible defaults. |
-| Common-source packaged-upstream targets | P2 ([#109](https://github.com/artifactx-rs/artifactx/issues/109)) | Prepare curated `arx pack` release tracks for popular projects without reliable upstream deb/rpm artifacts (e.g., Prometheus/Community, VictoriaMetrics), with reproducibility and rollback criteria before proposing official upstream packaging support. |
+| Common-source packaged-upstream targets | P2 ([#109](https://github.com/artifactx-rs/artifactx/issues/109)) | [Curated packaging feed blueprint](docs/explanation/curated-packaging-feed.md): separate maintainer repo, per-project recipes, smoke tests, refresh/cutover policy, and upstream graduation criteria. |
 | Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | Clearly document limits: no inline package signing, no auto dependency detection, no symlink following, no source packages, and no `.apk` repository add path yet. |
 
 ### Rust packaging bridge design note
@@ -180,7 +180,7 @@ Cargo.toml
         ↓
   arx_pack::Manifest
         ↓
-  .deb + .rpm + .apk + optional publish/add flow
+  .deb + .rpm + .apk + .pkg.tar.zst + optional publish/add flow
 ```
 
 Rules to design before implementation:
@@ -251,7 +251,7 @@ These are plausible, but intentionally **not current focus**:
 | Auto dependency detection (`--auto-deps`) | Usually needs host tools (`ldd`, `objdump`, package DBs) and can undermine deterministic pack. |
 | Multi-arch manifests | Useful, but wait until single-arch pack ergonomics are excellent. |
 | `arx pack --sign` inline package signing | Package signing is intentionally separate from repository metadata signing today. |
-| Arch Linux `.pkg.tar.zst` support | New package ecosystem; wait until the apt/yum/apk paths are consistently excellent. |
+| Arch repository indexing/publishing | Package output exists; repository metadata/indexing needs a separate trust and client story before it belongs in `arx add` / publish. |
 | Object storage backend | See [ADR-0015](docs/adr/0015-object-storage-backend-deferred.md); deferred. |
 | Large-repo performance beyond current bottlenecks | Optimize when import/publish measurements demand it. |
 | Plug-in system | Too much platform surface until core workflows settle. |

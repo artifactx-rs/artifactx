@@ -25,6 +25,7 @@ front of you.
 | Integrate with `arx serve` over HTTP | [HTTP API reference](reference/http-api.md) / [OpenAPI](reference/openapi.yaml) |
 | Understand `arx.toml` | [Configuration reference](reference/config.md) |
 | Understand repo signing and expiry | [Signing and expiry](explanation/signing-and-expiry.md) |
+| Plan a curated packaged-upstream feed | [Curated packaging feed blueprint](explanation/curated-packaging-feed.md) |
 | Operate backups, restore, and rollback | [Operations guide](OPERATIONS.md) |
 | Understand design decisions | [ADR index](adr/README.md) |
 
