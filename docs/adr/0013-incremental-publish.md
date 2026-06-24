@@ -1,9 +1,8 @@
 # ADR-0013: Incremental publish — O(changes), not O(repo)
 
-- Status: **Accepted**
+- Status: **Accepted & implemented**
 - Date: 2026-06-17
-- Decided: incremental = **default** (`--full` to opt out); yum cache = **JSON
-  (Package struct via Serialize in our createrepo_rs)**.
+- Decided: incremental = **default** (`--full` to opt out); yum cache = **TOML manifest with reusable XML fragments** for `primary`, `filelists`, and `other`.
 
 ## Context
 
@@ -31,7 +30,7 @@ publishes, so there's no concurrent-writer race to worry about.
 The two expensive steps are **reading every .deb body** (just for SHA256/MD5/SHA1
 that we already computed last time and could cache) and **re-parsing every .rpm**.
 
-## Decision (proposed)
+## Decision
 
 ### File-manifest cache: detect unchanged packages by (mtime, size)
 
@@ -59,6 +58,22 @@ On the **next** publish:
 This is O(changes + scan), not O(repo). A no-op publish on 10k packages goes from
 "read 10k files" to "stat 10k files + read 0".
 
+### Implementation evidence: production dogfood benchmark
+
+A 2026-06-23 online benchmark ran against isolated `/tmp` copies of the production
+ArtifactX root, leaving `/data/arx/prod`, `/srv/deb`, and `/srv/repo` untouched.
+The first new-version publish paid a one-time yum fragment backfill cost; the
+steady-state small-add path then reused cached fragments:
+
+| Case | Add | Publish | Export | Total |
+| --- | ---: | ---: | ---: | ---: |
+| old production binary | 0.071s | 18.185s | 2.323s | 20.579s |
+| new binary after backfill | 0.069s | 0.992s | 1.986s | 3.047s |
+
+One-time backfill publish on the copied production root took 18.827s. That cost
+is expected once when upgrading a fragmentless yum manifest; it preserves the
+safe fallback behavior for existing repositories.
+
 ### What gets cached (per format)
 
 **apt:** the full `Packages` stanza text + the file's SHA256 (which we already
@@ -66,11 +81,12 @@ have from the manifest). The `Control` fields and `Filename`/`Size`/`MD5sum`/
 `SHA1`/`SHA256` don't change unless the file changes → cache them as a pre-built
 UTF-8 string.
 
-**yum:** cache the `createrepo_rs::types::Package` (serializable via `serde`
-if it implements it — or via a minimal subset: name, version, epoch, release,
-arch, summary, description, deps, plus the file's sha256/size for the repomd
-records). On mismatch, re-parse the .rpm. On match, reuse the cached struct for
-the XML dump step.
+**yum:** cache the per-package XML fragments that feed `primary.xml`,
+`filelists.xml`, and `other.xml`. On mismatch, re-parse only the changed `.rpm`
+and regenerate its fragments. On match, reuse the cached fragments and stream the
+metadata roots around them. Older manifests that only have `(mtime, size)` are not
+trusted as fresh; the first publish with fragment caching performs a full rebuild
+and backfills fragments for subsequent incremental publishes.
 
 ### cache format: plain TOML (charter — file-based, human-readable)
 
@@ -81,7 +97,8 @@ the XML dump step.
 "bar_2.0_amd64.deb" = { mtime = 1718123500, size = 23456, sha256 = "def..." }
 ```
 
-yum manifest additionally stores the cached Package fields needed for repodata
+yum manifest additionally stores cached XML fragments (`stanza` for primary,
+`contents` for filelists, and `other` for other.xml) needed for repodata
 regeneration.
 
 ### Guard: `--full` flag skips the cache
@@ -121,20 +138,16 @@ This is the "trust-but-verify" escape hatch — if the cache ever drifts, one
 - **Inotify / file watcher daemon.** Rejected: daemon violates charter
   "no background workers".
 
-## Open questions for review
+## Review outcome
 
-1. **Cache granularity** — per-pool-component (apt) + per-arch-dir (yum) vs one
-   global manifest. Lean: per-directory alongside the pool files — avoids lock
-   contention, easy to reason about, naturally scoped.
-2. **yum Package caching** — serialize the full `createrepo_rs::types::Package`
-   vs a minimal subset. Lean: check if `Package` (or a wrapper) is serializable
-   with serde; if not, a minimal struct with the fields needed for repodata
-   regeneration.
-3. **mtime vs content hash for change detection** — current proposal uses
-   (mtime, size) as the fast path. Pure content-hash would be more robust but
-   requires reading the file. Lean: (mtime, size) is the right fast-path;
-   `--full` is the escape. If mtime is unreliable (network FS, `git checkout`),
-   the user runs `--full`.
+1. **Cache granularity** — implemented per pool/component and per yum arch dir,
+   alongside the files being indexed. That keeps lock scope and recovery local.
+2. **yum fragment caching** — implemented as XML fragments instead of serializing
+   `createrepo_rs::types::Package`, avoiding a cache schema tied to upstream
+   Rust structs while still skipping unchanged RPM parsing.
+3. **mtime vs content hash for change detection** — implemented as `(mtime,
+   size)` for the fast path, with `--full` as the recovery path when an operator
+   does not trust filesystem timestamps.
 
 ## Future improvements
 

@@ -10,20 +10,42 @@ clients are allowed to fetch.
 
 ## Recommended chain
 
-Keep the chain explicit:
+For package drop directories, prefer the built-in wrapper and keep downstream
+sync optional:
+
+```sh
+arx publish-dir /opt/packages \
+  --root /data/arx/prod \
+  --apt-live /srv/deb \
+  --yum-flat-live /srv/repo \
+  --staging-dir /data/arx/public-builds
+
+# Optional fan-out only when your environment needs it:
+arx publish-dir /opt/packages --root /data/arx/prod \
+  --sync-cmd 'systemctl start --no-block sync-srv'
+```
+
+This is the repository-ingestion directory workflow from
+[ADR-0019](../adr/0019-directory-inputs-for-add-and-import.md): the directory
+already contains built `.deb` or `.rpm` packages. It does not replace the
+pack-side `[[dirs]]` feature from
+[ADR-0018](../adr/0018-directory-entries-for-package-manifests.md), which
+installs a directory tree inside newly built package payloads.
+
+The explicit chain is still useful for custom migrations:
 
 ```text
 package drop
--> arx add/import into an ArtifactX root
+-> arx publish-dir, or arx add/import into an ArtifactX root
 -> arx publish
 -> optional arx export for legacy public layouts
 -> validate staged apt/yum clients
--> public-only downstream sync
+-> optional public-only downstream sync
 -> optional debounce or monitoring automation
 ```
 
-The important boundary is between `arx publish` / `arx export` and the external
-sync step. ArtifactX creates a staged, client-consumable public tree; the sync
+The important boundary is between `arx publish-dir` / `arx publish` / `arx export` and the external
+sync step. RPM payload signing, when needed, should be explicit `--sign-rpms` or a custom `--rpm-sign-cmd` owned by the operator; downstream sync remains an explicit `--sync-cmd`. ArtifactX creates a staged, client-consumable public tree; the sync
 tool distributes that public tree without learning about private repository
 state.
 
@@ -120,18 +142,21 @@ Before keeping legacy sync automation in the path, verify:
 ## When to remove downstream sync
 
 Keep downstream sync only when it still provides value, such as mirror fan-out,
-CDN upload, or compatibility with an existing public URL. If ArtifactX already
+CDN upload, or compatibility with an existing public URL. In `arx publish-dir`,
+that boundary is `--sync-cmd`: it is optional, skipped for no-op runs, and never
+assumed by default. A systemd one-shot can call `arx publish-dir` directly; no
+wrapper script is required unless your site has extra policy checks. If ArtifactX already
 serves the repository directly and no separate distribution step is needed,
 removing redundant sync automation reduces cutover risk.
 
 
 ## Preflighted local cutover
 
-Use `arx cutover` when the public apt/yum paths are live symlinks to versioned
-exports:
+Use `arx publish` with live paths when the public apt/yum paths are symlinks to
+versioned exports:
 
 ```bash
-arx cutover \
+arx publish \
   --root ./repo \
   --apt-live ./public/deb \
   --yum-flat-live ./public/repo \
@@ -143,6 +168,9 @@ Add `--dry-run` to publish, export, and validate without switching live pointers
 Add `--require-signed-rpms` when yum clients enforce RPM payload signatures with
 `gpgcheck=1`. ArtifactX signs repository metadata, but it does not re-sign RPM
 payloads during import.
+
+`arx cutover` remains available for the less-common case where you want to
+switch previously published metadata with `--no-publish`.
 
 Keep downstream file replication outside the cutover command. If replication or
 notifications are needed, configure lifecycle hooks with generic commands.

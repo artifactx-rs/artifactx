@@ -10,7 +10,6 @@
 //! set deterministically, then build both tarballs in memory with entries sorted
 //! for reproducible output.
 
-use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,33 +23,32 @@ use crate::manifest::Manifest;
 /// Returns the path of the written package, named `{name}_{version}_{arch}.deb`
 /// using the Debian architecture spelling.
 pub fn build_deb(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
-    crate::validate_sources(manifest)?;
+    let payload = crate::expand_payload(manifest)?;
     let arch = deb_arch(&manifest.arch)?;
     let epoch = crate::resolve_source_epoch();
 
     // Stage the payload on disk first. tempfile gives us an isolated, auto-removed
     // directory so a build leaves nothing behind even if it fails midway.
     let staging = tempfile::tempdir().context("creating staging directory")?;
-    let mut staged: Vec<StagedFile> = Vec::with_capacity(manifest.files.len());
-    for entry in &manifest.files {
-        let mode = entry.mode_bits()?;
-        let data = std::fs::read(&entry.source)
-            .with_context(|| format!("reading source file {}", entry.source))?;
-        // Destination is absolute in the manifest; inside a tar it must be relative.
-        let rel = entry
-            .dest
-            .strip_prefix('/')
-            .unwrap_or(&entry.dest)
-            .to_string();
-        if rel.is_empty() {
-            bail!("file dest {:?} resolves to an empty path", entry.dest);
-        }
-        staged.push(StagedFile { rel, mode, data });
-    }
-    // Sort by install path for reproducible archive ordering.
-    staged.sort_by(|a, b| a.rel.cmp(&b.rel));
+    let staged: Vec<StagedFile> = payload
+        .files
+        .iter()
+        .map(|entry| StagedFile {
+            rel: entry.rel.clone(),
+            mode: entry.mode,
+            data: entry.data.clone(),
+        })
+        .collect();
+    let staged_dirs: Vec<StagedDir> = payload
+        .dirs
+        .iter()
+        .map(|entry| StagedDir {
+            rel: entry.rel.clone(),
+            mode: entry.mode,
+        })
+        .collect();
 
-    let data_tar = build_data_tar(&staged, epoch).context("building data.tar.gz")?;
+    let data_tar = build_data_tar(&staged, &staged_dirs, epoch).context("building data.tar.gz")?;
     let md5sums = md5sums(&staged);
     let control = render_control(manifest, arch, installed_size(&staged));
     let control_tar = build_control_tar(manifest, &control, &md5sums, epoch)
@@ -83,6 +81,11 @@ struct StagedFile {
     rel: String,
     mode: u32,
     data: Vec<u8>,
+}
+
+struct StagedDir {
+    rel: String,
+    mode: u32,
 }
 
 /// Map a manifest architecture onto the Debian spelling.
@@ -166,34 +169,21 @@ fn md5sums(staged: &[StagedFile]) -> String {
 
 /// Build `data.tar.gz` from the staged files, creating parent directory entries
 /// deterministically so the archive matches across rebuilds.
-fn build_data_tar(staged: &[StagedFile], epoch: u32) -> Result<Vec<u8>> {
+fn build_data_tar(staged: &[StagedFile], dirs: &[StagedDir], epoch: u32) -> Result<Vec<u8>> {
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut tar = tar::Builder::new(gz);
     tar.mode(tar::HeaderMode::Deterministic);
 
-    // Emit each unique parent directory once, before its files, in sorted order.
-    let mut dirs: BTreeMap<String, ()> = BTreeMap::new();
-    for f in staged {
-        let mut accum = String::new();
-        let parts: Vec<&str> = f.rel.split('/').collect();
-        for part in &parts[..parts.len().saturating_sub(1)] {
-            if part.is_empty() {
-                continue;
-            }
-            accum.push_str(part);
-            accum.push('/');
-            dirs.insert(accum.clone(), ());
-        }
-    }
-    for dir in dirs.keys() {
+    // Emit each unique directory once, before its files, in sorted order.
+    for dir in dirs {
         let mut header = tar::Header::new_gnu();
         header.set_entry_type(tar::EntryType::Directory);
-        header.set_mode(0o755);
+        header.set_mode(dir.mode);
         header.set_size(0);
         header.set_mtime(epoch as u64);
         header.set_cksum();
-        tar.append_data(&mut header, format!("./{dir}"), std::io::empty())
-            .with_context(|| format!("appending dir {dir}"))?;
+        tar.append_data(&mut header, format!("./{}", dir.rel), std::io::empty())
+            .with_context(|| format!("appending dir {}", dir.rel))?;
     }
 
     for f in staged {

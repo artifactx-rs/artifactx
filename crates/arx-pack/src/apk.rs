@@ -15,25 +15,26 @@ use crate::manifest::Manifest;
 
 /// Build an `.apk` for `manifest`, writing it into `out_dir`.
 pub fn build_apk(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
-    crate::validate_sources(manifest)?;
+    let payload = crate::expand_payload(manifest)?;
     let arch = apk_arch(&manifest.arch)?;
 
-    let mut staged: Vec<StagedFile> = Vec::with_capacity(manifest.files.len());
-    for entry in &manifest.files {
-        let mode = entry.mode_bits()?;
-        let data = std::fs::read(&entry.source)
-            .with_context(|| format!("reading source file {}", entry.source))?;
-        let rel = entry
-            .dest
-            .strip_prefix('/')
-            .unwrap_or(&entry.dest)
-            .to_string();
-        if rel.is_empty() {
-            anyhow::bail!("file dest {:?} resolves to an empty path", entry.dest);
-        }
-        staged.push(StagedFile { rel, mode, data });
-    }
-    staged.sort_by(|a, b| a.rel.cmp(&b.rel));
+    let staged: Vec<StagedFile> = payload
+        .files
+        .iter()
+        .map(|entry| StagedFile {
+            rel: entry.rel.clone(),
+            mode: entry.mode,
+            data: entry.data.clone(),
+        })
+        .collect();
+    let staged_dirs: Vec<StagedDir> = payload
+        .dirs
+        .iter()
+        .map(|entry| StagedDir {
+            rel: entry.rel.clone(),
+            mode: entry.mode,
+        })
+        .collect();
 
     // Build the tar.gz in memory.
     let gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
@@ -74,6 +75,18 @@ pub fn build_apk(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         )?;
     }
 
+    // Payload directories.
+    for dir in &staged_dirs {
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Directory);
+        h.set_mode(dir.mode);
+        h.set_size(0);
+        h.set_mtime(crate::resolve_source_epoch() as u64);
+        h.set_cksum();
+        tar.append_data(&mut h, format!(".{}", dir.rel), std::io::empty())
+            .with_context(|| format!("appending dir {}", dir.rel))?;
+    }
+
     // Payload files.
     for f in &staged {
         let mut h = tar::Header::new_gnu();
@@ -102,6 +115,11 @@ struct StagedFile {
     rel: String,
     mode: u32,
     data: Vec<u8>,
+}
+
+struct StagedDir {
+    rel: String,
+    mode: u32,
 }
 
 fn render_pkinfo(manifest: &Manifest, arch: &str) -> String {

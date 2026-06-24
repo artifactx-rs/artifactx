@@ -90,13 +90,20 @@ fn docker_build(
     let context = tempfile::tempdir().context("creating Docker build context")?;
     let manifest_path = context.path().join("manifest.toml");
 
-    // Copy source files into the context directory, adjusting paths.
+    // Copy source files and directory payloads into the context directory, adjusting paths.
     let mut adjusted = manifest.clone();
     for entry in adjusted.files.iter_mut() {
         let src = Path::new(&entry.source);
         let name = src.file_name().context("source has no filename")?;
         let dest = context.path().join(name);
         std::fs::copy(src, &dest)
+            .with_context(|| format!("copying {} into Docker context", entry.source))?;
+        entry.source = dest.to_string_lossy().into_owned();
+    }
+    for (idx, entry) in adjusted.dirs.iter_mut().enumerate() {
+        let src = Path::new(&entry.source);
+        let dest = context.path().join(format!("dir-{idx}"));
+        copy_dir_tree(src, &dest)
             .with_context(|| format!("copying {} into Docker context", entry.source))?;
         entry.source = dest.to_string_lossy().into_owned();
     }
@@ -163,4 +170,51 @@ fn docker_build(
     std::fs::copy(&artifact, &dest).with_context(|| format!("copying {name} from container"))?;
 
     Ok(dest)
+}
+
+fn copy_dir_tree(src: &Path, dest: &Path) -> Result<()> {
+    let meta = std::fs::symlink_metadata(src)
+        .with_context(|| format!("stat-ing source directory {}", src.display()))?;
+    let ft = meta.file_type();
+    if ft.is_symlink() {
+        bail!("source directory {} is a symbolic link", src.display());
+    }
+    if !ft.is_dir() {
+        bail!("source directory {} is not a directory", src.display());
+    }
+
+    std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
+    let mut children = std::fs::read_dir(src)
+        .with_context(|| format!("reading source directory {}", src.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| format!("reading entries in {}", src.display()))?;
+    children.sort_by_key(|entry| entry.path());
+
+    for child in children {
+        let child_src = child.path();
+        let child_dest = dest.join(child.file_name());
+        let child_meta = std::fs::symlink_metadata(&child_src)
+            .with_context(|| format!("stat-ing source path {}", child_src.display()))?;
+        let child_ft = child_meta.file_type();
+        if child_ft.is_symlink() {
+            bail!("source path {} is a symbolic link", child_src.display());
+        }
+        if child_ft.is_dir() {
+            copy_dir_tree(&child_src, &child_dest)?;
+        } else if child_ft.is_file() {
+            std::fs::copy(&child_src, &child_dest).with_context(|| {
+                format!(
+                    "copying {} to {}",
+                    child_src.display(),
+                    child_dest.display()
+                )
+            })?;
+        } else {
+            bail!(
+                "source path {} is not a regular file or directory",
+                child_src.display()
+            );
+        }
+    }
+    Ok(())
 }

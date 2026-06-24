@@ -91,7 +91,8 @@ operations as the CLI, for tools and CI. Reads are public. Writes require
 
 See the full [HTTP API reference](../../docs/reference/http-api.md) and
 [OpenAPI spec](../../docs/reference/openapi.yaml) for endpoints, schemas, status
-codes, auth, and `curl` examples.
+codes, auth, and `curl` examples. A running server also serves the spec at
+`/api/openapi.yaml` and Swagger UI at `/api/docs`.
 
 Push from CI in one line:
 
@@ -102,7 +103,7 @@ arx push ./dist/*.deb --url https://repo.example.com   # token or GitHub OIDC
 ## Configuration (`arx.toml`)
 
 `arx init` writes `arx.toml` at the repo root: repository identity
-(`Origin`/`Label`), signing key paths, default apt `dist`/`component`, default yum
+(`[apt.release]` `Origin`/`Label`), signing key paths, default apt `dist`/`component`, default yum
 `repo`, and the server listen address. CLI flags override config values.
 
 Two `[apt]` keys govern publishing behavior:

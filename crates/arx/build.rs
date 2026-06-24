@@ -32,6 +32,13 @@ fn main() {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "nogit".to_string());
     println!("cargo:rustc-env=VERGEN_GIT_SHA={sha}");
-    // Re-stamp the sha when HEAD moves.
+    // Re-stamp the sha when HEAD moves, and when the checked-out branch ref
+    // advances. `.git/HEAD` usually contains only `ref: refs/heads/<branch>`,
+    // so watching HEAD alone misses new commits made on the same branch.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
+    if let Ok(head) = std::fs::read_to_string("../../.git/HEAD") {
+        if let Some(reference) = head.trim().strip_prefix("ref: ") {
+            println!("cargo:rerun-if-changed=../../.git/{reference}");
+        }
+    }
 }

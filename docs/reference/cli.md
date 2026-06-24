@@ -18,7 +18,8 @@ for the authoritative option list in your installed version.
 | `arx init [PATH]` | Scaffold a repository with `arx.toml`, directories, and signing key. |
 | `arx key` | Generate, import, rotate, revoke, or export signing keys. |
 | `arx add <PACKAGES|DIRS>...` | Add `.deb` and `.rpm` package files, or discover them recursively from directories, into the repository pool. |
-| `arx publish` | Generate and sign apt/yum repository metadata. |
+| `arx publish` | Generate and sign apt/yum repository metadata; optionally export and cut over live public symlinks. |
+| `arx publish-dir <DIR>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks. |
 | `arx rollback [TARGET]` | Roll a target back to a retained published state. |
 | `arx history [TARGET]` | List retained published states. |
 | `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, or `.apk` packages from a manifest. |
@@ -29,6 +30,7 @@ for the authoritative option list in your installed version.
 | `arx gc [NAME]` | Prune old package versions from the pool, optionally scoped to one package name, then publish. |
 | `arx promote --from <FROM> --to <TO> <NAME>` | Promote packages between apt components or yum repos. |
 | `arx serve` | Serve the repository tree and API over HTTP. |
+| `arx daemonize` | Install/update a systemd `arx serve` unit and generate a write token. |
 | `arx mirror <URL>` | Mirror an upstream apt/yum repository. |
 | `arx watch [DIR]` | Watch a directory for new packages and auto-publish. |
 | `arx compose` | Generate `docker-compose.yml` and `Dockerfile`. |
@@ -40,7 +42,7 @@ Create, add, publish, serve:
 
 ```sh
 arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
@@ -70,6 +72,33 @@ Build packages and add them:
 arx pack ./arx.toml --out dist
 arx add dist --root ./repo
 arx publish --root ./repo
+```
+
+`arx pack` manifests support explicit `[[files]]` entries and recursive `[[dirs]]`
+entries for payload trees. Directory entries are expanded deterministically and
+reject symlinks, special files, and duplicate destinations.
+
+Keep the two directory features separate: `arx add <DIR>` and `arx publish-dir`
+ingest directories that already contain built `.deb` or `.rpm` packages
+(ADR-0019), while `arx pack` `[[dirs]]` installs a directory tree inside a newly
+built package payload (ADR-0018).
+
+Operate a production package drop directory:
+
+```sh
+arx publish-dir /opt/packages \
+  --root /data/arx/prod \
+  --apt-live /srv/deb \
+  --yum-flat-live /srv/repo \
+  --staging-dir /data/arx/public-builds \
+  --repo qgnet
+```
+
+`publish-dir` records source package fingerprints under `.arx-cache/` and turns
+unchanged runs into fast no-ops. External mirror fan-out is opt-in:
+
+```sh
+arx publish-dir /opt/packages --root /data/arx/prod --sync-cmd 'systemctl start --no-block sync-srv'
 ```
 
 Inspect before mutating:
@@ -115,11 +144,69 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--yum`: publish only yum metadata.
 - `--full`: rebuild all metadata from scratch.
 - `--strict`: fail if packages are skipped.
+- `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink.
+- `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink.
+- `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set.
+- `--repo <REPO>` / `--arch <ARCH>`: select the yum repo/architectures for `--yum-flat-live`.
+- `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
+- `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
 
 Configured `pre_publish` hooks run before metadata changes, and `post_publish`
 hooks run after a successful publish. See
 [`[hooks]`](config.md#hooks) for command shape and environment variables.
+
+For production public roots that are symlinks, prefer the single-command form:
+
+```sh
+arx publish --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo \
+  --staging-dir ./public/.arx-cutovers
+```
+
+This uses the same preflight and atomic symlink switching as `arx cutover`.
+
+### `arx publish-dir`
+
+`publish-dir` is the operational wrapper for package drop directories. It scans
+a directory for `.deb` and `.rpm` files, adds them to the pool, publishes
+metadata, optionally exports live public layouts, and stores source-directory
+state so unchanged runs can exit quickly.
+
+- `<DIR>`: package drop directory. Direct children are scanned by default.
+- `--recursive`: discover packages recursively below `<DIR>`.
+- `--root <DIR>`: ArtifactX repository root.
+- `--component <COMPONENT>` / `--repo <REPO>`: destination apt component or yum repo.
+- `--state-file <FILE>`: override the no-op state file. Defaults under `.arx-cache/`.
+- `--force`: publish even when the source directory state is unchanged.
+- `--full`: rebuild metadata from scratch.
+- `--apt` / `--yum`: limit the publish to one format.
+- `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
+- `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
+- `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
+- `--sign-rpms`: sign unsigned source RPM payloads with the system `rpm --addsign` backend before ingest. ArtifactX skips already-signed RPMs and verifies each payload is signed.
+- `--rpm-sign-cmd <COMMAND>`: optional custom signer for environments that do not use the default RPM signing backend.
+- `--sync-cmd <COMMAND>`: optional shell command to run after a successful non-no-op publish. ArtifactX does not enable sync by default.
+- `--passphrase-file <FILE>`: unlock encrypted signing key.
+
+Use `--sign-rpms` when your drop directory receives unsigned RPM payloads and
+clients require `gpgcheck=1`:
+
+```sh
+arx publish-dir /opt/packages --root /data/arx/prod \
+  --sign-rpms \
+  --require-signed-rpms
+```
+
+`--sign-rpms` uses the system RPM signing backend (`rpm --addsign`) and relies on
+the operator's normal RPM/GPG key configuration. Use `--rpm-sign-cmd` only for a
+custom signer; it receives `ARX_ROOT`, `ARX_SOURCE_DIR`, `ARX_RPM_PATH`, and
+`ARX_PACKAGE_PATH`. Both signers are skipped for RPMs that are already signed.
+
+Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
+`systemctl start --no-block sync-srv`. The command receives `ARX_ROOT`,
+`ARX_SOURCE_DIR`, and `ARX_PACKAGE_COUNT`. It is skipped for no-op runs.
 
 ### `arx import`
 
@@ -131,7 +218,7 @@ hooks run after a successful publish. See
 - `--match-name <PREFIX>`: import packages whose names match the prefix.
 - `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, or fails size/checksum validation. Use this for production cutover gates; omit it for best-effort migrations.
 
-For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[repo]`.
+For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[apt.release]`.
 
 ### `arx search`
 
@@ -158,10 +245,49 @@ For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available 
 
 ### `arx serve`
 
-- `--root <ROOT>`: repository root to serve. Default: `.`.
+- `--root <ROOT>`: canonical ArtifactX repository root and write API state.
+  Default: `.`. Static fallback serves this root, so canonical paths such as
+  `/apt/...` and `/yum/<repo>/<arch>/...` remain available.
+- `--apt-live <DIR>`: also serve an exported apt public layout at `/deb/*`.
+  This is for legacy client URLs like `deb https://host/deb stable main` while
+  writes still publish into `--root`.
+- `--yum-flat-live <DIR>`: also serve an exported flat yum layout at `/repo/*`.
+  This is for legacy client URLs like `baseurl=https://host/repo` while writes
+  still publish into `--root`.
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
 
+`arx serve` exposes static apt/yum repository files, optional legacy `/deb` and
+`/repo` live mounts, `/metrics`, `/api/v1/...` JSON APIs, `/api/openapi.yaml`,
+and `/api/docs` Swagger UI.
+
+Example production-shaped service behind a reverse proxy:
+
+```sh
+arx serve --root /data/arx/prod --apt-live /srv/deb --yum-flat-live /srv/repo
+```
+
+### `arx daemonize`
+
+- `--root <ROOT>`: repository root served by systemd. Default:
+  `/var/lib/arx/repo`.
+- `--addr <ADDR>`: listen address written into the unit. Default:
+  `127.0.0.1:8080`.
+- `--apt-live <DIR>`: add `--apt-live` to the generated `ExecStart` and grant
+  the unit read-only access to that directory.
+- `--yum-flat-live <DIR>`: add `--yum-flat-live` to the generated `ExecStart`
+  and grant the unit read-only access to that directory.
+- `--unit <NAME>`: systemd unit name. Default: `arx`.
+- `--env-file <PATH>`: environment file for generated `ARX_SERVE_TOKEN`.
+  Default: `/etc/arx/arx.env`.
+- `--reuse-token`: keep an existing `ARX_SERVE_TOKEN` when present.
+- `--enable`: run `systemctl enable`.
+- `--start`: run `systemctl restart`; implies enable behavior.
+- `--dry-run`: print files/actions without writing or calling systemd.
+
+`arx daemonize` writes a hardened `arx serve` unit, creates a random 32-byte
+bearer token for write API access, stores it in a mode `0600` env file, verifies
+the unit with `systemd-analyze verify`, and reloads systemd.
 
 ### `arx cutover`
 

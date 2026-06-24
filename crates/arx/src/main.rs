@@ -18,10 +18,12 @@ mod signing;
 mod yum;
 
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use pgp::composed::SignedSecretKey;
+use rand::RngCore;
 
 use crate::cli::{Cli, Command, KeyAction};
 use crate::config::Config;
@@ -54,6 +56,7 @@ async fn main() -> Result<()> {
         Command::Rollback(args) => cmd_rollback(&args),
         Command::History(args) => cmd_history(&args),
         Command::Push(args) => cmd_push(&args).await,
+        Command::PublishDir(args) => cmd_publish_dir(&args),
         Command::Rm(args) => {
             let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
             let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
@@ -139,6 +142,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => cmd_serve(&args).await,
+        Command::Daemonize(args) => cmd_daemonize(&args),
         Command::Watch(args) => cmd_watch(&args).await,
         Command::Compose(args) => {
             compose::generate(&args.root, &args.out, &args.addr)?;
@@ -296,6 +300,7 @@ fn cmd_cutover(args: &cli::CutoverArgs) -> Result<()> {
             arch: args.arch.clone(),
             dry_run: args.dry_run,
             no_publish: args.no_publish,
+            full: false,
             require_signed_rpms: args.require_signed_rpms,
         },
         &cfg,
@@ -649,6 +654,561 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
         if let Err(err) = cache.save(root) {
             tracing::warn!(error = %err, "failed to save package cache");
         }
+    }
+    Ok(())
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct PublishDirState {
+    version: u32,
+    source_dir: String,
+    recursive: bool,
+    packages: Vec<PublishDirEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PublishDirEntry {
+    path: String,
+    size: u64,
+    modified_ns: u128,
+    changed_ns: u128,
+    digest: String,
+}
+
+#[derive(Debug)]
+struct PublishDirSource {
+    path: PathBuf,
+    entry: PublishDirEntry,
+}
+
+fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
+    let root = args.root.clone();
+    let cfg = Config::load(&root).context("loading config; run `arx init` first")?;
+    let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
+    let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+    let state_file = publish_dir_state_file(args);
+    let mut sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
+
+    if sources.is_empty() {
+        println!(
+            "publish-dir: no source packages found in {}",
+            args.dir.display()
+        );
+        return Ok(());
+    }
+    if maybe_sign_publish_dir_rpms(args, &root, &sources)? {
+        sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
+    }
+
+    let previous = load_publish_dir_state(&state_file)?;
+    if !args.force
+        && publish_dir_fingerprints_match(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
+    {
+        println!(
+            "publish-dir: fast no-op: {} source package(s) unchanged",
+            sources.len()
+        );
+        return Ok(());
+    }
+
+    let sources = collect_publish_dir_sources(&args.dir, args.recursive, true)?;
+    if !args.force
+        && publish_dir_state_matches(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
+    {
+        save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+        println!(
+            "publish-dir: verified no-op: {} source package(s) unchanged",
+            sources.len()
+        );
+        return Ok(());
+    }
+
+    let mut package_cache = cache::PackageFileCache::load(&root);
+    let mut cache_dirty = false;
+    for source in &sources {
+        let (dest, decision) = add_to_pool(
+            &root,
+            &cfg,
+            &source.path,
+            component,
+            repo,
+            &mut package_cache,
+        )?;
+        cache_dirty = true;
+        match decision {
+            cache::CacheDecision::Hit => tracing::info!(file = %dest.display(), "add cache hit"),
+            cache::CacheDecision::Miss => tracing::info!(file = %dest.display(), "added"),
+        }
+        println!("Added {}", dest.display());
+    }
+    if cache_dirty {
+        if let Err(err) = package_cache.save(&root) {
+            tracing::warn!(error = %err, "failed to save package cache");
+        }
+    }
+
+    publish_dir_publish(&root, &cfg, args)?;
+    if args.dry_run {
+        println!("publish-dir: dry-run: source-directory state was not updated");
+        return Ok(());
+    }
+    save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+    println!(
+        "publish-dir: ok: {} source package(s); state={}",
+        sources.len(),
+        state_file.display()
+    );
+
+    if let Some(sync_cmd) = args
+        .sync_cmd
+        .as_deref()
+        .filter(|cmd| !cmd.trim().is_empty())
+    {
+        run_publish_dir_sync(sync_cmd, &root, &args.dir, sources.len())?;
+        println!("publish-dir: sync requested");
+    }
+
+    Ok(())
+}
+
+fn maybe_sign_publish_dir_rpms(
+    args: &cli::PublishDirArgs,
+    root: &Path,
+    sources: &[PublishDirSource],
+) -> Result<bool> {
+    let signer = publish_dir_rpm_signer(args);
+    if signer.is_none() {
+        return Ok(false);
+    }
+
+    let mut signed = 0usize;
+    for source in sources {
+        if source.path.extension().and_then(|e| e.to_str()) != Some("rpm") {
+            continue;
+        }
+        if rpm_payload_is_signed(&source.path)? {
+            continue;
+        }
+        run_publish_dir_rpm_sign(
+            signer.as_ref().expect("checked above"),
+            root,
+            &args.dir,
+            &source.path,
+        )?;
+        if !rpm_payload_is_signed(&source.path)? {
+            bail!(
+                "RPM signer completed but {} is still unsigned",
+                source.path.display()
+            );
+        }
+        signed += 1;
+        println!("publish-dir: signed rpm {}", source.path.display());
+    }
+    if signed > 0 {
+        println!("publish-dir: signed {signed} rpm payload(s)");
+    }
+    Ok(signed > 0)
+}
+
+enum PublishDirRpmSigner<'a> {
+    SystemRpm,
+    Command(&'a str),
+}
+
+fn publish_dir_rpm_signer(args: &cli::PublishDirArgs) -> Option<PublishDirRpmSigner<'_>> {
+    match (
+        args.sign_rpms,
+        args.rpm_sign_cmd
+            .as_deref()
+            .filter(|cmd| !cmd.trim().is_empty()),
+    ) {
+        (true, _) => Some(PublishDirRpmSigner::SystemRpm),
+        (false, Some(cmd)) => Some(PublishDirRpmSigner::Command(cmd)),
+        (false, None) => None,
+    }
+}
+
+fn rpm_payload_is_signed(path: &Path) -> Result<bool> {
+    let reader = createrepo_rs::rpm::RpmReader::open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    Ok(reader.is_signed())
+}
+
+fn run_publish_dir_rpm_sign(
+    signer: &PublishDirRpmSigner<'_>,
+    root: &Path,
+    dir: &Path,
+    rpm_path: &Path,
+) -> Result<()> {
+    match signer {
+        PublishDirRpmSigner::SystemRpm => run_system_rpm_sign(root, dir, rpm_path),
+        PublishDirRpmSigner::Command(sign_cmd) => {
+            run_publish_dir_shell_sign(sign_cmd, root, dir, rpm_path)
+        }
+    }
+}
+
+fn run_system_rpm_sign(root: &Path, dir: &Path, rpm_path: &Path) -> Result<()> {
+    let status = std::process::Command::new("rpm")
+        .arg("--addsign")
+        .arg(rpm_path)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_RPM_PATH", rpm_path)
+        .env("ARX_PACKAGE_PATH", rpm_path)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .with_context(|| format!("running rpm --addsign for {}", rpm_path.display()))?;
+    if !status.success() {
+        bail!(
+            "rpm --addsign failed with status {status} for {}",
+            rpm_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_publish_dir_shell_sign(
+    sign_cmd: &str,
+    root: &Path,
+    dir: &Path,
+    rpm_path: &Path,
+) -> Result<()> {
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(sign_cmd)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_RPM_PATH", rpm_path)
+        .env("ARX_PACKAGE_PATH", rpm_path)
+        .status()
+        .with_context(|| format!("running --rpm-sign-cmd for {}", rpm_path.display()))?;
+    if !status.success() {
+        bail!(
+            "--rpm-sign-cmd failed with status {status} for {}: {sign_cmd}",
+            rpm_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn publish_dir_publish(root: &Path, cfg: &Config, args: &cli::PublishDirArgs) -> Result<()> {
+    let key = load_key(root, cfg)?;
+    let passphrase = publish_passphrase(cfg, args.passphrase_file.as_deref())?;
+
+    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
+        if args.apt && args.apt_live.is_none() {
+            bail!("--apt requires --apt-live when publish-dir cutover options are used");
+        }
+        if args.yum && args.yum_flat_live.is_none() {
+            bail!("--yum requires --yum-flat-live when publish-dir cutover options are used");
+        }
+        let report = cutover::run(
+            &cutover::CutoverOptions {
+                root: root.to_path_buf(),
+                apt_live: args.apt_live.clone(),
+                yum_flat_live: args.yum_flat_live.clone(),
+                staging_dir: args.staging_dir.clone(),
+                repo: args.repo.clone(),
+                arch: args.arch.clone(),
+                dry_run: args.dry_run,
+                no_publish: false,
+                full: args.full,
+                require_signed_rpms: args.require_signed_rpms,
+            },
+            cfg,
+            key.as_ref(),
+            &passphrase,
+        )?;
+        println!("publish-dir staging: {}", report.staging_root.display());
+        for line in report.lines {
+            println!("{line}");
+        }
+        return Ok(());
+    }
+
+    let _lock = PublishLock::acquire(root)?;
+    let publish_apt_selected = args.apt || !args.yum;
+    let publish_yum_selected = args.yum || !args.apt;
+    let formats = publish_formats(publish_apt_selected, publish_yum_selected);
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PrePublish,
+        &hooks::HookContext::new().with("ARX_FORMATS", formats.clone()),
+    )?;
+    let incremental = !args.full;
+    let mut lines = Vec::new();
+    if publish_apt_selected {
+        lines.push(
+            publish_apt(
+                root,
+                cfg,
+                key.as_ref(),
+                &passphrase,
+                cfg.apt.strict,
+                incremental,
+            )?
+            .summary,
+        );
+    }
+    if publish_yum_selected {
+        lines.push(publish_yum(
+            root,
+            cfg,
+            key.as_ref(),
+            &passphrase,
+            incremental,
+        )?);
+    }
+    let summary = lines.join("; ");
+    hooks::run(
+        root,
+        cfg,
+        hooks::HookEvent::PostPublish,
+        &hooks::HookContext::new()
+            .with("ARX_FORMATS", formats)
+            .with("ARX_SUMMARY", summary.clone()),
+    )?;
+    println!("Published: {summary}");
+    Ok(())
+}
+
+fn publish_passphrase(cfg: &Config, passphrase_file: Option<&Path>) -> Result<String> {
+    if cfg.signing.enabled && cfg.signing.encrypted {
+        match resolve_passphrase(passphrase_file)? {
+            Some(p) => Ok(p),
+            None => bail!(
+                "signing key is encrypted; provide --passphrase-file or set ARX_KEY_PASSPHRASE"
+            ),
+        }
+    } else {
+        Ok(String::new())
+    }
+}
+
+fn collect_publish_dir_sources(
+    dir: &Path,
+    recursive: bool,
+    include_digest: bool,
+) -> Result<Vec<PublishDirSource>> {
+    if !dir.is_dir() {
+        bail!("{} is not a directory", dir.display());
+    }
+    let mut sources = Vec::new();
+    let mut walker = walkdir::WalkDir::new(dir).min_depth(1).follow_links(false);
+    if !recursive {
+        walker = walker.max_depth(1);
+    }
+    for entry in walker {
+        let entry = entry.with_context(|| format!("walking {}", dir.display()))?;
+        let path = entry.path();
+        if !entry.file_type().is_file() || !is_supported_package_path(path) {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(dir)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let fp = cache::fingerprint(path)?;
+        let digest = if include_digest {
+            cache::content_digest_file(path)?
+        } else {
+            String::new()
+        };
+        sources.push(PublishDirSource {
+            path: path.to_path_buf(),
+            entry: PublishDirEntry {
+                path: rel,
+                size: fp.size,
+                modified_ns: fp.modified_ns,
+                changed_ns: fp.changed_ns,
+                digest,
+            },
+        });
+    }
+    sources.sort_by(|a, b| a.entry.path.cmp(&b.entry.path));
+    Ok(sources)
+}
+
+fn publish_dir_state_file(args: &cli::PublishDirArgs) -> PathBuf {
+    args.state_file.clone().unwrap_or_else(|| {
+        cache::cache_dir(&args.root)
+            .join("publish-dir")
+            .join("state.json")
+    })
+}
+
+fn load_publish_dir_state(path: &Path) -> Result<Option<PublishDirState>> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .with_context(|| format!("parsing {}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+fn save_publish_dir_state(
+    path: &Path,
+    dir: &Path,
+    recursive: bool,
+    sources: &[PublishDirSource],
+) -> Result<()> {
+    let state = PublishDirState {
+        version: 1,
+        source_dir: dir.to_string_lossy().to_string(),
+        recursive,
+        packages: sources.iter().map(|source| source.entry.clone()).collect(),
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let tmp = path.with_extension("json.tmp");
+    let json = serde_json::to_vec_pretty(&state).context("serializing publish-dir state")?;
+    std::fs::write(&tmp, json).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), path.display()))?;
+    Ok(())
+}
+
+fn publish_dir_fingerprints_match(
+    previous: Option<&PublishDirState>,
+    sources: &[PublishDirSource],
+    dir: &Path,
+    recursive: bool,
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    previous.version == 1
+        && previous.source_dir == dir.to_string_lossy()
+        && previous.recursive == recursive
+        && previous.packages.len() == sources.len()
+        && previous.packages.iter().zip(sources).all(|(old, new)| {
+            old.path == new.entry.path
+                && old.size == new.entry.size
+                && old.modified_ns == new.entry.modified_ns
+                && old.changed_ns == new.entry.changed_ns
+        })
+}
+
+fn publish_dir_state_matches(
+    previous: Option<&PublishDirState>,
+    sources: &[PublishDirSource],
+    dir: &Path,
+    recursive: bool,
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    previous.version == 1
+        && previous.source_dir == dir.to_string_lossy()
+        && previous.recursive == recursive
+        && previous
+            .packages
+            .iter()
+            .eq(sources.iter().map(|source| &source.entry))
+}
+
+fn publish_dir_outputs_ok(
+    root: &Path,
+    cfg: &Config,
+    args: &cli::PublishDirArgs,
+    sources: &[PublishDirSource],
+) -> Result<bool> {
+    let has_deb = sources
+        .iter()
+        .any(|source| source.path.extension().and_then(|e| e.to_str()) == Some("deb"));
+    let has_rpm = sources
+        .iter()
+        .any(|source| source.path.extension().and_then(|e| e.to_str()) == Some("rpm"));
+
+    if let Some(live) = &args.apt_live {
+        if !apt_layout_ok(live, cfg) {
+            return Ok(false);
+        }
+    } else if args.apt || (!args.yum && has_deb) {
+        let apt_root = root.join("apt");
+        if !apt_layout_ok(&apt_root, cfg) {
+            return Ok(false);
+        }
+    }
+
+    if let Some(live) = &args.yum_flat_live {
+        if !yum_flat_layout_ok(live) {
+            return Ok(false);
+        }
+    } else if args.yum || (!args.apt && has_rpm) {
+        let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
+        let base = cfg.checked_yum_base(root)?.join(repo);
+        if !yum_pool_layout_ok(&base) {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn apt_layout_ok(root: &Path, cfg: &Config) -> bool {
+    root.join("dists")
+        .join(&cfg.apt.dist)
+        .join("Release")
+        .is_file()
+        && root
+            .join("dists")
+            .join(&cfg.apt.dist)
+            .join(&cfg.apt.component)
+            .join("binary-amd64")
+            .join("Packages.gz")
+            .is_file()
+}
+
+fn yum_flat_layout_ok(root: &Path) -> bool {
+    let repomd = root.join("repodata/repomd.xml");
+    repomd.is_file()
+        && std::fs::read_to_string(repomd)
+            .map(|text| text.contains(".xml.gz") && !text.contains(".xml.xz"))
+            .unwrap_or(false)
+}
+
+fn yum_pool_layout_ok(repo_root: &Path) -> bool {
+    walkdir::WalkDir::new(repo_root)
+        .min_depth(2)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .any(|entry| {
+            entry.file_type().is_file()
+                && entry
+                    .path()
+                    .strip_prefix(repo_root)
+                    .map(|rel| rel.ends_with("repodata/repomd.xml"))
+                    .unwrap_or(false)
+        })
+}
+
+fn run_publish_dir_sync(
+    sync_cmd: &str,
+    root: &Path,
+    dir: &Path,
+    package_count: usize,
+) -> Result<()> {
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(sync_cmd)
+        .current_dir(root)
+        .env("ARX_ROOT", root)
+        .env("ARX_SOURCE_DIR", dir)
+        .env("ARX_PACKAGE_COUNT", package_count.to_string())
+        .status()
+        .with_context(|| format!("running --sync-cmd: {sync_cmd}"))?;
+    if !status.success() {
+        bail!("--sync-cmd failed with status {status}: {sync_cmd}");
     }
     Ok(())
 }
@@ -1010,6 +1570,37 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
         String::new()
     };
 
+    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
+        if args.apt && args.apt_live.is_none() {
+            bail!("--apt requires --apt-live when publish cutover options are used");
+        }
+        if args.yum && args.yum_flat_live.is_none() {
+            bail!("--yum requires --yum-flat-live when publish cutover options are used");
+        }
+        let report = cutover::run(
+            &cutover::CutoverOptions {
+                root,
+                apt_live: args.apt_live.clone(),
+                yum_flat_live: args.yum_flat_live.clone(),
+                staging_dir: args.staging_dir.clone(),
+                repo: args.repo.clone(),
+                arch: args.arch.clone(),
+                dry_run: args.dry_run,
+                no_publish: false,
+                full: args.full,
+                require_signed_rpms: args.require_signed_rpms,
+            },
+            &cfg,
+            key.as_ref(),
+            &passphrase,
+        )?;
+        println!("publish staging: {}", report.staging_root.display());
+        for line in report.lines {
+            println!("{line}");
+        }
+        return Ok(());
+    }
+
     // Hold an exclusive lock for the whole publish.
     let _lock = PublishLock::acquire(&root)?;
 
@@ -1254,13 +1845,14 @@ fn publish_apt(
     let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
     let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
 
+    let release = cfg.apt_release();
     let meta = arx_debrepo::ReleaseMeta::new(
-        cfg.repo.origin.as_str(),
-        cfg.repo.label.as_str(),
-        cfg.repo.description.as_str(),
-        cfg.repo.suite.as_deref().unwrap_or(dist),
+        release.origin.as_str(),
+        release.label.as_str(),
+        release.description.as_str(),
+        release.suite.as_deref().unwrap_or(dist),
     )
-    .with_codename(cfg.repo.codename.as_deref().unwrap_or(dist))
+    .with_codename(release.codename.as_deref().unwrap_or(dist))
     .with_valid_days(cfg.apt.valid_days);
 
     // Stage the whole dist (all components/arches) into a fresh directory.
@@ -1369,7 +1961,246 @@ async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
         key,
         passphrase,
     };
-    server::serve(args.root.clone(), addr, handle, token, push).await
+    let mounts = server::StaticMounts {
+        apt_live: args.apt_live.clone(),
+        yum_flat_live: args.yum_flat_live.clone(),
+    };
+    server::serve(args.root.clone(), addr, handle, token, push, mounts).await
+}
+
+fn cmd_daemonize(args: &cli::DaemonizeArgs) -> Result<()> {
+    let unit_name = systemd_unit_name(&args.unit)?;
+    let unit_path = PathBuf::from("/etc/systemd/system").join(&unit_name);
+    let token = if args.reuse_token {
+        read_existing_serve_token(&args.env_file)?.unwrap_or_else(generate_token)
+    } else {
+        generate_token()
+    };
+    let env_text = format!("ARX_SERVE_TOKEN={token}\n");
+    let unit_text = render_arx_service_unit(args);
+
+    if args.dry_run {
+        println!("would write {}", args.env_file.display());
+        print!("{env_text}");
+        println!("would write {}", unit_path.display());
+        print!("{unit_text}");
+        if args.enable || args.start {
+            println!("would run: systemctl enable {unit_name}");
+        }
+        if args.start {
+            println!("would run: systemctl restart {unit_name}");
+        }
+        return Ok(());
+    }
+
+    if let Some(parent) = args.env_file.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    std::fs::create_dir_all(&args.root)
+        .with_context(|| format!("creating {}", args.root.display()))?;
+    std::fs::write(&args.env_file, env_text)
+        .with_context(|| format!("writing {}", args.env_file.display()))?;
+    set_owner_only_permissions(&args.env_file)?;
+
+    std::fs::write(&unit_path, unit_text)
+        .with_context(|| format!("writing {}", unit_path.display()))?;
+    run_systemctl_or_analyze("systemd-analyze", "verify", &unit_path)?;
+    run_command(&["systemctl", "daemon-reload"])?;
+    if args.enable || args.start {
+        run_command(&["systemctl", "enable", unit_name.as_str()])?;
+    }
+    if args.start {
+        run_command(&["systemctl", "restart", unit_name.as_str()])?;
+    }
+
+    println!("wrote {}", args.env_file.display());
+    println!("wrote {}", unit_path.display());
+    println!("generated ARX_SERVE_TOKEN in {}", args.env_file.display());
+    if args.start {
+        println!("started {unit_name}");
+    } else if args.enable {
+        println!("enabled {unit_name}");
+    } else {
+        println!("next: systemctl enable --now {unit_name}");
+    }
+    Ok(())
+}
+
+fn systemd_unit_name(unit: &str) -> Result<String> {
+    let name = unit.strip_suffix(".service").unwrap_or(unit);
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '@' | '.'))
+    {
+        bail!("invalid systemd unit name {unit:?}");
+    }
+    Ok(format!("{name}.service"))
+}
+
+fn render_arx_service_unit(args: &cli::DaemonizeArgs) -> String {
+    let env_file = quote_systemd_value(&args.env_file.to_string_lossy());
+    let bin = quote_systemd_value(&args.bin.to_string_lossy());
+    let root = quote_systemd_value(&args.root.to_string_lossy());
+    let addr = quote_systemd_value(&args.addr);
+    let apt_live_arg = args
+        .apt_live
+        .as_ref()
+        .map(|path| {
+            format!(
+                " \\\n  --apt-live {}",
+                quote_systemd_value(&path.to_string_lossy())
+            )
+        })
+        .unwrap_or_default();
+    let yum_flat_live_arg = args
+        .yum_flat_live
+        .as_ref()
+        .map(|path| {
+            format!(
+                " \\\n  --yum-flat-live {}",
+                quote_systemd_value(&path.to_string_lossy())
+            )
+        })
+        .unwrap_or_default();
+    let mut read_only_paths = String::new();
+    if let Some(path) = args.apt_live.as_ref() {
+        read_only_paths.push_str(&format!(
+            "ReadOnlyPaths={}\n",
+            quote_systemd_value(&path.to_string_lossy())
+        ));
+    }
+    if let Some(path) = args.yum_flat_live.as_ref() {
+        read_only_paths.push_str(&format!(
+            "ReadOnlyPaths={}\n",
+            quote_systemd_value(&path.to_string_lossy())
+        ));
+    }
+    format!(
+        r#"[Unit]
+Description=ArtifactX package repository
+Documentation=https://github.com/artifactx-rs/artifactx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+Group={group}
+EnvironmentFile={env_file}
+ExecStart={bin} serve \
+  --root {root}{apt_live_arg}{yum_flat_live_arg} \
+  --addr {addr}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={root}
+{read_only_paths}
+[Install]
+WantedBy=multi-user.target
+"#,
+        user = args.user,
+        group = args.group,
+        env_file = env_file,
+        bin = bin,
+        root = root,
+        apt_live_arg = apt_live_arg,
+        yum_flat_live_arg = yum_flat_live_arg,
+        addr = addr,
+        read_only_paths = read_only_paths,
+    )
+}
+
+fn quote_systemd_value(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | ':' | '@'))
+    {
+        return value.to_string();
+    }
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for ch in value.chars() {
+        if matches!(ch, '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(ch);
+    }
+    quoted.push('"');
+    quoted
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
+fn read_existing_serve_token(path: &Path) -> Result<Option<String>> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("ARX_SERVE_TOKEN=") {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Ok(Some(value.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn set_owner_only_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)
+        .with_context(|| format!("stat {}", path.display()))?
+        .permissions();
+    perms.set_mode(0o600);
+    std::fs::set_permissions(path, perms).with_context(|| format!("chmod 0600 {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn run_systemctl_or_analyze(program: &str, arg: &str, path: &Path) -> Result<()> {
+    let status = ProcessCommand::new(program)
+        .arg(arg)
+        .arg(path)
+        .status()
+        .with_context(|| format!("running {program} {arg}"))?;
+    if !status.success() {
+        bail!("{program} {arg} failed with status {status}");
+    }
+    Ok(())
+}
+
+fn run_command(args: &[&str]) -> Result<()> {
+    let Some((program, rest)) = args.split_first() else {
+        bail!("empty command");
+    };
+    let status = ProcessCommand::new(program)
+        .args(rest)
+        .status()
+        .with_context(|| format!("running {}", args.join(" ")))?;
+    if !status.success() {
+        bail!("{} failed with status {status}", args.join(" "));
+    }
+    Ok(())
 }
 
 /// Resolve a rollback target to its versioned symlink path. A target containing

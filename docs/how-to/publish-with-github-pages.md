@@ -32,8 +32,8 @@ ArtifactX has two Pages paths:
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| `.github/workflows/release.yml` | tag push `v*` or manual dispatch | Builds `arx`, creates release artifacts, packages `arx`, then deploys the Pages repo using the just-built binary. |
-| `.github/workflows/pages.yml` | manual dispatch, or changes to Pages inputs on `main` | Rebuilds and redeploys only the Pages site/repo. It downloads the latest release binary for the Cargo version; it does **not** compile Rust source. |
+| `.github/workflows/release.yml` | newest tag push `v*` or manual dispatch | Builds `arx`, creates release artifacts, packages `arx`, then deploys the Pages repo using the just-built binary. Older `v*` tags still verify metadata, but skip externally visible publication when a newer tag exists. |
+| `.github/workflows/pages.yml` | manual dispatch, or changes to Pages inputs on `main` | Rebuilds and redeploys only the Pages site/repo. It prefers the release binary for the Cargo version and falls back to a local `cargo build` when that release asset is not available yet. |
 
 Both workflows call `scripts/build-pages-site.sh`. That script is the source of
 truth for the generated repository layout, while `site/` is the maintainable
@@ -41,8 +41,9 @@ source for the landing page, install helper, robots file, and sitemap.
 
 The standalone `pages` workflow checks out the repository because it needs the
 workflow file, `scripts/build-pages-site.sh`, `site/`, `packaging/arx.toml`, and
-the Cargo version. It deliberately avoids the Rust toolchain and release build
-steps.
+the Cargo version. It avoids the full release pipeline (`cargo zigbuild`, GitHub
+Release writes, GHCR, and tag publication). It uses a quick local build only as a
+fallback when the matching release binary is not available.
 
 ## Prerequisites
 
@@ -54,8 +55,10 @@ steps.
 3. The repository has a stable private signing key stored as a secret:
    - `ARX_SIGNING_KEY` — required, armored OpenPGP private key.
    - `ARX_KEY_PASSPHRASE` — required only if the private key is encrypted.
-4. A release asset named `arx-latest-amd64` exists for the version used by
-   `crates/arx/Cargo.toml` when using the standalone `pages` workflow.
+4. Recommended: a release asset named `arx-latest-amd64` exists for the version
+   used by `crates/arx/Cargo.toml` when using the standalone `pages` workflow.
+   If it is missing, the workflow falls back to building `arx` from the checked
+   out commit before generating Pages.
 
 Optional repository variable:
 
@@ -98,18 +101,24 @@ Pages to be built from the same binary that was just released.
 
 ```sh
 scripts/sync-version.py --check
-git tag -a v0.1.5 -m 'v0.1.5'
-git push origin v0.1.5
+git tag -a vX.Y.Z -m 'vX.Y.Z'
+git push origin vX.Y.Z
 ```
 
 The release workflow will:
 
 1. verify the tag version matches `crates/arx/Cargo.toml`;
-2. build static Linux binaries;
-3. package `arx` into `.deb` and `.rpm` artifacts;
-4. create the GitHub Release;
-5. build `public/` with `scripts/build-pages-site.sh`;
-6. deploy `public/` to GitHub Pages.
+2. check whether the pushed tag is the newest semantic `v*` tag;
+3. build static Linux binaries only when this tag is the newest release tag;
+4. package `arx` into `.deb` and `.rpm` artifacts;
+5. create the GitHub Release;
+6. build `public/` with `scripts/build-pages-site.sh`;
+7. deploy `public/` to GitHub Pages.
+
+This protects rapid patch iteration: if several `v0.2.x` tags are pushed close
+together, only the newest tag updates `arx-latest-*`, GHCR `latest`, and the
+dogfood Pages repository. Older tags fail only on real metadata mismatches; they
+do not overwrite the public "latest" surfaces.
 
 ## Redeploy Pages without rebuilding Rust
 
@@ -125,11 +134,13 @@ gh run watch --repo OWNER/REPO
 The standalone workflow will:
 
 1. read the version from `crates/arx/Cargo.toml`;
-2. download `arx-latest-amd64` from release `v<version>`;
+2. download `arx-latest-amd64` from release `v<version>`, or build `arx`
+   locally if that release asset does not exist yet;
 3. run `scripts/build-pages-site.sh`;
 4. upload and deploy the `public/` artifact.
 
-It does not run `cargo build`, `cargo test`, or `cargo zigbuild`.
+It does not run `cargo test`, `cargo zigbuild`, GitHub Release creation, or GHCR
+publication.
 
 ## Test the Pages build locally
 
@@ -243,7 +254,7 @@ workflow is configured to redeploy when `site/`, `scripts/build-pages-site.sh`,
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `ARX_SIGNING_KEY is required` | Secret is missing or empty. | Add the armored private key to the repository secret `ARX_SIGNING_KEY`. |
-| `gh release download ... v<version>` fails | The standalone Pages workflow cannot find a release for the Cargo version. | Publish/tag that version first, or use the release workflow. |
+| `gh release download ... v<version>` fails | The standalone Pages workflow cannot find a release for the Cargo version. | It falls back to `cargo build --release -p artifactx`; publish/tag that version first if you require Pages to be built from a released binary. |
 | Pages URL in `install.sh` is wrong | The derived owner/repo URL does not match your custom domain or hosting path. | Set repository variable `PAGES_BASE_URL` to the final base URL. |
 | apt reports `NO_PUBKEY` | Client has the wrong or missing public key. | Reinstall `$BASE/public.asc` into `/etc/apt/keyrings/arx.asc`. |
 | apt reports expired metadata | The repo has not been republished within `[apt].valid_days`. | Redeploy Pages or adjust `valid_days` if you intentionally omit expiry. |

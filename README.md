@@ -23,7 +23,7 @@ arx serve --root ./repo
 ```bash
 # Path 2: start a new repo from packages you already built
 arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
@@ -49,9 +49,10 @@ Most package repo setups become a pile of special cases: one path for `.deb`, an
 ArtifactX keeps the package repository as a directory you can inspect, back up, move, and rebuild:
 
 - **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
-- **One binary** — pack, add, import, publish, serve, push, promote, GC, rollback.
+- **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, GC, rollback.
 - **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
-- **Atomic publish** — build metadata in staging, then flip the live state.
+- **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection, first-class optional RPM payload signing, and optional external sync.
+- **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
 - **Rollbackable** — keep published states and flip back when a bad release escapes.
 - **CI-friendly** — `arx push` uploads to `arx serve`; token or GitHub OIDC auth.
 - **No daemon required** — static binary, Docker image, or GitHub Pages-hosted repo. Public Pages repos should use a stable imported signing key.
@@ -199,11 +200,11 @@ The next work is not broad feature expansion. ArtifactX is in an import-first po
 
 ## Build your own packages too
 
-ArtifactX is not only a repo importer. It can build packages from a standalone manifest or directly from a Rust `Cargo.toml`:
+ArtifactX is not only a repo importer. It can build packages from a standalone manifest or directly from a Rust `Cargo.toml`. Manifests can list individual `[[files]]` and recursively expanded `[[dirs]]` payloads:
 
 ```bash
 arx pack ./Cargo.toml --out dist
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 ```
 
@@ -211,10 +212,24 @@ From zero to a signed repo:
 
 ```bash
 arx init                              # create repo + signing key
-arx pack ./Cargo.toml                 # build .deb .rpm .apk
+arx pack ./Cargo.toml --out dist      # build .deb .rpm .apk
+arx add dist                          # add the built .deb/.rpm packages
 arx publish                           # sign + index
 arx serve                             # local server on 127.0.0.1:8080
 ```
+
+For repeated package drop directories, `publish-dir` wraps discovery, no-op
+detection, publish, optional live cutover, optional RPM payload signing, and
+optional downstream sync:
+
+```bash
+arx publish-dir ./dist --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo
+```
+
+That repository-ingestion workflow is separate from pack manifest `[[dirs]]`,
+which installs a directory tree inside packages built by `arx pack`.
 
 ## Install arx
 
@@ -299,6 +314,14 @@ ARX_SERVE_TOKEN=change-me
 ARX_KEY_PASSPHRASE=optional-if-your-repo-key-is-encrypted
 ```
 
+If you need the same process to expose legacy public paths, mount exported live
+layouts explicitly. Writes and API state still use `--root`; `/deb/*` and
+`/repo/*` are read-only static mounts:
+
+```bash
+arx serve --root /data/arx/prod --apt-live /srv/deb --yum-flat-live /srv/repo
+```
+
 If you really want direct LAN exposure without a reverse proxy, be explicit:
 
 ```bash
@@ -320,8 +343,8 @@ cargo build --release
 | `arx init` | Create repository layout, config, and signing key |
 | `arx import` | Migrate packages from an existing apt/yum repo into ArtifactX |
 | `arx pack` | Build `.deb`, `.rpm`, `.apk` from a manifest or `Cargo.toml` |
-| `arx add` | Put existing `.deb` / `.rpm` files into the pool |
-| `arx publish` | Generate and sign apt + yum metadata atomically |
+| `arx add` | Put existing `.deb` / `.rpm` files, or directories containing them, into the pool |
+| `arx publish` | Generate and sign apt + yum metadata; optionally export + cut over live public symlinks |
 | `arx serve` | Serve apt/dnf-compatible repo + REST API + `/metrics` |
 | `arx push` | Upload packages to a remote `arx serve` from CI |
 | `arx promote` | Move packages between staging/prod components or repos |
@@ -329,6 +352,7 @@ cargo build --release
 | `arx gc` | Prune old versions with version-aware retention |
 | `arx rollback` | Restore a previous published state |
 | `arx history` | Inspect retained published states |
+| `arx publish-dir` | Ingest a drop directory, publish, cut over live symlinks, and optionally trigger external sync |
 | `arx watch` | Watch a directory and auto-add + publish new packages |
 | `arx key` | Generate, import, rotate, revoke, or export signing keys |
 
@@ -388,7 +412,7 @@ Back it up with `tar`. Restore by extracting. Metadata is deterministic; if gene
 The `arx.toml` defaults are intentionally boring and branded:
 
 ```toml
-[repo]
+[apt.release]
 origin = "ArtifactX"
 label = "ArtifactX"
 description = "Signed package repository managed by ArtifactX"
@@ -404,7 +428,7 @@ user_id = "ArtifactX Repository Signing <signing@artifactx.local>"
 addr = "127.0.0.1:8080"
 ```
 
-Change `origin`, `label`, `description`, and `signing.user_id` before generating or importing a production key if your repo should present your company identity instead of the ArtifactX default.
+Change `[apt.release]` `origin`, `label`, `description`, and `signing.user_id` before generating or importing a production key if your apt repo should present your company identity instead of the ArtifactX default.
 
 ## Verified
 
@@ -417,6 +441,7 @@ Change `origin`, `label`, `description`, and `signing.user_id` before generating
 
 - [Documentation](docs/README.md)
 - [HTTP API reference](docs/reference/http-api.md) / [OpenAPI](docs/reference/openapi.yaml)
+- Running servers expose OpenAPI at `/api/openapi.yaml` and Swagger UI at `/api/docs`.
 - [GitHub Pages deployment guide](docs/how-to/publish-with-github-pages.md)
 - [Roadmap](ROADMAP.md)
 - [Operations guide](docs/OPERATIONS.md)

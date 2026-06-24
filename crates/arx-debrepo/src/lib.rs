@@ -479,6 +479,7 @@ pub fn stage_dist(
                             version,
                             architecture: arch,
                             contents: package_contents,
+                            other: String::new(),
                         },
                     );
                 }

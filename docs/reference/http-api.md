@@ -5,7 +5,9 @@ The API mirrors the operational CLI commands so CI jobs and internal tooling can
 push packages, publish metadata, prune old versions, promote packages, and roll
 back published repository states without shelling into the server.
 
-For the machine-readable contract, see [OpenAPI](openapi.yaml).
+For the machine-readable contract, see [OpenAPI](openapi.yaml). When
+`arx serve` is running, the same contract is served at `/api/openapi.yaml` and
+an embedded Swagger UI is available at `/api/docs`.
 
 For v0.2, `/api/v1` is a **beta developer API**: endpoint names and the
 main request/response fields are intended to be script-friendly, but the project

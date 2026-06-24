@@ -224,14 +224,68 @@ fn every_cli_subcommand_is_wired_into_help() {
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     for cmd in [
-        "init", "key", "add", "publish", "rollback", "history", "pack", "push", "rm", "import",
-        "search", "gc", "promote", "serve", "mirror", "watch", "compose", "export", "cutover",
+        "init",
+        "key",
+        "add",
+        "publish",
+        "rollback",
+        "history",
+        "pack",
+        "push",
+        "rm",
+        "import",
+        "search",
+        "gc",
+        "promote",
+        "serve",
+        "daemonize",
+        "mirror",
+        "watch",
+        "compose",
+        "export",
+        "cutover",
     ] {
         assert!(
             help.contains(cmd),
             "help output missing command {cmd}:\n{help}"
         );
     }
+}
+
+#[test]
+fn daemonize_dry_run_generates_unit_and_token_without_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo root");
+    let env_file = tmp.path().join("arx.env");
+    let apt_live = tmp.path().join("public deb");
+    let yum_live = tmp.path().join("public-repo");
+    let output = arx_output(&[
+        "daemonize",
+        "--dry-run",
+        "--root",
+        root.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
+        "--env-file",
+        env_file.to_str().unwrap(),
+        "--unit",
+        "arx-test",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("ARX_SERVE_TOKEN="), "{stdout}");
+    assert!(
+        stdout.contains("ExecStart=/usr/bin/arx serve \\"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("--root "), "{stdout}");
+    assert!(stdout.contains("--apt-live "), "{stdout}");
+    assert!(stdout.contains("--yum-flat-live "), "{stdout}");
+    assert!(stdout.contains("ReadOnlyPaths="), "{stdout}");
+    assert!(stdout.contains("arx-test.service"), "{stdout}");
+    assert!(!env_file.exists(), "dry-run must not write env file");
 }
 
 #[test]
@@ -296,6 +350,216 @@ fn cutover_exports_validates_and_switches_live_symlink() {
             .file_type()
             .is_symlink(),
         "second cutover should leave a rollback pointer"
+    );
+}
+
+#[test]
+fn publish_can_export_and_switch_live_symlink() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let public = tmp.path().join("public");
+    let apt_live = public.join("deb");
+    let yum_live = public.join("repo");
+    let staging = tmp.path().join("publish-cutovers");
+    let deb = tmp.path().join("publish_live_1.0-1_amd64.deb");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+    write_deb(&deb, "publish-live", "1.0-1", "amd64");
+    std::fs::write(&payload, "#!/bin/sh\necho publish-live\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "publish-live-rpm", "1.0.0");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--add",
+        "--root",
+        repo.to_str().unwrap(),
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+
+    arx_ok(&[
+        "publish",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish --apt-live should atomically switch the live symlink"
+    );
+    assert!(
+        std::fs::symlink_metadata(&yum_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish --yum-flat-live should atomically switch the live symlink"
+    );
+    assert!(apt_live.join("dists/stable/Release").exists());
+    assert!(yum_live.join("repodata/repomd.xml").exists());
+    assert!(yum_live
+        .join("publish-live-rpm-1.0.0-1.x86_64.rpm")
+        .exists());
+    let packages =
+        std::fs::read_to_string(apt_live.join("dists/stable/main/binary-amd64/Packages"))
+            .expect("published Packages index");
+    assert!(packages.contains("Package: publish-live"), "{packages}");
+}
+
+#[test]
+fn publish_dir_ingests_cutovers_and_skips_unchanged_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let public = tmp.path().join("public");
+    let apt_live = public.join("deb");
+    let staging = tmp.path().join("publish-dir-cutovers");
+    let sync_marker = tmp.path().join("sync.log");
+    let deb = drop.join("publish_dir_1.0-1_amd64.deb");
+
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "publish-dir", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    let sync_cmd = format!(
+        "printf 'sync:%s:%s\\n' \"$ARX_PACKAGE_COUNT\" \"$ARX_SOURCE_DIR\" >> {}",
+        sync_marker.display()
+    );
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+        "--sync-cmd",
+        &sync_cmd,
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish-dir should switch the live apt symlink"
+    );
+    let packages =
+        std::fs::read_to_string(apt_live.join("dists/stable/main/binary-amd64/Packages"))
+            .expect("published Packages index");
+    assert!(packages.contains("Package: publish-dir"), "{packages}");
+    assert_eq!(
+        std::fs::read_to_string(&sync_marker).unwrap(),
+        format!("sync:1:{}\n", drop.display())
+    );
+
+    let no_op = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--staging-dir",
+        staging.to_str().unwrap(),
+        "--sync-cmd",
+        &sync_cmd,
+    ]);
+    assert!(
+        no_op.status.success(),
+        "second publish-dir failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&no_op.stdout),
+        String::from_utf8_lossy(&no_op.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&no_op.stdout).contains("fast no-op"),
+        "unchanged publish-dir run should be a fast no-op: {}",
+        String::from_utf8_lossy(&no_op.stdout)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&sync_marker).unwrap(),
+        format!("sync:1:{}\n", drop.display()),
+        "sync command should not run for no-op inputs"
+    );
+}
+
+#[test]
+fn publish_dir_rpm_sign_cmd_runs_before_strict_payload_gate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let public = tmp.path().join("public");
+    let marker = tmp.path().join("rpm-sign-marker.txt");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("rpm.toml");
+
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::write(&payload, "#!/bin/sh\necho publish-dir-sign\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "publish-dir-sign", "1.0.0");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--out",
+        drop.to_str().unwrap(),
+    ]);
+
+    let sign_cmd = format!(
+        "printf '%s:%s\\n' \"$ARX_ROOT\" \"$ARX_RPM_PATH\" > {}",
+        marker.display()
+    );
+    let output = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--yum",
+        "--yum-flat-live",
+        public.join("repo").to_str().unwrap(),
+        "--staging-dir",
+        tmp.path().join("cutovers").to_str().unwrap(),
+        "--require-signed-rpms",
+        "--rpm-sign-cmd",
+        &sign_cmd,
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "fake signer should not satisfy strict RPM payload signing"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("still unsigned"),
+        "publish-dir should verify the signer actually signed the payload: {stderr}"
+    );
+    let marker_text = std::fs::read_to_string(&marker).expect("sign command marker");
+    assert!(
+        marker_text.contains(repo.to_str().unwrap()) && marker_text.contains(".rpm"),
+        "sign command should receive repository and rpm path context: {marker_text}"
+    );
+    assert!(
+        !public.join("repo").exists(),
+        "failed RPM signing must leave live yum path untouched"
     );
 }
 
@@ -618,6 +882,11 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     );
 
     let config = std::fs::read_to_string(root.join("arx.toml")).unwrap();
+    assert!(config.contains("[apt.release]"), "{config}");
+    assert!(
+        !config.contains("[repo]"),
+        "new apt imports should not write legacy [repo]: {config}"
+    );
     assert!(config.contains("origin = \"Example Repository\""));
     assert!(config.contains("label = \"Example Repository\""));
     assert!(config.contains("suite = \"oldstable\""));
@@ -1467,6 +1736,24 @@ fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let client = reqwest::blocking::Client::new();
     let public_health = client.get(format!("{base}/api/v1/health")).send().unwrap();
     assert_eq!(public_health.status(), reqwest::StatusCode::OK);
+    let openapi = client
+        .get(format!("{base}/api/openapi.yaml"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(openapi.starts_with("openapi: 3.1.0"), "{openapi}");
+    let docs = client
+        .get(format!("{base}/api/docs"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(docs.contains("SwaggerUIBundle"), "{docs}");
 
     let unauthenticated_write = client.post(format!("{base}/api/v1/gc")).send().unwrap();
     assert_eq!(
@@ -1560,6 +1847,155 @@ fn serve_does_not_expose_private_signing_keys() {
         .send()
         .unwrap();
     assert_eq!(public.status(), reqwest::StatusCode::OK);
+
+    let _ = child.0.kill();
+}
+
+#[test]
+fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let apt_live = tmp.path().join("public-deb");
+    let yum_live = tmp.path().join("public-repo");
+    let deb = tmp.path().join("servedlive_1.0-1_amd64.deb");
+    let payload = tmp.path().join("servedlive.sh");
+    let manifest = tmp.path().join("servedlive-rpm.toml");
+    write_deb(&deb, "servedlive", "1.0-1", "amd64");
+    std::fs::write(&payload, b"#!/bin/sh\necho servedlive\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "servedlive", "1.0.0");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--add",
+        "--root",
+        root.to_str().unwrap(),
+        "--repo",
+        "servedrepo",
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+    arx_ok(&[
+        "publish",
+        "--root",
+        root.to_str().unwrap(),
+        "--apt-live",
+        apt_live.to_str().unwrap(),
+        "--yum-flat-live",
+        yum_live.to_str().unwrap(),
+        "--repo",
+        "servedrepo",
+        "--arch",
+        "x86_64",
+    ]);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let mut child = ChildGuard(
+        Command::new(common::arx_bin())
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--apt-live",
+                apt_live.to_str().unwrap(),
+                "--yum-flat-live",
+                yum_live.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let preflight = client
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/v1/packages"))
+        .header(reqwest::header::ORIGIN, "https://ted.example")
+        .header(reqwest::header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+        .header(
+            reqwest::header::ACCESS_CONTROL_REQUEST_HEADERS,
+            "authorization, content-type",
+        )
+        .send()
+        .unwrap();
+    assert_eq!(preflight.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        preflight
+            .headers()
+            .get(reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+    let allowed_headers = preflight
+        .headers()
+        .get(reqwest::header::ACCESS_CONTROL_ALLOW_HEADERS)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(allowed_headers.contains("authorization"));
+    assert!(allowed_headers.contains("content-type"));
+
+    let canonical_apt = client
+        .get(format!("{base}/apt/dists/stable/Release"))
+        .send()
+        .unwrap();
+    assert_eq!(canonical_apt.status(), reqwest::StatusCode::OK);
+
+    let legacy_apt = client
+        .get(format!("{base}/deb/dists/stable/Release"))
+        .send()
+        .unwrap();
+    assert_eq!(legacy_apt.status(), reqwest::StatusCode::OK);
+
+    let legacy_yum = client
+        .get(format!("{base}/repo/repodata/repomd.xml"))
+        .send()
+        .unwrap();
+    assert_eq!(legacy_yum.status(), reqwest::StatusCode::OK);
+
+    let packages: serde_json::Value = client
+        .get(format!("{base}/api/v1/packages?name_prefix=servedlive"))
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .unwrap();
+    let kinds: std::collections::BTreeSet<_> = packages
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        std::collections::BTreeSet::from(["apt", "yum"]),
+        "API list must still read canonical --root, not the live static dirs: {packages}"
+    );
+
+    let private = client
+        .get(format!("{base}/keys/private.asc"))
+        .send()
+        .unwrap();
+    assert_eq!(private.status(), reqwest::StatusCode::NOT_FOUND);
 
     let _ = child.0.kill();
 }

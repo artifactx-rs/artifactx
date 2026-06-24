@@ -16,7 +16,7 @@ use crate::manifest::Manifest;
 /// Returns the path of the written package, named
 /// `{name}-{version}-1.{arch}.rpm` using the rpm architecture spelling.
 pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
-    crate::validate_sources(manifest)?;
+    let payload = crate::expand_payload(manifest)?;
     let arch = rpm_arch(&manifest.arch)?;
 
     // rpm wants a one-line summary; reuse the first line of the description.
@@ -48,13 +48,13 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         builder = builder.group(group.to_string());
     }
 
-    // Files are read from their host source paths and installed at `dest`.
-    for entry in &manifest.files {
-        let mode = entry.mode_bits()?;
-        let options = FileOptions::new(entry.dest.clone()).mode(FileMode::regular(mode as u16));
+    // Files are read from their host source paths and installed at their expanded destinations.
+    for entry in &payload.files {
+        let dest = format!("/{}", entry.rel);
+        let options = FileOptions::new(dest.clone()).mode(FileMode::regular(entry.mode as u16));
         builder = builder
             .with_file(&entry.source, options)
-            .with_context(|| format!("adding file {} -> {}", entry.source, entry.dest))?;
+            .with_context(|| format!("adding file {} -> {}", entry.source, dest))?;
     }
 
     // Dependencies are passed through verbatim; `Dependency::any` is an

@@ -1,6 +1,6 @@
 # ADR-0020: Ship a packaged systemd service unit without auto-starting it
 
-- Status: Proposed
+- Status: Accepted & implemented
 - Date: 2026-06-22
 
 ## Context
@@ -22,6 +22,9 @@ The unit is useful, but it is also operationally sensitive:
 
 Ship a conservative `arx.service` file in release packages at
 `/usr/lib/systemd/system/arx.service`.
+
+Implementation shipped in v0.2.x release packaging and is covered by package
+builder tests plus release dogfood packaging.
 
 The packaged unit:
 

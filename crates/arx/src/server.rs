@@ -26,20 +26,22 @@ use anyhow::{bail, Context, Result};
 use axum::{
     body::Bytes,
     extract::{Path as AxPath, Query, Request, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{header, HeaderMap, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
 use metrics_exporter_prometheus::PrometheusHandle;
 use pgp::composed::SignedSecretKey;
 use serde::{Deserialize, Serialize};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 const ROLLBACK_ROUTE: &str = "/api/v1/rollback/*target";
 const HISTORY_ROUTE: &str = "/api/v1/history/*target";
+const OPENAPI_YAML: &str = include_str!("openapi.yaml");
 
 use crate::config::Config;
 use crate::pool;
@@ -127,6 +129,44 @@ impl AppState {
 
 async fn metrics_handler(State(st): State<AppState>) -> String {
     st.metrics.render()
+}
+
+async fn openapi_handler() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/yaml; charset=utf-8")],
+        OPENAPI_YAML,
+    )
+}
+
+async fn api_docs_handler() -> Html<&'static str> {
+    Html(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ArtifactX API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/api/openapi.yaml",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true
+    });
+  </script>
+</body>
+</html>"##,
+    )
 }
 
 /// Bearer-token gate: static `ARX_SERVE_TOKEN` OR OIDC JWT (ADR-0014).
@@ -1006,6 +1046,15 @@ pub struct PushContext {
     pub passphrase: String,
 }
 
+/// Optional exported public layouts mounted alongside the canonical repo root.
+#[derive(Debug, Clone, Default)]
+pub struct StaticMounts {
+    /// Serve this exported apt layout at `/deb/*`.
+    pub apt_live: Option<PathBuf>,
+    /// Serve this exported flat yum layout at `/repo/*`.
+    pub yum_flat_live: Option<PathBuf>,
+}
+
 /// Serve `root` over HTTP on `addr` until the process is signalled.
 pub async fn serve(
     root: PathBuf,
@@ -1013,6 +1062,7 @@ pub async fn serve(
     metrics: PrometheusHandle,
     token: Option<String>,
     push: PushContext,
+    mounts: StaticMounts,
 ) -> Result<()> {
     let authed = token.is_some();
     let state = AppState {
@@ -1025,8 +1075,10 @@ pub async fn serve(
     };
 
     let serve_dir = ServeDir::new(&root).append_index_html_on_directories(false);
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/metrics", get(metrics_handler))
+        .route("/api/docs", get(api_docs_handler))
+        .route("/api/openapi.yaml", get(openapi_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/packages", get(list_handler).post(upload_handler))
         .route("/api/v1/packages/:name", delete(delete_handler))
@@ -1035,7 +1087,22 @@ pub async fn serve(
         .route(ROLLBACK_ROUTE, post(rollback_handler))
         .route(HISTORY_ROUTE, get(history_handler))
         .route("/api/v1/import", post(import_handler))
-        .route("/api/v1/promote", post(promote_handler))
+        .route("/api/v1/promote", post(promote_handler));
+
+    if let Some(apt_live) = mounts.apt_live.as_ref() {
+        app = app.nest_service(
+            "/deb",
+            ServeDir::new(apt_live).append_index_html_on_directories(false),
+        );
+    }
+    if let Some(yum_flat_live) = mounts.yum_flat_live.as_ref() {
+        app = app.nest_service(
+            "/repo",
+            ServeDir::new(yum_flat_live).append_index_html_on_directories(false),
+        );
+    }
+
+    let app = app
         .fallback_service(serve_dir)
         .layer(middleware::from_fn(track_metrics))
         .layer(middleware::from_fn_with_state(
@@ -1044,12 +1111,31 @@ pub async fn serve(
         ))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([
+                    Method::GET,
+                    Method::HEAD,
+                    Method::POST,
+                    Method::DELETE,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
-    tracing::info!(%addr, root = %root.display(), auth = authed, "arx serving repository");
+    tracing::info!(
+        %addr,
+        root = %root.display(),
+        apt_live = mounts.apt_live.as_ref().map(|p| p.display().to_string()),
+        yum_flat_live = mounts.yum_flat_live.as_ref().map(|p| p.display().to_string()),
+        auth = authed,
+        "arx serving repository"
+    );
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -1073,6 +1159,14 @@ mod tests {
         routing::{get, post},
         Router,
     };
+
+    #[test]
+    fn embedded_openapi_matches_reference_doc() {
+        assert_eq!(
+            super::OPENAPI_YAML,
+            include_str!("../../../docs/reference/openapi.yaml")
+        );
+    }
 
     #[test]
     fn rollback_and_history_routes_use_axum_0_7_wildcards() {

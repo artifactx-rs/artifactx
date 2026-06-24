@@ -115,11 +115,12 @@ contract that must be boring before v0.3 pack work becomes the main focus.
 | --- | --- | --- | --- |
 | One-command signed import + publish | P0 | [#43](https://github.com/artifactx-rs/artifactx/issues/43) | Migration can intentionally import and publish/re-sign repo metadata in one flow, with apt+yum client e2e coverage. |
 | Preserve apt Release identity | P0 | [#54](https://github.com/artifactx-rs/artifactx/issues/54) | `Origin`, `Label`, `Suite`, and `Codename` are preserved or explicitly overridden so apt clients do not fail on surprise identity changes. |
-| Dirty yum metadata report / strict gate | P0 | [#66](https://github.com/artifactx-rs/artifactx/issues/66) | Stale/missing RPM metadata is either a hard blocker or a clear accepted delta before cutover. |
-| RPM package-signature preflight | P0 | [#55](https://github.com/artifactx-rs/artifactx/issues/55) | `gpgcheck=1` yum cutovers know whether payload RPMs are signed; repo metadata signing is reported separately. |
-| One-command production publish/cutover | P1 | [#67](https://github.com/artifactx-rs/artifactx/issues/67) | The common production path feels like `add -> publish`, with staging validation, atomic promotion, and rollback notes built in. |
-| Cutover preflight | P1 | [#56](https://github.com/artifactx-rs/artifactx/issues/56) | A staging export is validated for apt, yum, legacy `/deb` + flat `/repo`, CentOS 7 `.gz`, and rollback before live paths move. |
-| Safe service/sync integration guide | P1 | [#68](https://github.com/artifactx-rs/artifactx/issues/68) | Docs distinguish ArtifactX publish success from downstream sync/monitor automation success and keep private state out of public roots. |
+| Dirty yum metadata report / strict gate | ✅ Shipped | [#66](https://github.com/artifactx-rs/artifactx/issues/66) | Stale/missing RPM metadata is either a hard blocker or a clear accepted delta before cutover. |
+| RPM package-signature preflight | ✅ Shipped | [#55](https://github.com/artifactx-rs/artifactx/issues/55) | `gpgcheck=1` yum cutovers know whether payload RPMs are signed; repo metadata signing is reported separately. |
+| One-command production publish/cutover | ✅ Shipped | [#67](https://github.com/artifactx-rs/artifactx/issues/67) | `arx publish --apt-live/--yum-flat-live` now reuses cutover preflight, staging validation, atomic symlink promotion, and rollback pointers. |
+| Drop-directory production publish | ✅ Shipped | [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md) | `arx publish-dir` productizes package-drop ingestion, no-op state, publish/cutover, RPM payload signing hooks, and optional non-invasive external sync trigger. |
+| Cutover preflight | ✅ Shipped | [#56](https://github.com/artifactx-rs/artifactx/issues/56) | A staging export is validated for apt, yum, legacy `/deb` + flat `/repo`, CentOS 7 `.gz`, and rollback before live paths move. |
+| Safe service/sync integration guide | ✅ Shipped | [#68](https://github.com/artifactx-rs/artifactx/issues/68) | Docs distinguish ArtifactX publish success from downstream sync/monitor automation success and keep private state out of public roots. |
 | Migration e2e fixture suite | P1 | [#58](https://github.com/artifactx-rs/artifactx/issues/58) | CI/local fixtures cover apt identity, aptly hash-prefixed debs, dirty yum metadata, CentOS 7 gzip metadata, and API workflows. |
 
 ### v0.2 API and operator query surface
@@ -129,7 +130,8 @@ contract that must be boring before v0.3 pack work becomes the main focus.
 | API readiness before stable public use | P0 | [#51](https://github.com/artifactx-rs/artifactx/issues/51) | `/api/v1` has a compatibility stance, stable error shapes, Swagger/OpenAPI docs, auth examples, and e2e examples before being called stable. |
 | Search command + package query API | P0 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Operators can query package families/versions/scopes before `gc`, `rm`, `promote`, or cutover; JSON output is available. |
 | Package-scoped GC + rollback-state retention | P1 | [#61](https://github.com/artifactx-rs/artifactx/pull/61) | Old package families such as `demo-*` can be dry-run and pruned safely, with rollback-state pinning explained and controllable. |
-| Directory inputs for add/import | P1 | [#33](https://github.com/artifactx-rs/artifactx/issues/33) | Existing `.deb` / `.rpm` drop directories can be discovered in stable order with clear failure behavior. |
+| Directory inputs for add/import | ✅ Shipped | [#33](https://github.com/artifactx-rs/artifactx/issues/33), [ADR-0019](docs/adr/0019-directory-inputs-for-add-and-import.md) | Existing `.deb` / `.rpm` drop directories can be discovered in stable order with clear failure behavior; repeated drops use `publish-dir`. |
+| Small-add publish latency | P0 | [#77](https://github.com/artifactx-rs/artifactx/issues/77) | Yum incremental publish reuses cached XML fragments; production dogfood small-add publish measured ~18s → ~1s after one-time backfill. |
 | CI slimming + Rust-idiomatic cleanup | P1 | [#34](https://github.com/artifactx-rs/artifactx/issues/34) | Contributor feedback stays fast while release confidence remains deterministic. |
 
 ### v0.2 definition of done
@@ -158,7 +160,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Candidate | Status | Tracking |
 | --- | --- | --- |
 | Clarify issue #14 scope | 🔵 Open | Confirm whether the request means `arx pack` payload directories, `arx add` / import directory inputs, or both; v0.3 owns the pack side. |
-| Package payload directories | 🔵 Proposed ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
+| Package payload directories | 🔵 Accepted ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
 
 ### Pack v0.3.0 TODO
 
@@ -168,6 +170,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Rust packaging bridge: cargo-deb + cargo-rpm + arx overlay | P1 ([#27](https://github.com/artifactx-rs/artifactx/issues/27)) | Reuse the useful common subset of `[package.metadata.deb]`, `[package.metadata.generate-rpm]`, and legacy `[package.metadata.rpm]`, then layer `[package.metadata.arx]` on top for ArtifactX-only cross-format and publish-aware behavior. |
 | Config-file marking | P1 ([#28](https://github.com/artifactx-rs/artifactx/issues/28)) | Design deb `conffiles` / equivalent manifest intent before users rely on ad-hoc maintainer scripts for config paths. |
 | Explicit source date CLI | P2 ([#29](https://github.com/artifactx-rs/artifactx/issues/29)) | Consider `arx pack --source-date <epoch>` as a discoverable wrapper around `SOURCE_DATE_EPOCH` while preserving reproducible defaults. |
+| Common-source packaged-upstream targets | P2 ([#109](https://github.com/artifactx-rs/artifactx/issues/109)) | Prepare curated `arx pack` release tracks for popular projects without reliable upstream deb/rpm artifacts (e.g., Prometheus/Community, VictoriaMetrics), with reproducibility and rollback criteria before proposing official upstream packaging support. |
 | Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | Clearly document limits: no inline package signing, no auto dependency detection, no symlink following, no source packages, and no `.apk` repository add path yet. |
 
 ### Rust packaging bridge design note

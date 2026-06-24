@@ -28,7 +28,7 @@ pub enum Command {
     Init(InitArgs),
     /// Manage the signing key.
     Key(KeyArgs),
-    /// Add one or more `.deb`/`.rpm` packages into the repository.
+    /// Add `.deb`/`.rpm` package files, or discover them from directories.
     Add(AddArgs),
     /// Inspect or rebuild the persistent acceleration cache.
     Cache(CacheArgs),
@@ -42,6 +42,8 @@ pub enum Command {
     Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
     Push(PushArgs),
+    /// Ingest a drop directory, publish, and optionally switch live public repos.
+    PublishDir(PublishDirArgs),
     /// Remove a package from the pool (then run `publish`).
     Rm(RmArgs),
     /// Search packages in the local apt/yum pools.
@@ -54,6 +56,8 @@ pub enum Command {
     Promote(PromoteArgs),
     /// Serve the repository over HTTP.
     Serve(ServeArgs),
+    /// Install/update a systemd service for `arx serve` and generate a write token.
+    Daemonize(DaemonizeArgs),
     /// Mirror an upstream apt/yum repository (sync + keep up-to-date).
     Mirror(MirrorArgs),
     /// Watch a directory for new packages (auto-add + publish).
@@ -119,7 +123,7 @@ pub enum KeyAction {
 
 #[derive(Debug, Args)]
 pub struct AddArgs {
-    /// Package files (`.deb` or `.rpm`).
+    /// Package files, or directories containing `.deb`/`.rpm` packages.
     #[arg(required = true)]
     pub packages: Vec<PathBuf>,
     /// Repository root.
@@ -178,6 +182,27 @@ pub struct PublishArgs {
     /// publishing the rest. Also settable as `[apt].strict` in `arx.toml`.
     #[arg(long)]
     pub strict: bool,
+    /// Also export the apt public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Also export a flat yum public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
+    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    #[arg(long)]
+    pub staging_dir: Option<PathBuf>,
+    /// Yum repo name to export when `--yum-flat-live` is set (defaults to `[yum].repo`).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Limit yum export to one or more architectures when `--yum-flat-live` is set.
+    #[arg(long)]
+    pub arch: Vec<String>,
+    /// Validate staged export without switching live pointers.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
+    #[arg(long)]
+    pub require_signed_rpms: bool,
     /// Passphrase file to unlock an encrypted signing key; falls back to
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
@@ -237,6 +262,79 @@ pub struct PushArgs {
     /// yum repo for `.rpm` uploads (server default if unset).
     #[arg(long)]
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct PublishDirArgs {
+    /// Directory containing `.deb`/`.rpm` packages to ingest.
+    pub dir: PathBuf,
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// apt component for `.deb` packages (config default if unset).
+    #[arg(long)]
+    pub component: Option<String>,
+    /// yum repo name for `.rpm` packages and flat yum export (config default if unset).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Recurse below the drop directory instead of scanning only direct children.
+    #[arg(long)]
+    pub recursive: bool,
+    /// State file for no-op detection (defaults under `.arx-cache/` in the repo root).
+    #[arg(long)]
+    pub state_file: Option<PathBuf>,
+    /// Ignore cached source-directory state and publish even if inputs look unchanged.
+    #[arg(long)]
+    pub force: bool,
+    /// Rebuild all publish metadata from scratch, ignoring incremental metadata caches.
+    #[arg(long)]
+    pub full: bool,
+    /// Publish only apt metadata. Requires `--apt-live` when live cutover is requested.
+    #[arg(long)]
+    pub apt: bool,
+    /// Publish only yum metadata. Requires `--yum-flat-live` when live cutover is requested.
+    #[arg(long)]
+    pub yum: bool,
+    /// Also export the apt public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Also export a flat yum public layout and atomically switch this live symlink.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
+    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    #[arg(long)]
+    pub staging_dir: Option<PathBuf>,
+    /// Limit yum export to one or more architectures when `--yum-flat-live` is set.
+    #[arg(long)]
+    pub arch: Vec<String>,
+    /// Validate staged export without switching live pointers.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Fail if any staged RPM payload is unsigned. Repository metadata signing is checked separately.
+    #[arg(long)]
+    pub require_signed_rpms: bool,
+    /// Sign unsigned RPM payloads before ingest using the system RPM signing backend.
+    ///
+    /// This runs `rpm --addsign <rpm>` for unsigned RPMs and verifies each
+    /// payload is signed before continuing. No RPM signing is attempted unless
+    /// this option or `--rpm-sign-cmd` is set.
+    #[arg(long, conflicts_with = "rpm_sign_cmd")]
+    pub sign_rpms: bool,
+    /// Optional shell command used to sign unsigned RPM payloads before ingesting them.
+    ///
+    /// Prefer `--sign-rpms` for the default RPM signing backend. This escape hatch
+    /// is for environments that use a custom signer. The command is skipped for
+    /// already-signed RPMs and receives `ARX_RPM_PATH`/`ARX_PACKAGE_PATH` plus
+    /// repository context in its environment.
+    #[arg(long)]
+    pub rpm_sign_cmd: Option<String>,
+    /// Optional shell command to run after a successful non-no-op publish.
+    #[arg(long)]
+    pub sync_cmd: Option<String>,
+    /// Passphrase file to unlock an encrypted signing key; falls back to
+    /// `ARX_KEY_PASSPHRASE`.
+    #[arg(long)]
+    pub passphrase_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -439,12 +537,61 @@ pub struct HistoryArgs {
 
 #[derive(Debug, Args)]
 pub struct ServeArgs {
-    /// Repository root (web root).
+    /// Repository root for the canonical ArtifactX repo and write API state.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
+    /// Also serve this exported apt layout under `/deb/*`.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Also serve this exported flat yum layout under `/repo/*`.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
     /// Listen address (overrides config).
     #[arg(long)]
     pub addr: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DaemonizeArgs {
+    /// Repository root served by the daemon.
+    #[arg(long, default_value = "/var/lib/arx/repo")]
+    pub root: PathBuf,
+    /// Listen address written into the service ExecStart.
+    #[arg(long, default_value = "127.0.0.1:8080")]
+    pub addr: String,
+    /// Exported apt layout to serve under `/deb/*`.
+    #[arg(long)]
+    pub apt_live: Option<PathBuf>,
+    /// Exported flat yum layout to serve under `/repo/*`.
+    #[arg(long)]
+    pub yum_flat_live: Option<PathBuf>,
+    /// systemd unit name.
+    #[arg(long, default_value = "arx")]
+    pub unit: String,
+    /// User that runs the service.
+    #[arg(long, default_value = "arx")]
+    pub user: String,
+    /// Group that runs the service.
+    #[arg(long, default_value = "arx")]
+    pub group: String,
+    /// Environment file that stores ARX_SERVE_TOKEN.
+    #[arg(long, default_value = "/etc/arx/arx.env")]
+    pub env_file: PathBuf,
+    /// Path to the arx binary used in ExecStart.
+    #[arg(long, default_value = "/usr/bin/arx")]
+    pub bin: PathBuf,
+    /// Reuse an existing ARX_SERVE_TOKEN from the env file when present.
+    #[arg(long)]
+    pub reuse_token: bool,
+    /// Enable the service after writing it.
+    #[arg(long)]
+    pub enable: bool,
+    /// Start or restart the service after writing it. Implies `--enable`.
+    #[arg(long)]
+    pub start: bool,
+    /// Print the files/actions without writing or calling systemctl.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args)]
