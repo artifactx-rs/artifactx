@@ -22,7 +22,7 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "arx";
-          version = "0.2.6";
+          version = "0.2.7";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
           nativeBuildInputs = with pkgs; [ pkg-config ];

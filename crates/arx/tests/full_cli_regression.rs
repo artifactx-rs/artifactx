@@ -257,7 +257,7 @@ fn version_output_includes_build_metadata() {
     let output = arx_output(&["--version"]);
     assert!(output.status.success());
     let version = String::from_utf8_lossy(&output.stdout);
-    assert!(version.starts_with("arx 0.2.6 ("), "{version}");
+    assert!(version.starts_with("arx 0.2.7 ("), "{version}");
     assert!(version.contains(", built "), "{version}");
     assert!(version.contains(", rustc "), "{version}");
     assert!(version.trim_end().ends_with(')'), "{version}");
