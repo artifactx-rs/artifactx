@@ -63,11 +63,13 @@ jobs:
                   raise SystemExit(f'build script does not render {needle}')
 
           html = Path('site/index.html').read_text()
-          for placeholder in ['__REPO_URL__', '__REPOSITORY__', '__ARX_VERSION__']:
+          for placeholder in ['__REPO_URL__', '__REPOSITORY__']:
               if placeholder not in html:
                   raise SystemExit(f'missing placeholder in site/index.html: {placeholder}')
-          if '__ARX_VERSION__' not in script:
-              raise SystemExit('build script does not substitute __ARX_VERSION__')
+          if '__ARX_VERSION__' in html:
+              raise SystemExit('site/index.html must not display a fixed release version')
+          if 'landing page must not hardcode the Cargo version' not in script:
+              raise SystemExit('build script does not guard against landing-page version pinning')
           PY
 
       - name: Validate ADR index
@@ -100,8 +102,10 @@ jobs:
           roadmap = Path('ROADMAP.md').read_text()
           required = [
               'Milestone progress is issue-based',
-              'https://github.com/artifactx-rs/artifactx/milestone/1',
-              'https://github.com/artifactx-rs/artifactx/milestone/2',
+              'https://github.com/artifactx-rs/artifactx/milestones',
+              'is%3Aissue%20is%3Aopen%20milestone%3A%2A',
+              'is%3Aissue%20is%3Aclosed%20milestone%3A%2A',
+              'is%3Aissue%20is%3Aopen%20no%3Amilestone',
               'https://github.com/orgs/artifactx-rs/projects/1',
               'https://github.com/artifactx-rs/artifactx/issues/16',
               'https://github.com/artifactx-rs/artifactx/issues/33',
@@ -109,4 +113,8 @@ jobs:
           missing = [needle for needle in required if needle not in roadmap]
           if missing:
               raise SystemExit('ROADMAP.md missing required public links: ' + ', '.join(missing))
+          if '/milestone/' in roadmap:
+              raise SystemExit('ROADMAP.md must use /milestones or issue queries instead of numeric milestone URLs')
+          if '## Status at a glance' in roadmap:
+              raise SystemExit('ROADMAP.md should not duplicate milestone status tables; use live planning links')
           PY

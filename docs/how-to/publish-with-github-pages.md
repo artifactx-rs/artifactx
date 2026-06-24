@@ -222,7 +222,10 @@ configuration management instead of piping `install.sh` directly into `sh`. See
 The generated landing page source lives in `site/`, not in the generated
 `public/index.html` artifact. Edit `site/index.html` for copy, layout, metadata,
 and links; edit `site/install.sh.in` for the installer; edit
-`site/robots.txt.in` or `site/sitemap.xml.in` for crawler metadata. Then run:
+`site/robots.txt.in` or `site/sitemap.xml.in` for crawler metadata. Keep the
+landing page version-neutral: the dogfood package is rebuilt from the current
+Cargo version, but the visible page should say current/latest instead of pinning
+a release number. Then run:
 
 ```sh
 bash -n scripts/build-pages-site.sh

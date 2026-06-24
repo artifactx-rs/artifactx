@@ -1,32 +1,25 @@
 # ArtifactX Roadmap
 
-> **Current phase:** v0.2.0 publish/API completeness  
-> **Next planning lane:** v0.3.0 pack ergonomics  
+> **Live roadmap:** GitHub issues, milestones, and the project board are the source of truth.
 > **Product wedge:** **Import first. Cut over when ready.**
 
 ArtifactX is public now, so this roadmap is written for contributors as much as
-for maintainers. It answers three questions:
+for maintainers. Keep GitHub as the dynamic status source; keep this file as the
+narrative context for why each lane exists and what "done" means.
 
-1. What is already shipped?
-2. What are we polishing right now?
-3. What is planned next, and what is intentionally parked?
+## Live planning links
 
-## Status at a glance
+- [Project board](https://github.com/orgs/artifactx-rs/projects/1)
+- [Milestones](https://github.com/artifactx-rs/artifactx/milestones)
+- [Open milestone work](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20is%3Aopen%20milestone%3A%2A)
+- [Closed milestone work](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20is%3Aclosed%20milestone%3A%2A)
+- [Later / unmilestoned work](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20is%3Aopen%20no%3Amilestone)
 
-| Lane | GitHub milestone | Status | What it means |
-| --- | --- | --- | --- |
-| ✅ Shipped | v0.1.0 / v0.1.x | Done / polish | Core repository + packager exists and is dogfooded. |
-| ✅ Done | [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1) | Shipped | Import → publish → serve/pages → install → rollback is documented, tested, and dogfooded. |
-| 🔵 Active | [`v0.2.0 — Publish/API completeness`](https://github.com/artifactx-rs/artifactx/milestone/2) | Design + implementation | Make publish, migration, GC/search, and HTTP API workflows complete enough for developer-facing use. |
-| 🟢 Planned | [`v0.3.0 — Pack ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/3) | Designed, parked until v0.2 closes | Focus `arx pack`: directory payloads, Cargo metadata bridges, config files, reproducibility knobs, and pack docs. |
-| 🟡 Future | [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4) | Parked | A focused web console after CLI/API semantics are stable. |
-| 🟠 Future | [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5) | Parked | OCI registry, Helm charts, and Kubernetes/cloud-native integration. |
-| 🟣 Future | [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6) | Parked | Distributed repository replication, edge delivery, and multi-site distribution. |
-| ⚪ Later | No active milestone | Parked | Plausible bets that wait until publish/API, pack, UI, and cloud-native paths are clearer. |
-
-Public project board: <https://github.com/orgs/artifactx-rs/projects/1>
-
-Milestone progress is issue-based: completed shipped work is represented by closed tracking issues, while active/future TODOs stay open until implemented or intentionally deferred.
+Milestone progress is issue-based: completed shipped work is represented by
+closed tracking issues, while active/future TODOs stay open until implemented or
+intentionally deferred. Avoid duplicating every milestone status in this file;
+change milestone state in GitHub, and update the narrative sections below only
+when the product direction changes.
 
 ## ✅ What we have — v0.1.0 / v0.1.x
 
@@ -65,7 +58,7 @@ Milestone progress is issue-based: completed shipped work is represented by clos
 
 ## ✅ Done — v0.1.x import-first polish
 
-Milestone: [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/milestone/1)
+Milestone: [`v0.1.x — Import-first polish`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.1.x%20%E2%80%94%20Import-first%20polish%22)
 
 This lane is shipped. The public docs and e2e coverage now make this path
 trustworthy enough for v0.1.x:
@@ -87,11 +80,11 @@ existing apt/yum repo
 | Operator ergonomics | ✅ Done ([#19](https://github.com/artifactx-rs/artifactx/issues/19)) | First-run docs cover `init`, `import`, `publish`, `serve`, backup/restore, rollback, systemd, and Docker without overclaiming. |
 | Adversarial review | ✅ Done ([#31](https://github.com/artifactx-rs/artifactx/issues/31)) | README/Pages/CI are reviewed for a clear wedge, no vague platform promises, no secret leakage. |
 
-## 🔵 Active — v0.2.0 publish/API completeness
+## ✅ Done — v0.2.0 publish/API completeness
 
-Milestone: [`v0.2.0 — Publish/API completeness`](https://github.com/artifactx-rs/artifactx/milestone/2)
+Milestone: [`v0.2.0 — Publish/API completeness`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.2.0%20%E2%80%94%20Publish%2FAPI%20completeness%22)
 
-This milestone is about finishing the **Publish** pillar and the developer-facing
+This shipped milestone finished the **Publish** pillar and the developer-facing
 HTTP/API surface before broadening `pack`. The product promise for v0.2 is:
 
 ```text
@@ -102,7 +95,7 @@ packages or existing apt/yum repos
   -> apt/yum clients keep working, including old CentOS 7 gzip metadata
 ```
 
-v0.2 is done only when publish/API workflows are complete enough that another
+v0.2 is now done: publish/API workflows are complete enough that another
 team can automate them without maintaining site-specific shell glue for the
 common path.
 
@@ -145,13 +138,13 @@ contract that must be boring before v0.3 pack work becomes the main focus.
 - Production dogfood no longer requires bespoke shell glue for the common publish
   path; site-specific sync remains documented as an integration boundary.
 
-## 🟢 Planned — v0.3.0 pack ergonomics
+## 🔵 Active — v0.3.0 pack ergonomics
 
-Milestone: [`v0.3.0 — Pack ergonomics`](https://github.com/artifactx-rs/artifactx/milestone/3)
+Milestone: [`v0.3.0 — Pack ergonomics`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.3.0%20%E2%80%94%20Pack%20ergonomics%22)
 
-v0.3 deliberately narrows focus to **Package** pillar ergonomics. Pack work stays
-parked behind v0.2 publish/API completeness so the repo server path remains
-boring before ArtifactX grows more package-authoring surface.
+v0.3 deliberately narrows focus to **Package** pillar ergonomics. With v0.2
+publish/API completeness closed, pack work can move from parked design into the
+main active lane.
 
 ### Directory workflow clarification
 
@@ -159,7 +152,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 
 | Candidate | Status | Tracking |
 | --- | --- | --- |
-| Clarify issue #14 scope | 🔵 Open | Confirm whether the request means `arx pack` payload directories, `arx add` / import directory inputs, or both; v0.3 owns the pack side. |
+| Clarify issue #14 scope | ✅ Closed ([#14](https://github.com/artifactx-rs/artifactx/issues/14)) | v0.2 kept repository directory ingestion separate; v0.3 owns the remaining `arx pack` payload-directory follow-up. |
 | Package payload directories | 🔵 Accepted ([#32](https://github.com/artifactx-rs/artifactx/issues/32)) | [ADR-0018](docs/adr/0018-directory-entries-for-package-manifests.md): `[[dirs]]` manifest entries, deterministic expansion, shared `.deb`/`.rpm`/`.apk` semantics. |
 
 ### Pack v0.3.0 TODO
@@ -202,7 +195,7 @@ Rules to design before implementation:
 
 ## 🟡 Future — v0.4.0 UI and console
 
-Milestone: [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/milestone/4)  
+Milestone: [`v0.4.0 — UI and console`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.4.0%20%E2%80%94%20UI%20and%20console%22)
 Tracking issue: [#62 — Roadmap: v0.4 UI and console](https://github.com/artifactx-rs/artifactx/issues/62)
 
 This is intentionally parked until v0.2 publish/API and v0.3 pack ergonomics are
@@ -218,7 +211,7 @@ not a second product with separate behavior.
 
 ## 🟠 Future — v0.5.0 OCI, Helm, and cloud-native integrations
 
-Milestone: [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/milestone/5)  
+Milestone: [`v0.5.0 — OCI, Helm, and cloud-native integrations`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.5.0%20%E2%80%94%20OCI%2C%20Helm%2C%20and%20cloud-native%20integrations%22)
 Tracking issue: [#63 — Roadmap: v0.5 OCI, Helm, and cloud-native integrations](https://github.com/artifactx-rs/artifactx/issues/63)
 
 This lane is for cloud-native distribution only after the native package repo
@@ -234,7 +227,7 @@ ArtifactX into a giant registry platform.
 
 ## 🟣 Future — v0.6.0 distributed delivery
 
-Milestone: [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/milestone/6)  
+Milestone: [`v0.6.0 — Distributed delivery`](https://github.com/artifactx-rs/artifactx/issues?q=is%3Aissue%20milestone%3A%22v0.6.0%20%E2%80%94%20Distributed%20delivery%22)
 Tracking issue: [#64 — Roadmap: v0.6 distributed delivery](https://github.com/artifactx-rs/artifactx/issues/64)
 
 This is the bigger bet: distribution, replication, and multi-site delivery. It is

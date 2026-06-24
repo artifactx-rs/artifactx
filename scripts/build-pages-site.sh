@@ -68,6 +68,8 @@ files = {
 }
 for source, target in files.items():
     rendered = Path(source).read_text()
+    if source == 'site/index.html' and '__ARX_VERSION__' in rendered:
+        raise SystemExit('landing page must not hardcode the Cargo version; use current/latest copy instead')
     for needle, value in replacements.items():
         rendered = rendered.replace(needle, value)
     Path(target).write_text(rendered)
