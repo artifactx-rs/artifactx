@@ -7,4 +7,4 @@ into `public/` next to the generated apt/yum repository metadata.
 Keep long-lived copy, layout, and SEO metadata here instead of embedding a large
 HTML heredoc in the shell script. The shell script should only orchestrate the
 package-repository build and substitute deployment-specific values such as the
-Pages base URL and GitHub repository name.
+Pages base URL, GitHub repository name, and Cargo-derived `arx` version.

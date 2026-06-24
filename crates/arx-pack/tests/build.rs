@@ -256,6 +256,118 @@ fn builds_apk() {
 }
 
 #[test]
+fn directory_entries_expand_into_deb_rpm_and_apk_payloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(assets.join("css")).unwrap();
+    std::fs::write(assets.join("index.html"), b"<h1>Hello</h1>\n").unwrap();
+    std::fs::write(assets.join("css/style.css"), b"body { color: #222; }\n").unwrap();
+
+    let toml = format!(
+        r#"
+        name = "web-assets"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "static assets"
+        license = "MIT"
+
+        [[dirs]]
+        source = "{}"
+        dest = "/usr/share/web-assets"
+        file_mode = "0644"
+        dir_mode = "0755"
+        "#,
+        assets.display()
+    );
+    let manifest = Manifest::from_toml_str(&toml).unwrap();
+    assert_eq!(manifest.dirs.len(), 1);
+    assert_eq!(manifest.dirs[0].file_mode_bits().unwrap(), 0o644);
+    assert_eq!(manifest.dirs[0].dir_mode_bits().unwrap(), 0o755);
+
+    let deb = arx_pack::build_deb(&manifest, &dir.path().join("deb")).unwrap();
+    let deb_names = read_deb_data_names(&deb);
+    assert!(
+        deb_names
+            .iter()
+            .any(|n| n.trim_start_matches("./") == "usr/share/web-assets/"),
+        "deb data.tar missing expanded root dir: {deb_names:?}"
+    );
+    assert!(
+        deb_names
+            .iter()
+            .any(|n| n.trim_start_matches("./") == "usr/share/web-assets/css/style.css"),
+        "deb data.tar missing expanded nested file: {deb_names:?}"
+    );
+
+    let rpm = arx_pack::build_rpm(&manifest, &dir.path().join("rpm")).unwrap();
+    let rpm_pkg = rpm::Package::open(&rpm).unwrap();
+    let rpm_paths = rpm_pkg.metadata.get_file_paths().unwrap();
+    assert!(
+        rpm_paths
+            .iter()
+            .any(|p| p == Path::new("/usr/share/web-assets/index.html")),
+        "rpm missing expanded directory file: {rpm_paths:?}"
+    );
+    assert!(
+        rpm_paths
+            .iter()
+            .any(|p| p == Path::new("/usr/share/web-assets/css/style.css")),
+        "rpm missing expanded nested file: {rpm_paths:?}"
+    );
+
+    let apk = arx_pack::build_apk(&manifest, &dir.path().join("apk")).unwrap();
+    let apk_names = read_apk_names(&apk);
+    assert!(
+        apk_names
+            .iter()
+            .any(|n| n.trim_start_matches('.') == "usr/share/web-assets/"),
+        "apk missing expanded root dir: {apk_names:?}"
+    );
+    assert!(
+        apk_names
+            .iter()
+            .any(|n| n.trim_start_matches('.') == "usr/share/web-assets/css/style.css"),
+        "apk missing expanded nested file: {apk_names:?}"
+    );
+}
+
+#[test]
+fn directory_entries_reject_symlinks_and_duplicate_destinations() {
+    let dir = tempfile::tempdir().unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("app.conf"), b"from dir\n").unwrap();
+    std::os::unix::fs::symlink("app.conf", assets.join("link.conf")).unwrap();
+
+    let symlink_manifest = Manifest::from_toml_str(&format!(
+        "name='a'\nversion='1'\narch='amd64'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[dirs]]\nsource='{}'\ndest='/etc/a'\n",
+        assets.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_deb(&symlink_manifest, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("symbolic link"),
+        "expected symlink rejection, got: {err}"
+    );
+
+    std::fs::remove_file(assets.join("link.conf")).unwrap();
+    let explicit = dir.path().join("explicit.conf");
+    std::fs::write(&explicit, b"explicit\n").unwrap();
+    let duplicate_manifest = Manifest::from_toml_str(&format!(
+        "name='a'\nversion='1'\narch='amd64'\nmaintainer='T<t@x>'\ndescription='d'\nlicense='MIT'\n[[files]]\nsource='{}'\ndest='/etc/a/app.conf'\nmode='0644'\n[[dirs]]\nsource='{}'\ndest='/etc/a'\n",
+        explicit.display(),
+        assets.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_deb(&duplicate_manifest, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("duplicate package destination"),
+        "expected duplicate destination rejection, got: {err}"
+    );
+}
+
+#[test]
 fn backend_native_builds_both() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
@@ -352,6 +464,18 @@ fn relationship_fields_and_scripts_in_deb() {
 }
 
 // --- inline .deb re-parsing helpers (ar + tar + flate2) ---
+
+/// Return the entry names inside an `.apk` tarball.
+fn read_apk_names(path: &Path) -> Vec<String> {
+    let data = std::fs::read(path).unwrap();
+    let gz = flate2::read::GzDecoder::new(data.as_slice());
+    let mut archive = tar::Archive::new(gz);
+    archive
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+        .collect()
+}
 
 /// Return the entry names inside a `.deb`'s `control.tar.gz`.
 fn read_control_tar_names(path: &Path) -> Vec<String> {

@@ -50,6 +50,10 @@ pub struct Manifest {
     #[serde(default)]
     pub files: Vec<FileEntry>,
 
+    /// Directories to recursively expand into installable files.
+    #[serde(default)]
+    pub dirs: Vec<DirEntry>,
+
     /// Optional maintainer scripts run by the package manager.
     #[serde(default)]
     pub scripts: Scripts,
@@ -70,11 +74,49 @@ pub struct FileEntry {
 impl FileEntry {
     /// Parse [`mode`](Self::mode) as octal permission bits.
     pub fn mode_bits(&self) -> Result<u32> {
-        let trimmed = self.mode.trim();
-        let digits = trimmed.strip_prefix("0o").unwrap_or(trimmed);
-        u32::from_str_radix(digits, 8)
-            .with_context(|| format!("invalid octal file mode {:?}", self.mode))
+        parse_octal_mode(&self.mode, "file")
     }
+}
+
+/// A directory tree to recursively stage into the package.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirEntry {
+    /// Directory path on the build host to traverse.
+    pub source: String,
+    /// Absolute install directory inside the target system.
+    pub dest: String,
+    /// Unix permission bits for regular files found under [`source`](Self::source).
+    #[serde(default = "default_dir_file_mode")]
+    pub file_mode: String,
+    /// Unix permission bits for directory entries created under [`dest`](Self::dest).
+    #[serde(default = "default_dir_mode")]
+    pub dir_mode: String,
+}
+
+impl DirEntry {
+    /// Parse [`file_mode`](Self::file_mode) as octal permission bits.
+    pub fn file_mode_bits(&self) -> Result<u32> {
+        parse_octal_mode(&self.file_mode, "directory file")
+    }
+
+    /// Parse [`dir_mode`](Self::dir_mode) as octal permission bits.
+    pub fn dir_mode_bits(&self) -> Result<u32> {
+        parse_octal_mode(&self.dir_mode, "directory")
+    }
+}
+
+fn parse_octal_mode(mode: &str, label: &str) -> Result<u32> {
+    let trimmed = mode.trim();
+    let digits = trimmed.strip_prefix("0o").unwrap_or(trimmed);
+    u32::from_str_radix(digits, 8).with_context(|| format!("invalid octal {label} mode {mode:?}"))
+}
+
+fn default_dir_file_mode() -> String {
+    "0644".to_string()
+}
+
+fn default_dir_mode() -> String {
+    "0755".to_string()
 }
 
 /// Optional maintainer scripts. Each is a host path to a script file whose
@@ -194,6 +236,7 @@ impl Manifest {
             provides: arx.provides,
             replaces: arx.replaces,
             files,
+            dirs: arx.dirs,
             scripts: arx.scripts,
         })
     }
@@ -354,5 +397,6 @@ struct ArxMeta {
     provides: Vec<String>,
     replaces: Vec<String>,
     files: Vec<FileEntry>,
+    dirs: Vec<DirEntry>,
     scripts: Scripts,
 }

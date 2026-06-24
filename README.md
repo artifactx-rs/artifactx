@@ -23,7 +23,7 @@ arx serve --root ./repo
 ```bash
 # Path 2: start a new repo from packages you already built
 arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
@@ -200,11 +200,11 @@ The next work is not broad feature expansion. ArtifactX is in an import-first po
 
 ## Build your own packages too
 
-ArtifactX is not only a repo importer. It can build packages from a standalone manifest or directly from a Rust `Cargo.toml`:
+ArtifactX is not only a repo importer. It can build packages from a standalone manifest or directly from a Rust `Cargo.toml`. Manifests can list individual `[[files]]` and recursively expanded `[[dirs]]` payloads:
 
 ```bash
 arx pack ./Cargo.toml --out dist
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 ```
 
@@ -212,10 +212,24 @@ From zero to a signed repo:
 
 ```bash
 arx init                              # create repo + signing key
-arx pack ./Cargo.toml                 # build .deb .rpm .apk
+arx pack ./Cargo.toml --out dist      # build .deb .rpm .apk
+arx add dist                          # add the built .deb/.rpm packages
 arx publish                           # sign + index
 arx serve                             # local server on 127.0.0.1:8080
 ```
+
+For repeated package drop directories, `publish-dir` wraps discovery, no-op
+detection, publish, optional live cutover, optional RPM payload signing, and
+optional downstream sync:
+
+```bash
+arx publish-dir ./dist --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo
+```
+
+That repository-ingestion workflow is separate from pack manifest `[[dirs]]`,
+which installs a directory tree inside packages built by `arx pack`.
 
 ## Install arx
 
@@ -329,7 +343,7 @@ cargo build --release
 | `arx init` | Create repository layout, config, and signing key |
 | `arx import` | Migrate packages from an existing apt/yum repo into ArtifactX |
 | `arx pack` | Build `.deb`, `.rpm`, `.apk` from a manifest or `Cargo.toml` |
-| `arx add` | Put existing `.deb` / `.rpm` files into the pool |
+| `arx add` | Put existing `.deb` / `.rpm` files, or directories containing them, into the pool |
 | `arx publish` | Generate and sign apt + yum metadata; optionally export + cut over live public symlinks |
 | `arx serve` | Serve apt/dnf-compatible repo + REST API + `/metrics` |
 | `arx push` | Upload packages to a remote `arx serve` from CI |

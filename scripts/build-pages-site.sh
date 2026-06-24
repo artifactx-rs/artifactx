@@ -30,7 +30,11 @@ fi
 ./build/arx init public --no-key
 printf '%s' "$ARX_SIGNING_KEY" > /tmp/key.asc
 ./build/arx key import /tmp/key.asc --root public
-./build/arx add dist/*.deb dist/*.rpm --root public
+if ./build/arx add --help | grep -q 'directories'; then
+  ./build/arx add dist --root public
+else
+  ./build/arx add dist/*.deb dist/*.rpm --root public
+fi
 ./build/arx publish --root public
 cp public/keys/public.asc public/public.asc
 rm -f public/keys/private.asc /tmp/key.asc
@@ -54,6 +58,7 @@ import os
 replacements = {
     '__REPO_URL__': os.environ['REPO_URL'],
     '__REPOSITORY__': os.environ['REPOSITORY'],
+    '__ARX_VERSION__': os.environ['ARX_VERSION'],
 }
 files = {
     'site/install.sh.in': 'public/install.sh',

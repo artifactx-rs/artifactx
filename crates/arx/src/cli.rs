@@ -28,7 +28,7 @@ pub enum Command {
     Init(InitArgs),
     /// Manage the signing key.
     Key(KeyArgs),
-    /// Add one or more `.deb`/`.rpm` packages into the repository.
+    /// Add `.deb`/`.rpm` package files, or discover them from directories.
     Add(AddArgs),
     /// Inspect or rebuild the persistent acceleration cache.
     Cache(CacheArgs),
@@ -123,7 +123,7 @@ pub enum KeyAction {
 
 #[derive(Debug, Args)]
 pub struct AddArgs {
-    /// Package files (`.deb` or `.rpm`).
+    /// Package files, or directories containing `.deb`/`.rpm` packages.
     #[arg(required = true)]
     pub packages: Vec<PathBuf>,
     /// Repository root.

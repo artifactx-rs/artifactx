@@ -25,6 +25,13 @@ arx publish-dir /opt/packages --root /data/arx/prod \
   --sync-cmd 'systemctl start --no-block sync-srv'
 ```
 
+This is the repository-ingestion directory workflow from
+[ADR-0019](../adr/0019-directory-inputs-for-add-and-import.md): the directory
+already contains built `.deb` or `.rpm` packages. It does not replace the
+pack-side `[[dirs]]` feature from
+[ADR-0018](../adr/0018-directory-entries-for-package-manifests.md), which
+installs a directory tree inside newly built package payloads.
+
 The explicit chain is still useful for custom migrations:
 
 ```text

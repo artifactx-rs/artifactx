@@ -1,8 +1,8 @@
 # ADR-0018: Directory entries for package manifests
 
-- Status: **Proposed**
+- Status: **Accepted**
 - Date: 2026-06-22
-- Target: v0.2.0 planning candidate
+- Target: v0.3.0
 - Related: [GitHub issue #14](https://github.com/artifactx-rs/artifactx/issues/14)
 
 ## Context
@@ -32,10 +32,9 @@ other contributors are very welcome.
 
 ## Decision
 
-Add a directory-entry design to the v0.2.0 planning backlog, but do not rush it
-as an rpm-only helper.
+Add directory entries as a shared manifest feature rather than an rpm-only helper.
 
-The preferred shape is a separate `[[dirs]]` section rather than overloading
+The accepted shape is a separate `[[dirs]]` section rather than overloading
 `[[files]]`:
 
 ```toml
@@ -46,7 +45,7 @@ file_mode = "0644"
 dir_mode = "0755"
 ```
 
-Implementation requirements before acceptance:
+Implementation requirements:
 
 1. **Shared semantics:** directory expansion must feed the same normalized staged
    file list for `.deb`, `.rpm`, and `.apk`.
@@ -64,6 +63,11 @@ Implementation requirements before acceptance:
    prove sorted expansion, mode handling, special-file rejection, and parity
    across package formats.
 
+This ADR is the pack-side answer to issue #14: it lets a package manifest install
+a directory tree into the generated `.deb`, `.rpm`, or `.apk`. It is distinct
+from ADR-0019, which covers repository-side ingestion of directories that already
+contain built `.deb` or `.rpm` files.
+
 ## Consequences
 
 - Good: users can package assets/config/docs without manually enumerating every
@@ -74,8 +78,8 @@ Implementation requirements before acceptance:
   useful for real applications.
 - Bad / cost: introduces path traversal, mode, and conflict semantics that must
   be specified carefully.
-- Bad / cost: increases the manifest surface during a feature-freeze period, so
-  it should be handled as a v0.2.0 planning item rather than an immediate patch.
+- Bad / cost: increases the manifest surface and shared staging logic, so future
+  path/mode changes must keep all package formats aligned.
 
 ## Alternatives considered
 

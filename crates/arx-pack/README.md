@@ -50,6 +50,12 @@ source = "build/hello"     # path on the build host
 dest   = "/usr/bin/hello"  # install path inside the target system
 mode   = "0755"            # octal, as a string so the leading zero survives
 
+[[dirs]]
+source = "assets"          # recursively include this host directory
+dest   = "/usr/share/hello/assets"
+file_mode = "0644"         # optional; defaults to 0644
+dir_mode  = "0755"         # optional; defaults to 0755
+
 # Optional maintainer scripts (host paths, embedded into the package):
 # [scripts]
 # postinst = "scripts/postinst.sh"
@@ -110,10 +116,13 @@ let deb = backend.build(&manifest, Format::Deb, Path::new("dist"))?;
 | `arx_pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
 | `Backend::{Native, Docker { image }}` | Build backend. `Native` is implemented; `Docker` is a stub. |
 | `Backend::build(&Manifest, Format, out_dir) -> Result<PathBuf>` | Dispatch a build through a backend. |
-| `Format::{Deb, Rpm}` | Output format selector. |
+| `Format::{Deb, Rpm, Apk}` | Output format selector. |
 
-Errors are `anyhow::Result`. The crate is designed to be embeddable —
-`cargo add arx-pack` and call the builders directly from another Rust tool.
+Errors are `anyhow::Result`. Directory entries are expanded once through the
+shared manifest path, sorted deterministically, and reject symlinks, special
+files, and duplicate destinations before any backend builds. The crate is
+designed to be embeddable — `cargo add arx-pack` and call the builders directly
+from another Rust tool.
 
 ## How it works
 

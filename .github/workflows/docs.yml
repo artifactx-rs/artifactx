@@ -63,9 +63,32 @@ jobs:
                   raise SystemExit(f'build script does not render {needle}')
 
           html = Path('site/index.html').read_text()
-          for placeholder in ['__REPO_URL__', '__REPOSITORY__']:
+          for placeholder in ['__REPO_URL__', '__REPOSITORY__', '__ARX_VERSION__']:
               if placeholder not in html:
                   raise SystemExit(f'missing placeholder in site/index.html: {placeholder}')
+          if '__ARX_VERSION__' not in script:
+              raise SystemExit('build script does not substitute __ARX_VERSION__')
+          PY
+
+      - name: Validate ADR index
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          index = Path('docs/adr/README.md').read_text()
+          missing = []
+          for path in sorted(Path('docs/adr').glob('[0-9][0-9][0-9][0-9]-*.md')):
+              token = f'[{path.stem[:4]}]({path.name})'
+              if token not in index:
+                  missing.append(path.name)
+          if missing:
+              raise SystemExit('ADR index missing entries: ' + ', '.join(missing))
+
+          bullet_links = re.findall(r'^- \[ADR-[0-9]{4}:', index, flags=re.MULTILINE)
+          if bullet_links:
+              raise SystemExit('ADR index should use table rows, not trailing bullet links')
           PY
 
       - name: Validate roadmap links

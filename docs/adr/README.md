@@ -66,18 +66,19 @@ How we'd make this better later, and what would trigger that.
 | [0010](0010-cargo-toml-driven-packaging.md) | Cargo.toml-driven packaging (`arx pack`) | Accepted |
 | [0011](0011-repo-product-readiness.md) | Repository product-readiness trust/hardening | Accepted |
 | [0012](0012-pack-product-readiness.md) | `pack` product-readiness — reproducibility, fail-loud, workspaces | Accepted |
-| [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted |
+| [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted + implemented |
 | [0014](0014-oidc-keyless-push.md) | OIDC keyless push — ditch the long-lived token | Accepted |
 | [0015](0015-object-storage-backend-deferred.md) | Object-storage backend | Deferred |
 | [0016](0016-component-channel-filtering.md) | Component/channel filtering | Accepted |
 | [0017](0017-mirror-one-way-sync.md) | `arx mirror` — one-way upstream sync (not mirroring-as-platform) | Accepted |
-| [0018](0018-directory-entries-for-package-manifests.md) | Directory entries for package manifests | Proposed |
-| [0019](0019-directory-inputs-for-add-and-import.md) | Directory inputs for `arx add` and import workflows | Proposed |
-| [0020](0020-packaged-systemd-service-unit.md) | Packaged systemd service unit | Proposed |
-| [0021](0021-search-and-api-readiness.md) | Package search and API readiness | Proposed |
+| [0018](0018-directory-entries-for-package-manifests.md) | Directory entries for package manifests | Accepted |
+| [0019](0019-directory-inputs-for-add-and-import.md) | Directory inputs for repository ingestion | Accepted + implemented |
+| [0020](0020-packaged-systemd-service-unit.md) | Packaged systemd service unit | Accepted + implemented |
+| [0021](0021-search-and-api-readiness.md) | Package search and API readiness | Accepted for search; API checklist open |
 | [0022](0022-apt-release-identity-preservation.md) | Preserve apt Release identity during imports | Accepted |
-| [0023](0023-cutover-preflight-and-downstream-boundaries.md) | Cutover preflight and downstream integration boundaries | Proposed |
+| [0023](0023-cutover-preflight-and-downstream-boundaries.md) | Cutover preflight and downstream integration boundaries | Accepted + implemented |
 | [0024](0024-public-roadmap-and-information-hygiene.md) | Public roadmap and information hygiene | Accepted |
-- [ADR-0025: Explicit lifecycle hooks](0025-lifecycle-hooks.md)
-- [ADR-0026: Preflighted live cutover](0026-preflighted-cutover.md)
-- [ADR-0027: CI and verification boundaries](0027-ci-and-verification-boundaries.md)
+| [0025](0025-lifecycle-hooks.md) | Explicit lifecycle hooks | Accepted |
+| [0026](0026-preflighted-cutover.md) | Preflighted live cutover | Accepted |
+| [0027](0027-ci-and-verification-boundaries.md) | CI and verification boundaries | Accepted |
+| [0028](0028-release-tag-publication-boundary.md) | Release tags publish only the newest version | Accepted |

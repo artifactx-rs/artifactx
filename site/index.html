@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ArtifactX — publish package repos like a static blog</title>
-  <meta name="description" content="ArtifactX imports or creates signed apt and yum repositories, then publishes static files you can host on GitHub Pages, S3, nginx, or arx serve.">
+  <meta name="description" content="ArtifactX imports or creates signed apt and yum repositories from files or package drop directories, then publishes static files you can host on GitHub Pages, S3, nginx, or arx serve.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="__REPO_URL__/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="__REPO_URL__/">
   <meta property="og:title" content="ArtifactX — publish package repos like a static blog">
-  <meta property="og:description" content="Import existing apt/yum repos or start from local .deb/.rpm files. ArtifactX signs metadata and emits static files for Pages, S3, nginx, or arx serve.">
+  <meta property="og:description" content="Import existing apt/yum repos or start from local .deb/.rpm files and drop directories. ArtifactX signs metadata and emits static files for Pages, S3, nginx, or arx serve.">
   <meta property="og:site_name" content="ArtifactX">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="ArtifactX — publish package repos like a static blog">
@@ -23,7 +23,7 @@
     "alternateName": "arx",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux, macOS",
-    "description": "ArtifactX imports or creates signed apt and yum repositories, then publishes static files you can host anywhere.",
+    "description": "ArtifactX imports or creates signed apt and yum repositories from files or package drop directories, then publishes static files you can host anywhere.",
     "url": "__REPO_URL__/",
     "codeRepository": "https://github.com/__REPOSITORY__",
     "programmingLanguage": "Rust",
@@ -201,9 +201,9 @@
 <body>
   <header class="wrap">
     <div>
-      <span class="eyebrow">Static hosting for package repos.</span>
+      <span class="eyebrow">Dogfood repo version __ARX_VERSION__</span>
       <h1>Publish package repos like a <span class="grad">static blog</span>.</h1>
-      <p class="lead">Import an existing apt/yum repo or start from local .deb/.rpm files. ArtifactX signs the metadata and emits static files you can host on Pages, S3, nginx, or <code>arx serve</code>.</p>
+      <p class="lead">Import an existing apt/yum repo or start from local .deb/.rpm files and package drop directories. ArtifactX signs the metadata and emits static files you can host on Pages, S3, nginx, or <code>arx serve</code>.</p>
       <div class="actions">
         <a class="btn primary" href="__REPO_URL__/install.sh">Install arx</a>
         <a class="btn" href="__REPO_URL__/apt/dists/stable/Release">APT metadata</a>
@@ -216,7 +216,7 @@
     <aside class="hero-panel" aria-label="ArtifactX quick path">
       <h2>From packages to static hosting</h2>
       <div class="steps">
-        <div class="step"><span class="num">01</span><span><strong>Bring packages</strong>Import upstream metadata or add local .deb/.rpm files.</span></div>
+        <div class="step"><span class="num">01</span><span><strong>Bring packages</strong>Import upstream metadata, add a <code>dist/</code> directory, or run <code>publish-dir</code> for repeated drops.</span></div>
         <div class="step"><span class="num">02</span><span><strong>Publish</strong>Generate signed apt/yum metadata under your own key.</span></div>
         <div class="step"><span class="num">03</span><span><strong>Host</strong>Upload static files or run the same binary as a server.</span></div>
       </div>
@@ -237,12 +237,13 @@ curl -fsSL __REPO_URL__/install.sh</pre>
 
     <section class="grid">
       <article class="card"><span class="tag">Import</span><p><strong>Migrate existing repos.</strong> Pull from apt Packages metadata or yum repodata, then publish your own signed repo. It is a controlled migration path, not a blind mirror.</p></article>
-      <article class="card"><span class="tag">Create</span><p><strong>Start from local packages too.</strong> Run <code>arx init</code>, add .deb/.rpm files, publish, and serve from the same binary.</p></article>
+      <article class="card"><span class="tag">Create</span><p><strong>Start from local packages too.</strong> Run <code>arx init</code>, add .deb/.rpm files or a whole <code>dist/</code> directory, publish, and serve from the same binary.</p></article>
+      <article class="card"><span class="tag">Drop dirs</span><p><strong>Repeatable production drops.</strong> <code>arx publish-dir</code> ingests changed packages, publishes metadata, can cut over live symlinks, and leaves downstream sync explicit.</p></article>
       <article class="card"><span class="tag">Rollback</span><p><strong>Bad release?</strong> Keep published states and return clients to a previous repo snapshot.</p></article>
       <article class="card"><span class="tag">Static</span><p><strong>Host it like a blog.</strong> Publish signed repo files to GitHub Pages, S3, nginx, or serve them from the same <code>arx</code> binary.</p></article>
     </section>
 
-    <section class="split">
+    <section class="grid">
       <div class="card feature">
         <h2>Import an upstream repo</h2>
         <p>Start with packages you already publish elsewhere. Filter the first migration, verify apt/dnf clients, then regenerate static repo files under your own stable signing key.</p>
@@ -257,13 +258,20 @@ arx serve --root ./repo  # 127.0.0.1:8080</pre></div>
         <h2>Create and serve a new repo</h2>
         <p>Use packages you already built, or package from a manifest or Cargo.toml, then publish a signed repo you can host anywhere static files work.</p>
         <div class="terminal"><pre>arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo  # 127.0.0.1:8080</pre></div>
       </div>
     </section>
 
-    <section class="split">
+    <section class="grid">
+      <div class="card feature">
+        <h2>Operate a package drop directory</h2>
+        <p>For repeated build drops, use no-op detection, publish, live cutover, and explicit downstream sync boundaries without a wrapper script.</p>
+        <div class="terminal"><pre>arx publish-dir ./dist --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo</pre></div>
+      </div>
       <div class="card feature">
         <h2>Docker users get Compose</h2>
         <p>Generate deploy files from the same repo. Compose binds inside the container to <code>0.0.0.0:8080</code> so Docker port publishing works.</p>
@@ -282,7 +290,7 @@ journalctl -u arx -f</pre></div>
   </main>
 
   <footer class="wrap">
-    <p>ArtifactX: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary. Need production details? Read the <a href="https://github.com/__REPOSITORY__/blob/main/docs/README.md">docs</a> or the <a href="https://github.com/__REPOSITORY__/blob/main/docs/how-to/publish-with-github-pages.md">Pages deployment guide</a>.</p>
+    <p>ArtifactX __ARX_VERSION__: turn Linux package repository publishing into a static-site workflow — import, package, sign, host, promote, prune, and roll back from one binary. Need production details? Read the <a href="https://github.com/__REPOSITORY__/blob/main/docs/README.md">docs</a> or the <a href="https://github.com/__REPOSITORY__/blob/main/docs/how-to/publish-with-github-pages.md">Pages deployment guide</a>.</p>
   </footer>
 </body>
 </html>

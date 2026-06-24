@@ -75,7 +75,19 @@ configuration.
 
 ## Optional: build packages from a manifest
 
-ArtifactX can also build packages before adding them to a repo:
+ArtifactX can also build packages before adding them to a repo. A manifest can
+install individual files and whole directory trees:
+
+```toml
+[[files]]
+source = "target/release/myapp"
+dest = "/usr/bin/myapp"
+mode = "0755"
+
+[[dirs]]
+source = "assets"
+dest = "/usr/share/myapp/assets"
+```
 
 ```sh
 arx pack ./arx.toml --out dist
@@ -89,6 +101,23 @@ For Rust projects, omitting the manifest reads `./Cargo.toml` and
 ```sh
 arx pack --out dist
 ```
+
+## Optional: operate a repeated package drop directory
+
+Use `publish-dir` instead of hand-written wrapper scripts when a build system
+keeps dropping already-built `.deb` or `.rpm` files into the same directory. It
+detects unchanged inputs, publishes only when needed, and can reuse the live
+cutover flags from `arx publish`:
+
+```sh
+arx publish-dir ./dist --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo
+```
+
+This is repository ingestion for already-built packages. It is different from
+the `[[dirs]]` pack manifest feature above, which installs a directory tree
+inside a package payload.
 
 ## Optional: push to a running server
 

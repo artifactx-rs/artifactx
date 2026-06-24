@@ -1,6 +1,6 @@
 # ADR-0023: Cutover preflight stops at the public repository boundary
 
-- Status: Proposed
+- Status: Accepted & implemented
 - Date: 2026-06-22
 
 ## Context
@@ -16,7 +16,7 @@ should not absorb every downstream replication system into core ArtifactX.
 
 ## Decision
 
-Design a one-command publish/cutover workflow for v0.2 that owns the repository
+Ship one-command publish/cutover workflows for v0.2 that own the repository
 boundary:
 
 1. stage or add/import packages;
@@ -28,9 +28,23 @@ boundary:
    it;
 7. leave an explicit rollback pointer.
 
+The implementation exposes that boundary through:
+
+- `arx publish --apt-live ... --yum-flat-live ... --staging-dir ...` for the
+  common publish/export/preflight/cutover path;
+- `arx cutover --no-publish ...` for the less-common case where metadata was
+  already published and only the live pointer switch should run;
+- `arx publish-dir <DIR>` for repeated package-drop ingestion followed by the
+  same publish/cutover flow;
+- explicit RPM payload signing gates (`--require-signed-rpms`, `--sign-rpms`,
+  and `--rpm-sign-cmd`) so repository metadata signing is not confused with RPM
+  payload signing.
+
 Downstream sync, CDN invalidation, monitoring debounce, or site-specific service
-orchestration remains outside ArtifactX core. Public docs should describe that as
-an integration boundary with generic examples only.
+orchestration remains outside ArtifactX core. Public docs describe that as an
+integration boundary with generic examples only. `publish-dir --sync-cmd` is a
+non-invasive hook after a successful non-no-op publish, not a built-in sync
+provider.
 
 ## Consequences
 
@@ -38,9 +52,8 @@ an integration boundary with generic examples only.
 - Good: ArtifactX keeps a crisp product boundary: repository correctness first,
   deployment-specific distribution second.
 - Good: public docs can teach safe integration without exposing private topology.
-- Cost: preflight will need careful failure messages and rollback semantics.
-- Cost: not every deployment can use one atomic switch primitive, so the command
-  may need platform-specific checks.
+- Cost: not every deployment can use the symlink live-path primitive, so some
+  environments still need a one-time public-root migration or downstream wrapper.
 
 ## Alternatives considered
 

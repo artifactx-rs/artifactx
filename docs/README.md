@@ -10,6 +10,7 @@ front of you.
 | --- | --- |
 | Move packages from an existing apt/yum repo with low risk | [Import an existing repo](tutorials/import-existing-repo.md) |
 | Create a new repo from local `.deb`/`.rpm` files | [Create and serve a repo](tutorials/create-and-serve-repo.md) |
+| Operate a repeated package drop directory | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
 | Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
 | Keep legacy sync or mirror automation during migration | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
@@ -44,9 +45,19 @@ Use packages you already built, then publish apt/yum metadata.
 
 ```sh
 arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
+```
+
+Use `arx publish-dir` when a build system repeatedly drops packages into a
+directory and you want no-op detection, publish, optional live cutover, and
+optional downstream sync in one command:
+
+```sh
+arx publish-dir ./dist --root ./repo \
+  --apt-live ./public/deb \
+  --yum-flat-live ./public/repo
 ```
 
 ### API-first operation

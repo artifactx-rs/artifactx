@@ -42,7 +42,7 @@ Create, add, publish, serve:
 
 ```sh
 arx init ./repo
-arx add dist/*.deb dist/*.rpm --root ./repo
+arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
@@ -73,6 +73,15 @@ arx pack ./arx.toml --out dist
 arx add dist --root ./repo
 arx publish --root ./repo
 ```
+
+`arx pack` manifests support explicit `[[files]]` entries and recursive `[[dirs]]`
+entries for payload trees. Directory entries are expanded deterministically and
+reject symlinks, special files, and duplicate destinations.
+
+Keep the two directory features separate: `arx add <DIR>` and `arx publish-dir`
+ingest directories that already contain built `.deb` or `.rpm` packages
+(ADR-0019), while `arx pack` `[[dirs]]` installs a directory tree inside a newly
+built package payload (ADR-0018).
 
 Operate a production package drop directory:
 
