@@ -3,6 +3,12 @@ name: release
 on:
   push: { tags: ['v*'] }
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to rebuild/publish, for example v0.3.0. Leave empty for a latest Pages rebuild.'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: release-${{ github.repository }}-tags
@@ -21,10 +27,13 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       run_release: ${{ steps.meta.outputs.run_release }}
+      is_tag_release: ${{ steps.meta.outputs.is_tag_release }}
+      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Verify version pins are synchronized
         run: scripts/sync-version.py --check
@@ -33,6 +42,9 @@ jobs:
         id: meta
         run: |
           RUN_RELEASE=true
+          IS_TAG_RELEASE=false
+          CHECKOUT_REF="${{ github.ref }}"
+          REQUESTED_TAG="${{ inputs.tag }}"
           CRATE_VERSION="$(python3 - <<'PY'
           from pathlib import Path
           import re
@@ -43,9 +55,20 @@ jobs:
           print(match.group(1))
           PY
           )"
-          if [ "${{ github.ref_type }}" = "tag" ]; then
+          if [ -n "$REQUESTED_TAG" ]; then
+            TAG="$REQUESTED_TAG"
+            VERSION="${TAG#v}"
+            IS_TAG_RELEASE=true
+            CHECKOUT_REF="$REQUESTED_TAG"
+            if [ "$VERSION" != "$CRATE_VERSION" ]; then
+              echo "Requested tag $TAG does not match Cargo version $CRATE_VERSION" >&2
+              exit 1
+            fi
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
             TAG="${{ github.ref_name }}"
             VERSION="${TAG#v}"
+            IS_TAG_RELEASE=true
+            CHECKOUT_REF="$TAG"
             if [ "$VERSION" != "$CRATE_VERSION" ]; then
               echo "Tag $TAG does not match Cargo version $CRATE_VERSION" >&2
               exit 1
@@ -62,10 +85,12 @@ jobs:
           fi
           {
             echo "run_release=$RUN_RELEASE"
+            echo "is_tag_release=$IS_TAG_RELEASE"
+            echo "checkout_ref=$CHECKOUT_REF"
             echo "tag=$TAG"
             echo "version=$VERSION"
           } >> "$GITHUB_OUTPUT"
-          echo "Release metadata: tag=$TAG version=$VERSION"
+          echo "Release metadata: tag=$TAG version=$VERSION is_tag_release=$IS_TAG_RELEASE checkout_ref=$CHECKOUT_REF"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -94,7 +119,7 @@ jobs:
           cp target/aarch64-unknown-linux-musl/release/arx arx-latest-arm64
           ls -la arx-*
 
-      - name: Self-package — arx packages arx (.deb + .rpm)
+      - name: Self-package — arx packages arx (.deb + .rpm + .apk + .pkg.tar.zst)
         if: steps.meta.outputs.run_release == 'true'
         run: |
           TAG="${{ steps.meta.outputs.tag }}"; PKGVER="${{ steps.meta.outputs.version }}"
@@ -140,13 +165,14 @@ jobs:
           TOML
             ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --deb
             ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-rpm.toml --out dist --rpm
+            ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --apk
+            ./arx-${TAG}-amd64 pack /tmp/pack/$arch/arx-deb.toml --out dist --arch-pkg
           done
-          ./arx-${TAG}-amd64 pack /tmp/pack/amd64/arx-deb.toml --out dist --apk || true
           echo "=== self-packaged artifacts ==="
           ls -la dist/
 
       - name: GitHub Release
-        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
+        if: steps.meta.outputs.is_tag_release == 'true' && steps.meta.outputs.run_release == 'true'
         uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -156,43 +182,50 @@ jobs:
             arx-latest-arm64
             dist/*
           body: |
-            ## ArtifactX ${{ github.ref_name }}
+            ## ArtifactX ${{ steps.meta.outputs.tag }}
             **Build Once. Package Once. Publish Everywhere.**
             ```bash
             curl -fsSLO ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/arx-latest-amd64
             sudo install -m 755 arx-latest-amd64 /usr/local/bin/arx
             arx init && arx pack ./Cargo.toml && arx publish && arx serve
             ```
-            Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/${{ github.repository_owner }}/arx:${{ github.ref_name }} serve`
+            Docker: `docker run --rm -v ./repo:/repo -p 8080:8080 ghcr.io/${{ github.repository_owner }}/arx:${{ steps.meta.outputs.tag }} serve`
           generate_release_notes: true
 
       - name: GHCR login
-        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
+        if: steps.meta.outputs.is_tag_release == 'true' && steps.meta.outputs.run_release == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: docker/setup-buildx-action@v3
+        if: steps.meta.outputs.is_tag_release == 'true' && steps.meta.outputs.run_release == 'true'
+
       - name: GHCR multi-arch image
-        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
+        if: steps.meta.outputs.is_tag_release == 'true' && steps.meta.outputs.run_release == 'true'
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
           for arch in amd64 arm64; do
+            platform="linux/amd64"; [ "$arch" = "arm64" ] && platform="linux/arm64"
             mkdir -p /tmp/ghcr/$arch
             cp arx-${TAG}-$arch /tmp/ghcr/$arch/arx
             printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
-            docker build -t ghcr.io/artifactx-rs/arx:${TAG}-$arch -f /tmp/ghcr/$arch/Dockerfile /tmp/ghcr/$arch
-            docker push ghcr.io/artifactx-rs/arx:${TAG}-$arch
+            docker buildx build \
+              --platform "$platform" \
+              -t ghcr.io/artifactx-rs/arx:${TAG}-$arch \
+              -f /tmp/ghcr/$arch/Dockerfile \
+              /tmp/ghcr/$arch \
+              --push
           done
-          docker manifest create ghcr.io/artifactx-rs/arx:${TAG} \
+          docker buildx imagetools create -t ghcr.io/artifactx-rs/arx:${TAG} \
             ghcr.io/artifactx-rs/arx:${TAG}-amd64 \
             ghcr.io/artifactx-rs/arx:${TAG}-arm64
-          docker manifest create ghcr.io/artifactx-rs/arx:latest \
+          docker buildx imagetools create -t ghcr.io/artifactx-rs/arx:latest \
             ghcr.io/artifactx-rs/arx:${TAG}-amd64 \
             ghcr.io/artifactx-rs/arx:${TAG}-arm64
-          docker manifest push ghcr.io/artifactx-rs/arx:${TAG}
-          docker manifest push ghcr.io/artifactx-rs/arx:latest
+          docker buildx imagetools inspect ghcr.io/artifactx-rs/arx:${TAG}
 
       - uses: actions/upload-artifact@v7
         if: steps.meta.outputs.run_release == 'true'
@@ -200,13 +233,15 @@ jobs:
 
   pages:
     needs: release
-    if: github.ref_name == 'main' || (github.ref_type == 'tag' && needs.release.outputs.run_release == 'true')
+    if: needs.release.outputs.run_release == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.checkout_ref }}
       - uses: actions/download-artifact@v8
         with: { name: arx-bin }
       - run: |
