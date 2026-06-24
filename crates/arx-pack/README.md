@@ -71,7 +71,7 @@ In a Rust crate, identity is derived from `Cargo.toml` and packaging details fro
 # Cargo.toml
 [package]
 name = "greeter"
-version = "0.3.0"
+version = "1.2.3"
 description = "A friendly greeter"
 license = "MIT"
 authors = ["Jane Dev <jane@example.com>"]
@@ -107,6 +107,29 @@ and otherwise default to epoch `0`. The CLI also accepts `--source-date <epoch>`
 to override the environment for one `arx pack` invocation.
 
 `Manifest::from_cargo_toml(&str)` exposes the same mapping as a library call.
+
+### Existing Cargo packaging metadata
+
+`arx pack` also understands the useful, pure-metadata subset of common Rust
+packaging tables before applying the ArtifactX overlay:
+
+- `[package.metadata.deb]`: maintainer, section, relationships, and `assets`.
+- `[package.metadata.generate-rpm]`: summary/license, relationships, and
+  `assets`.
+- legacy `[package.metadata.rpm]`: summary/group, relationships, `files`, and
+  `targets`.
+
+`[package.metadata.arx]` wins when it supplies the same field, so projects can
+reuse existing cargo-deb / cargo-generate-rpm / cargo-rpm metadata and add only
+ArtifactX-specific cross-format behavior. Rendering still happens inside
+ArtifactX: `pack` does not require `cargo-deb`, `cargo-generate-rpm`,
+`cargo-rpm`, `rpmbuild`, or `dpkg-deb`.
+
+Compat asset sources are interpreted relative to the crate root; sources under
+`target/release/` are rewritten to the selected Cargo output directory, so the
+same `--profile`, `--target`, and `--target-dir` selectors above apply. The
+cargo-deb `$auto` dependency sentinel is ignored because ArtifactX does not run
+host dependency scanners.
 
 ## Usage
 

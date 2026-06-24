@@ -80,8 +80,11 @@ reject symlinks, special files, and duplicate destinations.
 
 For Rust crates, omitting `MANIFEST` reads `./Cargo.toml`; passing a path named
 `Cargo.toml` derives package identity from `[package]` and packaging details from
-`[package.metadata.arx]`. `pack` never runs `cargo build`: build first, then
-point `pack` at the same Cargo output layout if you used non-default settings:
+`[package.metadata.arx]`. It also bridges useful metadata from
+`[package.metadata.deb]`, `[package.metadata.generate-rpm]`, and legacy
+`[package.metadata.rpm]`; the ArtifactX table wins when both are present. `pack`
+never runs `cargo build`: build first, then point `pack` at the same Cargo output
+layout if you used non-default settings:
 
 ```sh
 cargo build --release --target x86_64-unknown-linux-gnu --target-dir build/target
@@ -93,6 +96,12 @@ directory, profile `release`, and the package name unless a single
 `[[bin]].name` is present. Multiple binaries require explicit
 `[package.metadata.arx]` `files`. Use `--profile <NAME>` for custom profiles;
 `--profile dev` maps to Cargo's `target/debug` output directory.
+
+Compat metadata is read directly by ArtifactX. No external `cargo-deb`,
+`cargo-generate-rpm`, `cargo-rpm`, `rpmbuild`, or `dpkg-deb` invocation is
+required. Compat `target/release/...` asset sources are resolved through the
+selected Cargo output layout; cargo-deb `$auto` dependencies are skipped rather
+than guessed from the host system.
 
 `pack` uses deterministic timestamps. `--source-date <EPOCH>` wins for that
 invocation; otherwise `SOURCE_DATE_EPOCH` is honored; otherwise epoch `0` is

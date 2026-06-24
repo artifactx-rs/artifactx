@@ -257,6 +257,198 @@ fn cargo_toml_without_package_errors() {
 }
 
 #[test]
+fn cargo_toml_reads_cargo_deb_metadata_assets_and_relationships() {
+    let dir = tempfile::tempdir().unwrap();
+    let target_dir = dir.path().join("cargo-out");
+    let cargo = r#"
+        [package]
+        name = "greeter"
+        version = "1.2.3"
+        edition = "2021"
+
+        [package.metadata.deb]
+        maintainer = "Deb Packager <deb@example.com>"
+        section = "utils"
+        depends = "$auto, libc6 (>= 2.34)"
+        conflicts = ["old-greeter"]
+        provides = "greeter-cli"
+        replaces = ["legacy-greeter"]
+        assets = [
+          ["target/release/greeter", "usr/bin/", "755"],
+          ["README.md", "/usr/share/doc/greeter/README", "644"],
+        ]
+    "#;
+    let options = CargoManifestOptions {
+        target_dir: Some(target_dir.clone()),
+        target: Some("x86_64-unknown-linux-gnu".to_string()),
+        profile: "release".to_string(),
+    };
+
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, dir.path(), &options).unwrap();
+
+    assert_eq!(m.maintainer, "Deb Packager <deb@example.com>");
+    assert_eq!(m.section.as_deref(), Some("utils"));
+    assert_eq!(m.depends, vec!["libc6 (>= 2.34)".to_string()]);
+    assert_eq!(m.conflicts, vec!["old-greeter".to_string()]);
+    assert_eq!(m.provides, vec!["greeter-cli".to_string()]);
+    assert_eq!(m.replaces, vec!["legacy-greeter".to_string()]);
+    assert_eq!(m.files.len(), 2);
+    assert_eq!(
+        m.files[0].source,
+        target_dir
+            .join("x86_64-unknown-linux-gnu")
+            .join("release")
+            .join("greeter")
+            .to_string_lossy()
+    );
+    assert_eq!(m.files[0].dest, "/usr/bin/greeter");
+    assert_eq!(m.files[0].mode, "0755");
+    assert_eq!(
+        m.files[1].source,
+        dir.path().join("README.md").to_string_lossy()
+    );
+    assert_eq!(m.files[1].dest, "/usr/share/doc/greeter/README");
+    assert_eq!(m.files[1].mode, "0644");
+}
+
+#[test]
+fn cargo_toml_reads_generate_rpm_metadata_assets() {
+    let dir = tempfile::tempdir().unwrap();
+    let target_dir = dir.path().join("cargo-out");
+    let cargo = r#"
+        [package]
+        name = "rpmtool"
+        version = "1.2.3"
+        edition = "2021"
+
+        [package.metadata.generate-rpm]
+        summary = "RPM tool package"
+        license = "Apache-2.0"
+        requires = ["libc"]
+        conflicts = ["oldrpm"]
+        provides = ["rpmtool"]
+        obsoletes = ["oldtool"]
+
+        [[package.metadata.generate-rpm.assets]]
+        source = "target/release/rpmtool"
+        dest = "/usr/bin/rpmtool"
+        mode = "755"
+    "#;
+    let options = CargoManifestOptions {
+        target_dir: Some(target_dir.clone()),
+        target: None,
+        profile: "release".to_string(),
+    };
+
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, dir.path(), &options).unwrap();
+
+    assert_eq!(m.description, "RPM tool package");
+    assert_eq!(m.license, "Apache-2.0");
+    assert_eq!(m.depends, vec!["libc".to_string()]);
+    assert_eq!(m.conflicts, vec!["oldrpm".to_string()]);
+    assert_eq!(m.provides, vec!["rpmtool".to_string()]);
+    assert_eq!(m.replaces, vec!["oldtool".to_string()]);
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(
+        m.files[0].source,
+        target_dir.join("release").join("rpmtool").to_string_lossy()
+    );
+    assert_eq!(m.files[0].dest, "/usr/bin/rpmtool");
+    assert_eq!(m.files[0].mode, "0755");
+}
+
+#[test]
+fn cargo_toml_reads_legacy_rpm_files_and_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let target_dir = dir.path().join("cargo-out");
+    let cargo = r#"
+        [package]
+        name = "legacytool"
+        version = "1.2.3"
+        edition = "2021"
+
+        [package.metadata.rpm]
+        summary = "Legacy RPM package"
+        group = "Applications/System"
+        requires = { bash = "*" }
+
+        [package.metadata.rpm.files]
+        "etc/legacy.conf" = { path = "/etc/legacy.conf", mode = "600" }
+
+        [package.metadata.rpm.targets]
+        legacytool = { path = "/usr/bin/legacytool" }
+    "#;
+    let options = CargoManifestOptions {
+        target_dir: Some(target_dir.clone()),
+        target: None,
+        profile: "release".to_string(),
+    };
+
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, dir.path(), &options).unwrap();
+
+    assert_eq!(m.description, "Legacy RPM package");
+    assert_eq!(m.rpm_group(), Some("Applications/System"));
+    assert_eq!(m.depends, vec!["bash".to_string()]);
+    assert_eq!(m.files.len(), 2);
+    assert_eq!(
+        m.files[0].source,
+        dir.path().join("etc/legacy.conf").to_string_lossy()
+    );
+    assert_eq!(m.files[0].dest, "/etc/legacy.conf");
+    assert_eq!(m.files[0].mode, "0600");
+    assert_eq!(
+        m.files[1].source,
+        target_dir
+            .join("release")
+            .join("legacytool")
+            .to_string_lossy()
+    );
+    assert_eq!(m.files[1].dest, "/usr/bin/legacytool");
+    assert_eq!(m.files[1].mode, "0755");
+}
+
+#[test]
+fn arx_metadata_overlays_compat_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("arx-bin");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+    let cargo = format!(
+        r#"
+        [package]
+        name = "overlay"
+        version = "1.2.3"
+        edition = "2021"
+
+        [package.metadata.deb]
+        maintainer = "Compat Packager <compat@example.com>"
+        section = "compat"
+        depends = ["compat-lib"]
+        assets = [["target/release/overlay", "/usr/bin/compat-overlay", "755"]]
+
+        [package.metadata.arx]
+        maintainer = "Arx Packager <arx@example.com>"
+        section = "arx"
+        depends = ["arx-lib"]
+
+        [[package.metadata.arx.files]]
+        source = "{}"
+        dest = "/usr/bin/arx-overlay"
+        mode = "0755"
+        "#,
+        payload.display()
+    );
+
+    let m = Manifest::from_cargo_toml_at(&cargo, dir.path()).unwrap();
+
+    assert_eq!(m.maintainer, "Arx Packager <arx@example.com>");
+    assert_eq!(m.section.as_deref(), Some("arx"));
+    assert_eq!(m.depends, vec!["arx-lib".to_string()]);
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(m.files[0].source, payload.to_string_lossy());
+    assert_eq!(m.files[0].dest, "/usr/bin/arx-overlay");
+}
+
+#[test]
 fn manifest_round_trip() {
     let toml = r#"
         name = "demo"

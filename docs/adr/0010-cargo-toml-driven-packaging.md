@@ -5,15 +5,16 @@
 
 ## Review outcome (all three leans accepted)
 
-1. `[package.metadata.arx]` is canonical; cargo-deb/`generate-rpm` compat = later.
-2. Default binary asset = `target/release/<name>` (overridable via `files`).
+1. `[package.metadata.arx]` is canonical; cargo-deb, cargo-generate-rpm, and
+   legacy cargo-rpm metadata are read as compatibility inputs, then overlaid by
+   `[package.metadata.arx]`.
+2. Default binary asset = Cargo output `<bin-name>` (overridable via `files`).
 3. Missing binary → error + hint (`pack` does not drive cargo).
 
 Implemented: `pack::Manifest::from_cargo_toml` + `arx pack` reads `./Cargo.toml`
 (or `<dir>/Cargo.toml`) by filename; any other `.toml` is a standalone manifest.
-Verified on a real single-crate project (zero extra config). **Follow-up:** resolve
-the workspace `target/` dir so `arx pack` works at a workspace member without an
-explicit `files` source (today, a workspace member sets an explicit asset path).
+Verified on real crate layouts, including workspace member target-dir resolution
+and compatibility metadata overlays.
 
 ## Context
 
@@ -65,10 +66,9 @@ unchanged. `arx pack` picks the source: arg → standalone TOML; else `Cargo.tom
 
 ## Open questions for review
 
-1. **Compatibility play:** also *read* `[package.metadata.deb]` (cargo-deb) and
-   `[package.metadata.generate-rpm]` so existing users get the other format +
-   publishing for free? Strong adoption hook, but two more schemas to track.
-   (Lean: support our `[package.metadata.arx]` first; cargo-deb compat = later.)
+1. **Compatibility play:** resolved by reading the useful pure-metadata subset of
+   `[package.metadata.deb]`, `[package.metadata.generate-rpm]`, and legacy
+   `[package.metadata.rpm]` while still rendering packages inside ArtifactX.
 2. **Default binary asset** `target/release/<name>` — assume release profile, or
    require an explicit `assets`/`--bin-path`? (Lean: default to release, override
    with config/flag.)
