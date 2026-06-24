@@ -71,7 +71,7 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
 
 ## Applying this to current work
 
-- Every KANBAN/Project item maps to Build / Package / Repository / Publish.
+- Every GitHub Project / issue item maps to Build / Package / Repository / Publish.
 - Keep minimal or justify against the charter: the server's `/metrics` endpoint
   (operational visibility, **not** a monitoring product); it must never grow into one.
 
@@ -88,4 +88,3 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
 - 做项目理解、架构梳理、符号定位、调用链、影响分析时，默认使用 Project Summary + Tree-sitter Code Index / `codebase-memory-mcp`，不要一上来全仓 `cat`/读大文件。
 - 推荐顺序：Project Summary（优先用 `get_architecture` 或项目摘要文件）→ Tree-sitter Code Index / `codebase-memory-mcp` 图谱状态 → `get_architecture`/`trace_path`/`get_code_snippet`/`detect_changes` → 精确 `rg`/文件读取 → 必要时才做全量扫描。
 - 对外报告时说明实际用了哪些索引/工具；只有真实调用 `codebase-memory-mcp` 图谱工具才算“用了 codebase memory”。
-

@@ -10,9 +10,10 @@ packaging. The same code runs identically on a developer laptop and in CI.
 
 For user-facing CLI behavior and limits, see the repository [pack reference](../../docs/reference/pack.md).
 
-> Status: **proof of concept.** The native `.deb`, `.rpm`, `.apk`, and `.pkg.tar.zst` builders
-> are implemented and tested. The Docker backend is available as an explicit,
-> opt-in fallback for builds that need a pinned container image.
+> Status: **early but shipped.** The native `.deb`, `.rpm`, `.apk`, and
+> `.pkg.tar.zst` builders are implemented, tested, and used by the ArtifactX
+> release pipeline. The Docker backend is available as an explicit, opt-in
+> fallback for builds that need a pinned container image.
 
 ## Philosophy: native-first, Docker as a fallback, hygiene always
 

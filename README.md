@@ -1,4 +1,4 @@
-# ArtifactX — import existing apt/yum repos into a signed static repo
+# ArtifactX — publish apt/yum repos and Linux packages from one binary
 
 <p align="center">
   <img src="res/logo.svg" alt="ArtifactX logo" width="720">
@@ -6,7 +6,9 @@
 
 [![CI](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/ci.yml) [![Release](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml/badge.svg)](https://github.com/artifactx-rs/artifactx/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/artifactx-rs/artifactx)](https://github.com/artifactx-rs/artifactx/releases/latest) [![crates.io](https://img.shields.io/crates/v/artifactx.svg)](https://crates.io/crates/artifactx)
 
-**Import first. Cut over when ready.** Pull packages from the repos you already have, regenerate apt/yum metadata under your key, and serve the result from one static binary.
+**Import first. Cut over when ready.** Pull packages from the repos you already
+have, package new release artifacts when you need them, regenerate apt/yum
+metadata under your key, and serve the result from one static Rust binary.
 
 ArtifactX (`arx`) is a small Rust tool for teams that ship Linux packages but do not want to operate Nexus, aptly, Pulp, S3 glue scripts, custom signing jobs, and a web server just to let users run `apt install` or `dnf install`.
 
@@ -26,6 +28,14 @@ arx init ./repo
 arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
+```
+
+```bash
+# Path 3: build Linux packages, then publish the .deb/.rpm outputs
+cargo build --release
+arx pack ./Cargo.toml --out dist
+arx add dist --root ./repo
+arx publish --root ./repo
 ```
 
 What users get:
@@ -49,7 +59,8 @@ Most package repo setups become a pile of special cases: one path for `.deb`, an
 ArtifactX keeps the package repository as a directory you can inspect, back up, move, and rebuild:
 
 - **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
-- **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, GC, rollback.
+- **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, search, GC, rollback.
+- **Native package output** — build `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` from an ArtifactX manifest or Rust `Cargo.toml`.
 - **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
 - **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection, first-class optional RPM payload signing, and optional external sync.
 - **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
@@ -194,9 +205,12 @@ ArtifactX import is a migration path, not a magic mirror.
 - **It is not a bit-for-bit mirror** of the upstream repository metadata. Use mirroring when you need continuous upstream sync.
 - **It does not re-sign individual packages.** Keep package signing in your build pipeline if your clients enforce package-level signatures.
 
-## Current focus: feature freeze, polish the migration path
+## Current focus: keep the shipped paths boring
 
-The next work is not broad feature expansion. ArtifactX is in an import-first polish phase: make `import -> publish -> serve -> client install -> rollback` feel reliable, documented, and easy to verify before adding more package ecosystems or storage backends.
+ArtifactX now has both repository publishing and package building paths. The
+current work is adoption polish: keep `import/add/pack -> publish -> serve/Pages
+-> client install -> rollback` reliable, documented, and easy to verify before
+adding broader package ecosystems, storage backends, or UI surface.
 
 ## Build your own packages too
 

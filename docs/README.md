@@ -10,6 +10,7 @@ front of you.
 | --- | --- |
 | Move packages from an existing apt/yum repo with low risk | [Import an existing repo](tutorials/import-existing-repo.md) |
 | Create a new repo from local `.deb`/`.rpm` files | [Create and serve a repo](tutorials/create-and-serve-repo.md) |
+| Build `.deb`, `.rpm`, `.apk`, and Arch packages | [Pack reference](reference/pack.md) |
 | Operate a repeated package drop directory | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
 | Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
@@ -54,6 +55,19 @@ arx add dist --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
+
+Build package artifacts from an ArtifactX manifest or a Rust `Cargo.toml` before
+adding the `.deb`/`.rpm` outputs to the repo:
+
+```sh
+cargo build --release
+arx pack ./Cargo.toml --out dist
+arx add dist --root ./repo
+arx publish --root ./repo
+```
+
+`arx pack` also emits `.apk` and Arch `.pkg.tar.zst` files for downstream
+channels; apt/yum indexing currently consumes the `.deb` and `.rpm` outputs.
 
 Use `arx publish-dir` when a build system repeatedly drops packages into a
 directory and you want no-op detection, publish, optional live cutover, and

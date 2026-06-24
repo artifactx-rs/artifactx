@@ -115,10 +115,10 @@ The release workflow will:
 6. build `public/` with `scripts/build-pages-site.sh`;
 7. deploy `public/` to GitHub Pages.
 
-This protects rapid patch iteration: if several `v0.2.x` tags are pushed close
-together, only the newest tag updates `arx-latest-*`, GHCR `latest`, and the
-dogfood Pages repository. Older tags fail only on real metadata mismatches; they
-do not overwrite the public "latest" surfaces.
+This protects rapid patch iteration: if several release tags are pushed close
+together, only the newest semantic tag updates `arx-latest-*`, GHCR `latest`,
+and the dogfood Pages repository. Older tags fail only on real metadata
+mismatches; they do not overwrite the public "latest" surfaces.
 
 ## Redeploy Pages without rebuilding Rust
 

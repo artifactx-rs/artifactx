@@ -8,10 +8,12 @@ Before changing code or docs, read:
 
 1. [`CLAUDE.md`](CLAUDE.md) — product charter and ship gate;
 2. [`README.md`](README.md) — current user-facing promise;
-3. [`ROADMAP.md`](ROADMAP.md) — current freeze/polish scope;
+3. [`ROADMAP.md`](ROADMAP.md) — live planning links and product narrative;
 4. relevant ADRs under [`docs/adr/`](docs/adr/).
 
-ArtifactX is currently feature-frozen around import-first polish. Do not expand package formats, storage backends, dashboards, proxy modes, or broad CLI surface unless the user explicitly asks and the change has a design note or ADR.
+ArtifactX is early-stage and should stay narrow. Do not expand package
+ecosystems, storage backends, dashboards, proxy modes, trust models, or broad CLI
+surface unless the user explicitly asks and the change has a design note or ADR.
 
 ## Required behavior
 

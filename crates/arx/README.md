@@ -5,7 +5,7 @@ It turns a directory into a **signed apt + yum repository** that `apt-get` and
 `dnf` consume directly, and serves it over HTTP — from a single binary.
 
 - **apt** repositories via [`arx-debrepo`](../arx-debrepo) (in-house generator)
-- **yum/dnf** repodata via [`createrepo_rs`](https://crates.io/crates/createrepo_rs)
+- **yum/dnf** repodata via ArtifactX's in-tree `createrepo_rs` subset
 - **PGP signing** (v4 RSA) via rpgp — `InRelease`/`Release.gpg` and `repomd.xml.asc`
 - **Built-in HTTP server** (axum) with a Prometheus `/metrics` endpoint
 - structured logging via `tracing`
@@ -43,14 +43,17 @@ and run `docker compose up`.
 | --- | --- |
 | `arx init [path]` | Scaffold directories + `arx.toml`, generate a signing key |
 | `arx key {generate\|import <file>\|export}` | Manage the signing key |
-| `arx add <pkg…>` | Add `.deb`/`.rpm` into the pool (arch detected from metadata) |
-| `arx pack <manifest> [--add]` | Build `.deb`/`.rpm` from a manifest (optionally into the pool) |
-| `arx publish [--apt] [--yum] [--strict]` | Generate and sign repository metadata (`--strict` fails if any package is unreadable/colliding instead of skipping it) |
+| `arx add <pkg-or-dir…>` | Add `.deb`/`.rpm` files, or discover them recursively from directories, into the pool |
+| `arx pack [manifest-or-Cargo.toml]` | Build `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` packages |
+| `arx publish [--apt] [--yum] [--strict]` | Generate and sign repository metadata; optionally export and cut over live public paths |
+| `arx publish-dir <dir>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks |
 | `arx rollback [dist] [--to <id>]` | Flip an apt dist back to a previous published state |
 | `arx history [dist]` | List retained published states for an apt dist |
 | `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |
 | `arx rm <name> [--version V]` | Remove a package from the pool (yank), then `publish` |
+| `arx search [query]` | Search local apt/yum pool entries before GC, remove, promote, or cutover |
 | `arx gc --keep N [--dry-run]` | Keep the N newest **versions** per package (dpkg/rpm version-aware), prune the rest, then `publish` |
+| `arx promote --from <from> --to <to> <name>` | Promote packages between apt components or yum repos |
 | `arx serve [--addr] [--root]` | Serve the repo over HTTP (defaults to `127.0.0.1:8080`, + `/metrics`) |
 | `arx compose [--addr]` | Generate `Dockerfile` + `docker-compose.yml` |
 
@@ -139,4 +142,6 @@ strict = false    # true = a skipped package fails publish (push returns 422)
 
 ## License
 
-GPL-2.0-or-later (links `createrepo_rs`, which is GPL).
+GPL-2.0-or-later. The CLI/server includes a minimal GPL-derived
+`createrepo_rs` subset for yum metadata; reusable `arx-debrepo` and `arx-pack`
+remain MIT OR Apache-2.0.

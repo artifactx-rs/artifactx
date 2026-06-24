@@ -14,13 +14,13 @@ the [charter](../CLAUDE.md)). For the *why* behind specific choices, read the
 | --- | --- | --- |
 | **Package** | `crates/arx-pack` | A manifest → native `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst`, pure Rust, no toolchain. |
 | **Publish (apt)** | `crates/arx-debrepo` | A pool of `.deb` → signed `Packages`/`Release`/`Contents`. |
-| **Publish (yum)** | `createrepo_rs` (dep) | A pool of `.rpm` → signed `repodata`. |
+| **Publish (yum)** | `crates/arx/src/createrepo_rs` | A pool of `.rpm` → signed `repodata`. |
 | **Orchestration** | `crates/arx` | The CLI + HTTP server that wires it all together. |
 
 ```
                           ┌──────────────────────── arx (CLI + server) ───────────────────────┐
   manifest ──▶ arx pack ──┤  pool/  ──▶ arx publish ──▶ dists/ + repodata/ ──▶ arx serve / push │──▶ apt-get / dnf
-                          │   (debrepo)         (createrepo_rs)        (axum)                     │
+                          │   (debrepo)       (local createrepo subset) (axum)                     │
                           └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,9 +74,10 @@ gets `InRelease`/`Release.gpg`, yum gets `repomd.xml.asc`. See
 ## Crates & licensing
 
 ArtifactX is one Cargo workspace with split crate boundaries:
-`arx-debrepo` and `arx-pack` are **independent, MIT/Apache** libraries,
-while `artifactx` (`crates/arx`) links the GPL `createrepo_rs`, so the binary is
-GPL. See [ADR-0001](adr/0001-workspace-and-licensing.md).
+`arx-debrepo` and `arx-pack` are **independent, MIT/Apache** libraries.
+`artifactx` (`crates/arx`) includes a minimal GPL-derived `createrepo_rs` subset
+for yum metadata, so the binary remains GPL. See
+[ADR-0001](adr/0001-workspace-and-licensing.md).
 
 ## Where to start reading the code
 
