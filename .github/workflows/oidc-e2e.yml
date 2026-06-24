@@ -1,0 +1,185 @@
+name: oidc-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oidc-e2e.yml
+      - crates/arx/src/cli.rs
+      - crates/arx/src/config.rs
+      - crates/arx/src/main.rs
+      - crates/arx/src/oidc.rs
+      - crates/arx/src/server.rs
+      - crates/arx/Cargo.toml
+      - Cargo.toml
+      - Cargo.lock
+
+concurrency:
+  group: oidc-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  OIDC_AUDIENCE: arx-ci
+
+jobs:
+  live-github-actions-oidc:
+    name: live GitHub Actions OIDC push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build arx
+        run: cargo build -p artifactx
+
+      - name: Verify OIDC push against local arx serve
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "GitHub Actions OIDC request environment is missing; check permissions.id-token: write" >&2
+            exit 1
+          fi
+          if ! command -v dpkg-deb >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq dpkg-dev
+          fi
+
+          ROOT="$RUNNER_TEMP/arx-oidc-root"
+          DIST="$RUNNER_TEMP/arx-oidc-dist"
+          LOG="$RUNNER_TEMP/arx-serve.log"
+          BASE_URL="http://127.0.0.1:18080"
+          VERSION="1.0.${GITHUB_RUN_NUMBER}"
+          GOOD_PACKAGE="arx-oidc-e2e-good"
+          BAD_PACKAGE="arx-oidc-e2e-bad"
+          mkdir -p "$ROOT" "$DIST"
+
+          ./target/debug/arx init "$ROOT"
+          python3 - "$ROOT/arx.toml" "$OIDC_AUDIENCE" "$EXPECTED_REPOSITORY" <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          import sys
+
+          path = Path(sys.argv[1])
+          audience = sys.argv[2]
+          repository = sys.argv[3]
+          text = path.read_text()
+          oidc = (
+              "[oidc]\n"
+              "enabled = true\n"
+              f"audience = {json.dumps(audience)}\n"
+              f"allowed_repos = [{json.dumps(repository)}]\n"
+          )
+          if re.search(r"(?m)^\[oidc\]\n", text):
+              text = re.sub(r"(?ms)^\[oidc\]\n.*?(?=^\[|\Z)", oidc, text)
+          else:
+              text = text.rstrip() + "\n\n" + oidc
+          path.write_text(text)
+          PY
+          echo "Configured OIDC audience=$OIDC_AUDIENCE allowlist=$EXPECTED_REPOSITORY"
+
+          make_deb() {
+            local package="$1" version="$2" output="$3" workdir
+            workdir="$(mktemp -d "$RUNNER_TEMP/${package}.XXXXXX")"
+            mkdir -p "$workdir/DEBIAN" "$workdir/usr/share/$package"
+            cat > "$workdir/DEBIAN/control" <<EOF
+          Package: $package
+          Version: $version
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: ArtifactX CI <ci@artifactx.local>
+          Description: ArtifactX OIDC E2E fixture package
+          EOF
+            printf '%s\n' "run_id=$GITHUB_RUN_ID" "package=$package" > "$workdir/usr/share/$package/evidence.txt"
+            dpkg-deb --build "$workdir" "$output" >/dev/null
+          }
+
+          GOOD_DEB="$DIST/${GOOD_PACKAGE}_${VERSION}_amd64.deb"
+          BAD_DEB="$DIST/${BAD_PACKAGE}_${VERSION}_amd64.deb"
+          make_deb "$GOOD_PACKAGE" "$VERSION" "$GOOD_DEB"
+          make_deb "$BAD_PACKAGE" "$VERSION" "$BAD_DEB"
+          dpkg-deb --info "$GOOD_DEB"
+
+          ./target/debug/arx serve --root "$ROOT" --addr 127.0.0.1:18080 >"$LOG" 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            local status=$?
+            if kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+              kill "$SERVER_PID" >/dev/null 2>&1 || true
+              wait "$SERVER_PID" >/dev/null 2>&1 || true
+            fi
+            echo "::group::arx serve log"
+            cat "$LOG" || true
+            echo "::endgroup::"
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$BASE_URL/api/v1/health" >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+              echo "arx serve exited before becoming healthy" >&2
+              exit 1
+            fi
+            echo "Waiting for arx serve ($attempt/60)"
+            sleep 1
+          done
+          curl -fsS "$BASE_URL/api/v1/health"
+
+          unset ARX_SERVE_TOKEN
+          WRONG_LOG="$RUNNER_TEMP/wrong-audience.log"
+          if ./target/debug/arx push "$BAD_DEB" --url "$BASE_URL" --oidc-audience "${OIDC_AUDIENCE}-wrong" >"$WRONG_LOG" 2>&1; then
+            cat "$WRONG_LOG"
+            echo "push with the wrong OIDC audience unexpectedly succeeded" >&2
+            exit 1
+          fi
+          cat "$WRONG_LOG"
+          if ! grep -Eiq '401|unauthorized|audience' "$WRONG_LOG"; then
+            echo "wrong-audience failure did not look like an auth rejection" >&2
+            exit 1
+          fi
+
+          ./target/debug/arx push "$GOOD_DEB" --url "$BASE_URL" --oidc-audience "$OIDC_AUDIENCE" --component main
+
+          PACKAGE_JSON="$RUNNER_TEMP/packages.json"
+          curl -fsS "$BASE_URL/api/v1/packages?name_prefix=$GOOD_PACKAGE&apt=true" > "$PACKAGE_JSON"
+          python3 - "$PACKAGE_JSON" "$GOOD_PACKAGE" "$VERSION" <<'PY'
+          import json
+          import sys
+
+          entries = json.load(open(sys.argv[1], encoding='utf-8'))
+          package = sys.argv[2]
+          version = sys.argv[3]
+          if not any(
+              entry.get('name') == package
+              and entry.get('version') == version
+              and entry.get('kind') == 'apt'
+              for entry in entries
+          ):
+              raise SystemExit(f'{package} {version} not found in API package list: {entries!r}')
+          print(f'API package list contains {package} {version}')
+          PY
+
+          grep -R "Package: $GOOD_PACKAGE" "$ROOT/apt/dists/stable/"
+          test -f "$ROOT/apt/dists/stable/Release"
+          test -f "$ROOT/apt/dists/stable/InRelease"
+          echo "OIDC E2E succeeded with a live GitHub Actions token."
