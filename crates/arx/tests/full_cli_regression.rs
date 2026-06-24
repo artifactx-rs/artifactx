@@ -5,10 +5,10 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -31,6 +31,8 @@ struct StaticServer {
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
+
+static SERVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 impl Drop for StaticServer {
     fn drop(&mut self) {
@@ -709,6 +711,7 @@ args = ["-c", "test -f apt/dists/stable/Release && printf '%s:%s:%s' \"$ARX_HOOK
 
 #[test]
 fn api_publish_runs_configured_post_hook() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
     let deb = tmp.path().join("apihook_1.0-1_amd64.deb");
@@ -734,7 +737,7 @@ args = ["-c", "test -f apt/dists/stable/Release && printf '%s:%s' \"$ARX_HOOK\" 
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -939,6 +942,7 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
 
 #[test]
 fn import_api_publish_true_imports_and_publishes_apt_metadata() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let upstream = tmp.path().join("upstream");
     let pool = upstream.join("pool/main");
@@ -965,7 +969,7 @@ fn import_api_publish_true_imports_and_publishes_apt_metadata() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -986,7 +990,7 @@ fn import_api_publish_true_imports_and_publishes_apt_metadata() {
             .unwrap_or(false)
     });
 
-    let imported: serde_json::Value = reqwest::blocking::Client::new()
+    let import_response = reqwest::blocking::Client::new()
         .post(format!("{base}/api/v1/import"))
         .bearer_auth("test-token")
         .query(&[
@@ -997,11 +1001,14 @@ fn import_api_publish_true_imports_and_publishes_apt_metadata() {
             ("publish", "true"),
         ])
         .send()
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
         .unwrap();
+    let import_status = import_response.status();
+    let import_body = import_response.text().unwrap();
+    assert!(
+        import_status.is_success(),
+        "API import failed with {import_status}:\n{import_body}"
+    );
+    let imported: serde_json::Value = serde_json::from_str(&import_body).unwrap();
     assert_eq!(imported["imported"], 1, "import response: {imported}");
     assert!(
         imported["published"].as_str().unwrap().contains("apt:"),
@@ -1371,6 +1378,7 @@ fn publish_history_and_rollback_cli_work_together() {
 
 #[test]
 fn serve_and_push_round_trip_a_deb_package() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     let pkg = tmp.path().join("hello_1.0-1_amd64.deb");
@@ -1381,7 +1389,7 @@ fn serve_and_push_round_trip_a_deb_package() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1420,6 +1428,7 @@ fn serve_and_push_round_trip_a_deb_package() {
 
 #[test]
 fn package_list_api_supports_search_filters() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     let first = tmp.path().join("api-demo_1.0-1_amd64.deb");
@@ -1439,7 +1448,7 @@ fn package_list_api_supports_search_filters() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1476,6 +1485,7 @@ fn package_list_api_supports_search_filters() {
 
 #[test]
 fn gc_api_supports_package_scope_and_retention_fields() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -1499,7 +1509,7 @@ fn gc_api_supports_package_scope_and_retention_fields() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1571,6 +1581,7 @@ fn gc_api_supports_package_scope_and_retention_fields() {
 
 #[test]
 fn api_workflow_covers_documented_publish_history_rollback_and_promote() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     let first = tmp.path().join("api-flow_1.0-1_amd64.deb");
@@ -1585,7 +1596,7 @@ fn api_workflow_covers_documented_publish_history_rollback_and_promote() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1732,6 +1743,7 @@ fn api_workflow_covers_documented_publish_history_rollback_and_promote() {
 
 #[test]
 fn serve_rejects_unauthenticated_write_when_token_is_configured() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -1740,7 +1752,7 @@ fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1816,6 +1828,7 @@ fn serve_rejects_unauthenticated_write_when_token_is_configured() {
 
 #[test]
 fn serve_does_not_expose_private_signing_keys() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -1836,7 +1849,7 @@ fn serve_does_not_expose_private_signing_keys() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -1881,6 +1894,7 @@ fn serve_does_not_expose_private_signing_keys() {
 
 #[test]
 fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     let apt_live = tmp.path().join("public-deb");
@@ -1929,7 +1943,7 @@ fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -2030,6 +2044,7 @@ fn serve_can_mount_legacy_live_dirs_without_changing_api_root() {
 
 #[test]
 fn serve_blocks_configured_private_signing_key_path() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -2071,7 +2086,7 @@ fn serve_blocks_configured_private_signing_key_path() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -2115,6 +2130,7 @@ fn serve_blocks_configured_private_signing_key_path() {
 
 #[test]
 fn serve_upload_response_uses_configured_storage_paths() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     let deb = tmp.path().join("stored_1.0-1_amd64.deb");
@@ -2152,7 +2168,7 @@ fn serve_upload_response_uses_configured_storage_paths() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "serve",
                 "--root",
@@ -2220,7 +2236,7 @@ fn watch_imports_new_package_and_publishes_metadata() {
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
 
     let mut child = ChildGuard(
-        Command::new(common::arx_bin())
+        common::arx_command()
             .args([
                 "watch",
                 watch_dir.to_str().unwrap(),
