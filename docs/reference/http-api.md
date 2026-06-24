@@ -265,7 +265,7 @@ Query parameters:
 | --- | --- | --- | --- |
 | `name` | string | none | Prune only this package name. |
 | `name_prefix` | string | none | Prune only packages whose names start with this prefix. |
-| `keep` | integer | `3` | Keep this many newest versions per package/scope/arch. |
+| `keep` | integer | `3` | Keep this many highest-precedence versions per package/scope/arch, using package version ordering semantics (Debian/RPM-style), not file mtime. |
 | `keep_within_days` | integer | `0` | Also keep packages newer than this many days. |
 | `grace_days` | integer | `0` | Defer pruning packages newer than this grace period. |
 | `dry_run` | boolean | `false` | Report what would be pruned without deleting or publishing. |
