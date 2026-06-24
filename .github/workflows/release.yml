@@ -60,9 +60,11 @@ jobs:
             TAG="latest"
             VERSION="$CRATE_VERSION"
           fi
-          echo "run_release=$RUN_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_release=$RUN_RELEASE"
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
           echo "Release metadata: tag=$TAG version=$VERSION"
 
       - uses: dtolnay/rust-toolchain@stable
@@ -77,7 +79,7 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
           wget -qO- https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | tar xJ
-          echo "$PWD/zig-linux-x86_64-0.13.0" >> $GITHUB_PATH
+          echo "$PWD/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
           cargo install cargo-zigbuild
 
       - name: Build static binaries (amd64 + arm64)
