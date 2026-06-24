@@ -164,7 +164,7 @@ Issue: [#14 — proposal: Add a DirEntry struct](https://github.com/artifactx-rs
 | Config-file marking | P1 ([#28](https://github.com/artifactx-rs/artifactx/issues/28)) | Design deb `conffiles` / equivalent manifest intent before users rely on ad-hoc maintainer scripts for config paths. |
 | Explicit source date CLI | P2 ([#29](https://github.com/artifactx-rs/artifactx/issues/29)) | Consider `arx pack --source-date <epoch>` as a discoverable wrapper around `SOURCE_DATE_EPOCH` while preserving reproducible defaults. |
 | Common-source packaged-upstream targets | P2 ([#109](https://github.com/artifactx-rs/artifactx/issues/109)) | [Curated packaging feed blueprint](docs/explanation/curated-packaging-feed.md): separate maintainer repo, per-project recipes, smoke tests, refresh/cutover policy, and upstream graduation criteria. |
-| Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | Clearly document limits: no inline package signing, no auto dependency detection, no symlink following, no source packages, and no `.apk` repository add path yet. |
+| Pack docs completeness | P1 ([#30](https://github.com/artifactx-rs/artifactx/issues/30)) | [Pack reference](docs/reference/pack.md): supported `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst` output, Cargo.toml mode, config/script behavior, reproducibility, and current repository-indexing limits. |
 
 ### Rust packaging bridge design note
 

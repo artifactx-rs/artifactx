@@ -89,6 +89,8 @@ in `.PKGINFO`.
 By default `arx pack` emits every supported package format. Use `--deb`,
 `--rpm`, `--apk`, or `--arch-pkg` to restrict the output set.
 
+For the complete package-build behavior and limits, see [Pack reference](pack.md).
+
 For Rust crates, omitting `MANIFEST` reads `./Cargo.toml`; passing a path named
 `Cargo.toml` derives package identity from `[package]` and packaging details from
 `[package.metadata.arx]`. It also bridges useful metadata from

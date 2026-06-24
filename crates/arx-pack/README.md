@@ -8,6 +8,8 @@ metadata and the files it installs — and `arx-pack` emits Debian `.deb`, RPM
 needed for ordinary "stage these files at these paths with this metadata"
 packaging. The same code runs identically on a developer laptop and in CI.
 
+For user-facing CLI behavior and limits, see the repository [pack reference](../../docs/reference/pack.md).
+
 > Status: **proof of concept.** The native `.deb`, `.rpm`, `.apk`, and `.pkg.tar.zst` builders
 > are implemented and tested. The Docker backend is available as an explicit,
 > opt-in fallback for builds that need a pinned container image.

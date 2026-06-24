@@ -222,6 +222,9 @@ arx serve                             # local server on 127.0.0.1:8080
 indexes the apt/yum repository formats (`.deb`/`.rpm`) and leaves `.apk` /
 `.pkg.tar.zst` artifacts in the output directory for downstream handling.
 
+See the [pack reference](docs/reference/pack.md) for manifest fields, Cargo.toml mode,
+format-specific behavior, and current limits.
+
 For repeated package drop directories, `publish-dir` wraps discovery, no-op
 detection, publish, optional live cutover, optional RPM payload signing, and
 optional downstream sync:

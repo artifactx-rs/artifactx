@@ -22,6 +22,7 @@ front of you.
 | Expose `arx serve` with production TLS | [Secure `arx serve` behind a TLS proxy](how-to/secure-serve-behind-proxy.md) |
 | Use your organization signing key | [Use custom signing keys](how-to/use-custom-signing-keys.md) |
 | Find every CLI command and option | [CLI reference](reference/cli.md) |
+| Understand `arx pack` behavior and limits | [Pack reference](reference/pack.md) |
 | Integrate with `arx serve` over HTTP | [HTTP API reference](reference/http-api.md) / [OpenAPI](reference/openapi.yaml) |
 | Understand `arx.toml` | [Configuration reference](reference/config.md) |
 | Understand repo signing and expiry | [Signing and expiry](explanation/signing-and-expiry.md) |
