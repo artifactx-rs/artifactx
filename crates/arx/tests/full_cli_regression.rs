@@ -218,6 +218,19 @@ fn wait_for<F: Fn() -> bool>(label: &str, timeout: Duration, f: F) {
     panic!("timed out waiting for {label}");
 }
 
+fn wait_for_static_path(server: &StaticServer, path: &str) {
+    let url = format!("{}/{}", server.base_url, path.trim_start_matches('/'));
+    wait_for(
+        &format!("static fixture {path}"),
+        Duration::from_secs(10),
+        || {
+            reqwest::blocking::get(url.as_str())
+                .map(|r| r.status().is_success())
+                .unwrap_or(false)
+        },
+    );
+}
+
 #[test]
 fn every_cli_subcommand_is_wired_into_help() {
     let output = arx_output(&["--help"]);
@@ -783,6 +796,7 @@ fn import_and_mirror_download_from_upstream_repo() {
     )
     .unwrap();
     let server = start_static_server(upstream);
+    wait_for_static_path(&server, "dists/stable/main/binary-amd64/Packages");
 
     let import_root = tmp.path().join("import-root");
     arx_ok(&["init", import_root.to_str().unwrap(), "--no-key"]);
@@ -851,12 +865,14 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
     write_deb(&deb, "hello", "1.0-1", "amd64");
     let size = std::fs::metadata(&deb).unwrap().len();
     let sha = sha256_hex(&deb);
-    let server = start_static_server(upstream);
     let packages = format!(
-        "Package: hello\nVersion: 1.0-1\nArchitecture: amd64\nFilename: {}/pool/12/9a/{hashed_name}\nSize: {size}\nSHA256: {sha}\n\n",
-        server.base_url
+        "Package: hello\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/12/9a/{hashed_name}\nSize: {size}\nSHA256: {sha}\n\n"
     );
     std::fs::write(packages_dir.join("Packages.xz"), xz(packages.as_bytes())).unwrap();
+    let server = start_static_server(upstream);
+    wait_for_static_path(&server, "dists/stable/Release");
+    wait_for_static_path(&server, "dists/stable/main/binary-amd64/Packages.xz");
+    wait_for_static_path(&server, format!("pool/12/9a/{hashed_name}").as_str());
 
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
@@ -941,6 +957,7 @@ fn import_api_publish_true_imports_and_publishes_apt_metadata() {
     )
     .unwrap();
     let upstream_server = start_static_server(upstream);
+    wait_for_static_path(&upstream_server, "dists/stable/main/binary-amd64/Packages");
 
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
