@@ -753,8 +753,12 @@ fn export_builds_legacy_apt_and_centos7_friendly_flat_yum_layout() {
     ]);
     arx_ok(&["publish", "--root", root.to_str().unwrap(), "--full"]);
 
-    let apt_export = tmp.path().join("public-deb-20260622");
-    let yum_export = tmp.path().join("public-repo-20260622");
+    // Fixed fixture suffixes for deterministic export path assertions in this test.
+    // These are not intended to represent a "current date".
+    const APT_EXPORT_DIR: &str = "public-deb-20260622";
+    const YUM_EXPORT_DIR: &str = "public-repo-20260622";
+    let apt_export = tmp.path().join(APT_EXPORT_DIR);
+    let yum_export = tmp.path().join(YUM_EXPORT_DIR);
     arx_ok(&[
         "export",
         "--root",
