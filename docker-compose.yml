@@ -4,7 +4,7 @@
 
 services:
   arx:
-    image: ghcr.io/artifactx-rs/arx:v0.2.7
+    image: ghcr.io/artifactx-rs/arx:v0.3.0
     ports:
       - "8080:8080"
     volumes:

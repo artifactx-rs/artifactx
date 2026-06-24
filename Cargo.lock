@@ -171,7 +171,7 @@ checksum = "f02882884d3e1bc524fb12c79f107f6ad0e1cfd498c536ffb494301740995dfe"
 
 [[package]]
 name = "artifactx"
-version = "0.2.7"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ar",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "arx-debrepo"
-version = "0.2.7"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ar",
@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "arx-pack"
-version = "0.2.7"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ar",

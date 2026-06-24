@@ -17,6 +17,8 @@ SYNCED_FILES = [
     ROOT / "packaging/arx.toml",
     ROOT / "docker-compose.yml",
     ROOT / "flake.nix",
+    ROOT / "crates/arx/src/openapi.yaml",
+    ROOT / "docs/reference/openapi.yaml",
 ]
 
 
@@ -69,6 +71,8 @@ def sync_text(path: Path, version: str) -> str:
         return replace_once(text, r'ghcr\.io/artifactx-rs/arx:v[^\s]+', f'ghcr.io/artifactx-rs/arx:v{version}', path)
     if path.match("flake.nix"):
         return replace_once(text, r'version\s*=\s*"[^"]+";', f'version = "{version}";', path)
+    if path.match("crates/arx/src/openapi.yaml") or path.match("docs/reference/openapi.yaml"):
+        return replace_once(text, r'^\s*version:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"  version: {version}", path)
     raise SystemExit(f"no sync rule for {path.relative_to(ROOT)}")
 
 
