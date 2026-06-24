@@ -188,7 +188,7 @@ async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> R
         Some(token) => {
             // OIDC path: JWT-looking token + OIDC enabled.
             if st.cfg.oidc.enabled && token.contains('.') {
-                match crate::oidc::validate_github_oidc(&token, &st.cfg.oidc) {
+                match crate::oidc::validate_github_oidc(&token, &st.cfg.oidc).await {
                     Ok(()) => return next.run(req).await,
                     Err(e) => {
                         tracing::warn!(error = %e, "OIDC validation failed");

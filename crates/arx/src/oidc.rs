@@ -41,7 +41,7 @@ static JWKS_CACHE: RwLock<Option<JwksCache>> = RwLock::new(None);
 
 /// Load (or re-use cached) GitHub's JWKS. Re-fetches when the cache is cold or
 /// the TTL has expired.
-fn fetch_jwks() -> Result<jsonwebtoken::jwk::JwkSet> {
+async fn fetch_jwks() -> Result<jsonwebtoken::jwk::JwkSet> {
     {
         let cache = JWKS_CACHE.read().unwrap();
         if let Some(ref c) = *cache {
@@ -51,14 +51,15 @@ fn fetch_jwks() -> Result<jsonwebtoken::jwk::JwkSet> {
         }
     }
     // Re-fetch.
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let resp = client
         .get(GITHUB_JWKS_URL)
         .send()
+        .await
         .context("fetching GitHub JWKS")?
         .error_for_status()
         .context("GitHub JWKS returned error")?;
-    let body = resp.bytes().context("reading JWKS body")?;
+    let body = resp.bytes().await.context("reading JWKS body")?;
     let keys: jsonwebtoken::jwk::JwkSet = serde_json::from_slice(&body).context("parsing JWKS")?;
     let mut cache = JWKS_CACHE.write().unwrap();
     *cache = Some(JwksCache {
@@ -70,7 +71,7 @@ fn fetch_jwks() -> Result<jsonwebtoken::jwk::JwkSet> {
 
 /// Validate a GitHub OIDC JWT against the configured policy.
 /// Returns `Ok(())` if the token is valid and the repository is allowed.
-pub fn validate_github_oidc(token: &str, cfg: &OidcConfig) -> Result<()> {
+pub async fn validate_github_oidc(token: &str, cfg: &OidcConfig) -> Result<()> {
     if !cfg.enabled {
         bail!("OIDC is not enabled on this server");
     }
@@ -78,11 +79,12 @@ pub fn validate_github_oidc(token: &str, cfg: &OidcConfig) -> Result<()> {
         bail!("not a JWT");
     }
 
-    let jwks = fetch_jwks().context("fetching JWKS for OIDC validation")?;
-
     // Find the key that matches the JWT header's `kid`.
     let header = jsonwebtoken::decode_header(token).context("decoding JWT header")?;
     let kid = header.kid.as_deref().unwrap_or("");
+    let jwks = fetch_jwks()
+        .await
+        .context("fetching JWKS for OIDC validation")?;
     let jwk = jwks
         .find(kid)
         .ok_or_else(|| anyhow::anyhow!("JWT key id {kid:?} not found in GitHub JWKS"))?;
