@@ -9,7 +9,7 @@ For the machine-readable contract, see [OpenAPI](openapi.yaml). When
 `arx serve` is running, the same contract is served at `/api/openapi.yaml` and
 an embedded Swagger UI is available at `/api/docs`.
 
-For v0.2, `/api/v1` is a **beta developer API**: endpoint names and the
+`/api/v1` is currently a **beta developer API**: endpoint names and the
 main request/response fields are intended to be script-friendly, but the project
 may still add fields or tighten validation before declaring the API stable.
 Clients should ignore unknown JSON fields and should not parse human-readable
@@ -102,7 +102,7 @@ Fields:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `name` | string | Package name parsed from the `.deb` or `.rpm`. |
-| `version` | string | Debian version or RPM version. RPM release is not included. |
+| `version` | string | Debian version or RPM version. For RPM, `release` (and `epoch`, when present) are tracked in separate fields. |
 | `arch` | string | Package architecture, such as `amd64` or `x86_64`. |
 | `scope` | string | apt component or yum repo name. |
 | `kind` | string | `apt` or `yum`. |
@@ -265,7 +265,7 @@ Query parameters:
 | --- | --- | --- | --- |
 | `name` | string | none | Prune only this package name. |
 | `name_prefix` | string | none | Prune only packages whose names start with this prefix. |
-| `keep` | integer | `3` | Keep this many newest versions per package/scope/arch. |
+| `keep` | integer | `3` | Keep this many highest-precedence versions per package/scope/arch, using package version ordering semantics (Debian/RPM-style), not file mtime. |
 | `keep_within_days` | integer | `0` | Also keep packages newer than this many days. |
 | `grace_days` | integer | `0` | Defer pruning packages newer than this grace period. |
 | `dry_run` | boolean | `false` | Report what would be pruned without deleting or publishing. |
