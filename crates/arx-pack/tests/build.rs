@@ -757,10 +757,10 @@ fn config_file_marking_maps_to_deb_conffiles_and_rpm_flags() {
     let entries = pkg.metadata.get_file_entries().unwrap();
     let rpm_conf = entries
         .iter()
-        .find(|f| f.path == Path::new("/etc/config-demo/app.conf"))
+        .find(|f| f.path() == Path::new("/etc/config-demo/app.conf"))
         .unwrap_or_else(|| panic!("rpm missing config file entry: {entries:?}"));
     assert_eq!(
-        rpm_conf.flags,
+        rpm_conf.flags(),
         rpm::FileFlags::CONFIG | rpm::FileFlags::NOREPLACE
     );
 

@@ -249,7 +249,7 @@ fn rpm_signature_report(out: &Path) -> Result<Vec<String>> {
         if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("rpm") {
             continue;
         }
-        let mut reader = createrepo_rs::rpm::RpmReader::open(path)
+        let mut reader = crate::createrepo_rs::rpm::RpmReader::open(path)
             .with_context(|| format!("opening {}", path.display()))?;
         if !reader.is_signed() {
             let mut package = reader

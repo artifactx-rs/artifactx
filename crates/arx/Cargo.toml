@@ -1,6 +1,6 @@
 [package]
 name = "artifactx"
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 authors.workspace = true
 description = "ArtifactX (arx) — cross-platform package repository manager. One-binary apt + yum repo generator with PGP signing and built-in HTTP serving."
@@ -16,11 +16,19 @@ path = "src/main.rs"
 
 [dependencies]
 # apt repo generation + packaging (in-house, permissively licensed sibling crates)
-arx-debrepo = { version = "0.3.0", path = "../arx-debrepo" }
-arx-pack = { version = "0.3.0", path = "../arx-pack" }
+arx-debrepo = { version = "0.3.1", path = "../arx-debrepo" }
+arx-pack = { version = "0.3.1", path = "../arx-pack" }
 
-# yum: reuse our own createrepo_rs library
-createrepo_rs = "0.1.9"
+# yum repository metadata generation (local createrepo_rs subset)
+bzip2 = "0.4"
+crossbeam-channel = "0.5"
+flate2.workspace = true
+glob = "0.3"
+num_cpus = "1"
+quick-xml = "0.37"
+rpm = { version = "0.25.1", default-features = false }
+thiserror = "1"
+zstd.workspace = true
 
 # Tested version comparators for retention/GC ordering (data-loss-sensitive —
 # dpkg/rpm semantics, not hand-rolled; see ADR-0011). License-compatible.
@@ -36,7 +44,7 @@ tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 
 # OIDC JWT validation + GitHub JWKS
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 serde_json = "1"
 
 # observability
@@ -55,7 +63,6 @@ sha2.workspace = true
 hex.workspace = true
 chrono.workspace = true
 xz2.workspace = true
-bzip2 = "0.4"
 
 # PGP signing (rpgp, pure Rust)
 pgp = "0.14"
@@ -65,7 +72,6 @@ blake3 = "1.8.5"
 
 [dev-dependencies]
 ar.workspace = true
-flate2.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 

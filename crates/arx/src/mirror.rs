@@ -45,8 +45,8 @@ pub fn mirror_apt(
     let text = match client.get(&packages_gz).send() {
         Ok(resp) if resp.status().is_success() => {
             let body = resp.bytes().context("reading Packages.gz")?;
-            let xml =
-                createrepo_rs::compression::gzip_decompress(&body).context("decompressing")?;
+            let xml = crate::createrepo_rs::compression::gzip_decompress(&body)
+                .context("decompressing")?;
             String::from_utf8_lossy(&xml).into_owned()
         }
         _ => client

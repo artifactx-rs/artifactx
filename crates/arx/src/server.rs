@@ -807,7 +807,7 @@ fn promote_files(
                 && version.is_none_or(|v| ctrl.version().ok() == Some(v));
             matches.then(|| dst.clone())
         } else {
-            let mut r = createrepo_rs::rpm::RpmReader::open(p)
+            let mut r = crate::createrepo_rs::rpm::RpmReader::open(p)
                 .with_context(|| format!("opening {}", p.display()))?;
             let pkg = r.read_package().context("reading rpm")?;
             if pkg.name == name && version.is_none_or(|v| pkg.version == v) {
@@ -1005,8 +1005,8 @@ fn ingest(
             let tmp = yum.join(format!(".incoming-{filename}"));
             std::fs::write(&tmp, &body).context("writing uploaded .rpm")?;
             let arch = {
-                let mut r =
-                    createrepo_rs::rpm::RpmReader::open(&tmp).context("opening uploaded .rpm")?;
+                let mut r = crate::createrepo_rs::rpm::RpmReader::open(&tmp)
+                    .context("opening uploaded .rpm")?;
                 r.read_package().context("reading uploaded .rpm")?.arch
             };
             let arch = client_scope_name(&arch, "yum arch")?;

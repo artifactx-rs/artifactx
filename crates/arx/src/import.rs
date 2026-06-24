@@ -177,7 +177,8 @@ fn basename_from_location(location: &str) -> String {
 
 fn decompress_by_location(location: &str, body: &[u8]) -> Result<String> {
     let bytes = if location.ends_with(".gz") {
-        createrepo_rs::compression::gzip_decompress(body).context("decompressing gzip metadata")?
+        crate::createrepo_rs::compression::gzip_decompress(body)
+            .context("decompressing gzip metadata")?
     } else if location.ends_with(".xz") {
         let mut out = Vec::new();
         xz2::read::XzDecoder::new(body)
@@ -386,7 +387,7 @@ fn write_verified_package(
 }
 
 fn rpm_arch_from_file(path: &Path) -> Result<String> {
-    let mut reader = createrepo_rs::rpm::RpmReader::open(path)
+    let mut reader = crate::createrepo_rs::rpm::RpmReader::open(path)
         .with_context(|| format!("opening rpm {}", path.display()))?;
     let package = reader
         .read_package()

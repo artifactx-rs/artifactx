@@ -158,7 +158,7 @@ fn scan_yum(yum_base: &Path) -> Result<Vec<Entry>> {
         {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "rpm").unwrap_or(false) {
-                let mut reader = createrepo_rs::rpm::RpmReader::open(p)
+                let mut reader = crate::createrepo_rs::rpm::RpmReader::open(p)
                     .with_context(|| format!("opening {}", p.display()))?;
                 let pkg = reader
                     .read_package()
@@ -333,7 +333,7 @@ fn referenced_yum_files(yum_base: &Path) -> std::collections::HashSet<PathBuf> {
             .and_then(|a| a.parent());
         let Some(arch_dir) = arch_dir else { continue };
         if let Ok(gz) = std::fs::read(p) {
-            if let Ok(xml) = createrepo_rs::compression::gzip_decompress(&gz) {
+            if let Ok(xml) = crate::createrepo_rs::compression::gzip_decompress(&gz) {
                 for href in extract_hrefs(&String::from_utf8_lossy(&xml)) {
                     set.insert(arch_dir.join(href));
                 }

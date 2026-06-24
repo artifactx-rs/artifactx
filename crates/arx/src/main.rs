@@ -4,6 +4,7 @@ mod cache;
 mod cli;
 mod compose;
 mod config;
+mod createrepo_rs;
 mod cutover;
 mod export;
 mod hooks;
@@ -546,7 +547,7 @@ fn add_to_pool(
     let dest_dir = match ext {
         "deb" => cfg.checked_apt_pool_root(root)?.join(component),
         "rpm" => {
-            let mut reader = createrepo_rs::rpm::RpmReader::open(pkg)
+            let mut reader = crate::createrepo_rs::rpm::RpmReader::open(pkg)
                 .with_context(|| format!("opening {}", pkg.display()))?;
             let arch = reader
                 .read_package()
@@ -832,7 +833,7 @@ fn publish_dir_rpm_signer(args: &cli::PublishDirArgs) -> Option<PublishDirRpmSig
 }
 
 fn rpm_payload_is_signed(path: &Path) -> Result<bool> {
-    let reader = createrepo_rs::rpm::RpmReader::open(path)
+    let reader = crate::createrepo_rs::rpm::RpmReader::open(path)
         .with_context(|| format!("opening {}", path.display()))?;
     Ok(reader.is_signed())
 }
@@ -1439,7 +1440,7 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
         {
             let p = entry.path();
             if p.is_file() && p.extension().map(|e| e == "rpm").unwrap_or(false) {
-                let mut reader = createrepo_rs::rpm::RpmReader::open(p)
+                let mut reader = crate::createrepo_rs::rpm::RpmReader::open(p)
                     .with_context(|| format!("opening {}", p.display()))?;
                 let pkg = reader.read_package()?;
                 if pkg.name == args.name

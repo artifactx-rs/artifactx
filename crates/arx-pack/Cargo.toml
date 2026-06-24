@@ -1,6 +1,6 @@
 [package]
 name = "arx-pack"
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 authors.workspace = true
 description = "Pure-Rust packager: build .deb, .rpm, .apk, and Arch .pkg.tar.zst from a single TOML manifest, no native toolchain required for the common case."
@@ -23,7 +23,7 @@ sha2.workspace = true
 zstd.workspace = true
 
 # Native .rpm assembly: the same crate createrepo_rs uses.
-rpm = "0.14"
+rpm = { version = "0.25.1", default-features = false, features = ["payload", "gzip-compression"] }
 
 # Deterministic staging directory.
 tempfile.workspace = true

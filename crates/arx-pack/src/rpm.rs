@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use rpm::{Dependency, FileMode, FileOptions, PackageBuilder};
+use rpm::{BuildConfig, Dependency, FileMode, FileOptions, PackageBuilder};
 
 use crate::manifest::Manifest;
 
@@ -38,14 +38,15 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         &manifest.license,
         arch,
         &summary,
-    )
-    .release("1")
-    .source_date(source_date)
-    .description(manifest.description.clone())
-    .packager(manifest.maintainer.clone());
+    );
+    builder
+        .using_config(BuildConfig::default().source_date(source_date))
+        .release("1")
+        .description(manifest.description.clone())
+        .packager(manifest.maintainer.clone());
 
     if let Some(group) = manifest.rpm_group() {
-        builder = builder.group(group.to_string());
+        builder.group(group.to_string());
     }
 
     // Files are read from their host source paths and installed at their expanded destinations.
@@ -53,9 +54,9 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         let dest = format!("/{}", entry.rel);
         let mut options = FileOptions::new(dest.clone()).mode(FileMode::regular(entry.mode as u16));
         if entry.config {
-            options = options.is_config_noreplace();
+            options = options.config().noreplace();
         }
-        builder = builder
+        builder
             .with_file(&entry.source, options)
             .with_context(|| format!("adding file {} -> {}", entry.source, dest))?;
     }
@@ -63,31 +64,31 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     // Dependencies are passed through verbatim; `Dependency::any` is an
     // unversioned requirement, matching the PoC manifest's plain string deps.
     for dep in &manifest.depends {
-        builder = builder.requires(Dependency::any(dep.clone()));
+        builder.requires(Dependency::any(dep.clone()));
     }
 
     for c in &manifest.conflicts {
-        builder = builder.conflicts(Dependency::any(c.clone()));
+        builder.conflicts(Dependency::any(c.clone()));
     }
     for p in &manifest.provides {
-        builder = builder.provides(Dependency::any(p.clone()));
+        builder.provides(Dependency::any(p.clone()));
     }
     for r in &manifest.replaces {
-        builder = builder.obsoletes(Dependency::any(r.clone()));
+        builder.obsoletes(Dependency::any(r.clone()));
     }
 
     // Maintainer scripts, when present, are embedded as scriptlets.
     if let Some(path) = &manifest.scripts.preinst {
-        builder = builder.pre_install_script(read_script(path)?);
+        builder.pre_install_script(read_script(path)?);
     }
     if let Some(path) = &manifest.scripts.postinst {
-        builder = builder.post_install_script(read_script(path)?);
+        builder.post_install_script(read_script(path)?);
     }
     if let Some(path) = &manifest.scripts.prerm {
-        builder = builder.pre_uninstall_script(read_script(path)?);
+        builder.pre_uninstall_script(read_script(path)?);
     }
     if let Some(path) = &manifest.scripts.postrm {
-        builder = builder.post_uninstall_script(read_script(path)?);
+        builder.post_uninstall_script(read_script(path)?);
     }
 
     let package = builder.build().context("building rpm package")?;

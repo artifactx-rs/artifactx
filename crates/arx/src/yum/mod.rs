@@ -8,13 +8,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
-use createrepo_rs::compression::gzip_compress;
-use createrepo_rs::pool::{Job, ProcessingResult, WorkerPool};
-use createrepo_rs::types::{Package, Repomd, RepomdRecord};
-use createrepo_rs::walk::DirectoryWalker;
-use createrepo_rs::xml::dump;
 use sha2::{Digest, Sha256};
 
+use crate::createrepo_rs::compression::gzip_compress;
+use crate::createrepo_rs::pool::{Job, ProcessingResult, WorkerPool};
+use crate::createrepo_rs::types::{Package, Repomd, RepomdRecord};
+use crate::createrepo_rs::walk::DirectoryWalker;
+use crate::createrepo_rs::xml::dump;
 use crate::signing;
 
 /// gzip level matching createrepo's default.
