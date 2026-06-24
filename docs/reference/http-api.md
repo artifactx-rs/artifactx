@@ -9,7 +9,7 @@ For the machine-readable contract, see [OpenAPI](openapi.yaml). When
 `arx serve` is running, the same contract is served at `/api/openapi.yaml` and
 an embedded Swagger UI is available at `/api/docs`.
 
-For v0.2, `/api/v1` is a **beta developer API**: endpoint names and the
+`/api/v1` is currently a **beta developer API**: endpoint names and the
 main request/response fields are intended to be script-friendly, but the project
 may still add fields or tighten validation before declaring the API stable.
 Clients should ignore unknown JSON fields and should not parse human-readable
