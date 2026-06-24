@@ -102,7 +102,7 @@ Fields:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `name` | string | Package name parsed from the `.deb` or `.rpm`. |
-| `version` | string | Debian version or RPM version. RPM release is not included. |
+| `version` | string | Debian version or RPM version. For RPM, `release` (and `epoch`, when present) are tracked in separate fields. |
 | `arch` | string | Package architecture, such as `amd64` or `x86_64`. |
 | `scope` | string | apt component or yum repo name. |
 | `kind` | string | `apt` or `yum`. |
