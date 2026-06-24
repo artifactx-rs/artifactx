@@ -78,6 +78,26 @@ arx publish --root ./repo
 entries for payload trees. Directory entries are expanded deterministically and
 reject symlinks, special files, and duplicate destinations.
 
+For Rust crates, omitting `MANIFEST` reads `./Cargo.toml`; passing a path named
+`Cargo.toml` derives package identity from `[package]` and packaging details from
+`[package.metadata.arx]`. `pack` never runs `cargo build`: build first, then
+point `pack` at the same Cargo output layout if you used non-default settings:
+
+```sh
+cargo build --release --target x86_64-unknown-linux-gnu --target-dir build/target
+arx pack Cargo.toml --target x86_64-unknown-linux-gnu --target-dir build/target --out dist
+```
+
+Cargo binary lookup defaults to the selected crate or workspace `target/`
+directory, profile `release`, and the package name unless a single
+`[[bin]].name` is present. Multiple binaries require explicit
+`[package.metadata.arx]` `files`. Use `--profile <NAME>` for custom profiles;
+`--profile dev` maps to Cargo's `target/debug` output directory.
+
+`pack` uses deterministic timestamps. `--source-date <EPOCH>` wins for that
+invocation; otherwise `SOURCE_DATE_EPOCH` is honored; otherwise epoch `0` is
+used.
+
 Keep the two directory features separate: `arx add <DIR>` and `arx publish-dir`
 ingest directories that already contain built `.deb` or `.rpm` packages
 (ADR-0019), while `arx pack` `[[dirs]]` installs a directory tree inside a newly

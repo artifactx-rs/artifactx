@@ -1270,7 +1270,10 @@ fn collect_pool_package_paths(root: &Path, cfg: &Config) -> Result<Vec<PathBuf>>
     Ok(paths)
 }
 
-fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
+fn load_pack_manifest(
+    path: Option<&Path>,
+    cargo_options: &arx_pack::CargoManifestOptions,
+) -> Result<arx_pack::Manifest> {
     let path = match path {
         Some(p) => p.to_path_buf(),
         None => {
@@ -1285,7 +1288,7 @@ fn load_pack_manifest(path: Option<&Path>) -> Result<arx_pack::Manifest> {
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     if path.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
         let crate_root = path.parent().expect("Cargo.toml has a parent directory");
-        arx_pack::Manifest::from_cargo_toml_at(&text, crate_root)
+        arx_pack::Manifest::from_cargo_toml_at_with_options(&text, crate_root, cargo_options)
             .with_context(|| format!("from {}", path.display()))
     } else {
         arx_pack::Manifest::from_toml_str(&text)
@@ -1467,7 +1470,15 @@ fn cmd_promote(args: &cli::PromoteArgs) -> Result<()> {
 }
 
 fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
-    let manifest = load_pack_manifest(args.manifest.as_deref())?;
+    if let Some(epoch) = args.source_date {
+        std::env::set_var("SOURCE_DATE_EPOCH", epoch.to_string());
+    }
+    let cargo_options = arx_pack::CargoManifestOptions {
+        target_dir: args.target_dir.clone(),
+        target: args.target.clone(),
+        profile: args.profile.clone(),
+    };
+    let manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
 
     // Default (no flags): build all three formats.
     let all = !args.deb && !args.rpm && !args.apk;

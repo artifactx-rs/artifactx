@@ -2360,6 +2360,96 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
 }
 
 #[test]
+fn pack_cargo_manifest_uses_explicit_target_profile_and_target_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let crate_root = tmp.path().join("crate");
+    let target_dir = tmp.path().join("custom-target");
+    let bin = target_dir
+        .join("x86_64-unknown-linux-gnu")
+        .join("debug")
+        .join("packtool");
+    let out = tmp.path().join("dist");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, b"#!/bin/sh\necho packtool\n").unwrap();
+    std::fs::create_dir_all(crate_root.join("src")).unwrap();
+    std::fs::write(
+        crate_root.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "packtool"
+        version = "1.0.0"
+        edition = "2021"
+        description = "pack target test"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "T <t@localhost>"
+        "#,
+    )
+    .unwrap();
+
+    arx_ok(&[
+        "pack",
+        crate_root.join("Cargo.toml").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+        "--target-dir",
+        target_dir.to_str().unwrap(),
+        "--target",
+        "x86_64-unknown-linux-gnu",
+        "--profile",
+        "dev",
+    ]);
+
+    assert!(out.join("packtool_1.0.0_amd64.deb").exists());
+}
+
+#[test]
+fn pack_source_date_flag_overrides_env_for_apk_timestamps() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("dist");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("pkg.toml");
+    std::fs::write(&payload, b"#!/bin/sh\necho timestamped\n").unwrap();
+    write_pack_manifest(&manifest, &payload, "timestamped", "1.0.0");
+
+    let output = common::arx_command()
+        .args([
+            "pack",
+            manifest.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--apk",
+            "--source-date",
+            "1234",
+        ])
+        .env("SOURCE_DATE_EPOCH", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "arx pack failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let apk = out.join("timestamped-1.0.0-r0.x86_64.apk");
+    let data = std::fs::read(&apk).unwrap();
+    let gz = flate2::read::GzDecoder::new(data.as_slice());
+    let mut archive = tar::Archive::new(gz);
+    let mut payload_mtime = None;
+    for entry in archive.entries().unwrap() {
+        let entry = entry.unwrap();
+        if entry.path().unwrap().to_string_lossy() == ".usr/bin/timestamped" {
+            payload_mtime = Some(entry.header().mtime().unwrap());
+        }
+    }
+
+    assert_eq!(payload_mtime, Some(1234));
+}
+
+#[test]
 fn add_accepts_directory_inputs_recursively_in_stable_order() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");

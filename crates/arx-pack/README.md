@@ -84,8 +84,27 @@ depends = ["libc6"]
 
 ```bash
 cargo build --release
-arx pack            # reads ./Cargo.toml → greeter_0.3.0_amd64.deb + .rpm
+arx pack            # reads ./Cargo.toml → .deb + .rpm + .apk in dist/
 ```
+
+`pack` does not run `cargo build` for you. It reads the binary that already
+exists under Cargo's output directory. The default lookup is
+`target/release/<bin-name>`; for workspaces it walks up to the workspace
+`target/` directory, and a single `[[bin]].name` overrides the package name for
+the binary path. Multiple binaries require explicit `files` so `pack` cannot
+guess the wrong executable.
+
+Use the same output selectors you used for `cargo build` when packaging custom
+builds:
+
+```bash
+cargo build --profile dev --target x86_64-unknown-linux-gnu --target-dir build/target
+arx pack --profile dev --target x86_64-unknown-linux-gnu --target-dir build/target
+```
+
+For reproducible timestamps, package builders use `SOURCE_DATE_EPOCH` when set
+and otherwise default to epoch `0`. The CLI also accepts `--source-date <epoch>`
+to override the environment for one `arx pack` invocation.
 
 `Manifest::from_cargo_toml(&str)` exposes the same mapping as a library call.
 
@@ -112,9 +131,11 @@ let deb = backend.build(&manifest, Format::Deb, Path::new("dist"))?;
 | Item | Description |
 | --- | --- |
 | `Manifest::from_toml_str(&str) -> Result<Manifest>` | Parse a manifest from TOML. |
+| `Manifest::from_cargo_toml_at_with_options(&str, &Path, &CargoManifestOptions) -> Result<Manifest>` | Derive a manifest from `Cargo.toml` using explicit Cargo output selectors. |
 | `arx_pack::build_deb(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.deb`, return its path. |
 | `arx_pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
-| `Backend::{Native, Docker { image }}` | Build backend. `Native` is implemented; `Docker` is a stub. |
+| `arx_pack::build_apk(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.apk`, return its path. |
+| `Backend::{Native, Docker { image }}` | Build backend. `Native` is the default; `Docker` shells out to a configured container image when requested. |
 | `Backend::build(&Manifest, Format, out_dir) -> Result<PathBuf>` | Dispatch a build through a backend. |
 | `Format::{Deb, Rpm, Apk}` | Output format selector. |
 

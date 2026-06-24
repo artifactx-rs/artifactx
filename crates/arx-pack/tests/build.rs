@@ -8,7 +8,7 @@
 use std::io::Read;
 use std::path::Path;
 
-use arx_pack::{Backend, Format, Manifest};
+use arx_pack::{Backend, CargoManifestOptions, Format, Manifest};
 
 /// Write a sample payload file and return a manifest referencing it.
 fn sample_manifest(dir: &Path) -> Manifest {
@@ -69,6 +69,184 @@ fn cargo_toml_derives_manifest() {
         m.files[0].source
     );
     assert_eq!(m.files[0].dest, "/usr/bin/greeter");
+}
+
+#[test]
+fn cargo_toml_options_select_target_profile_and_target_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let target_dir = dir.path().join("custom-target");
+    let cargo = r#"
+        [package]
+        name = "greeter"
+        version = "0.3.0"
+        edition = "2021"
+        description = "A friendly greeter"
+        license = "MIT"
+
+        [[bin]]
+        name = "hello-greeter"
+        path = "src/main.rs"
+
+        [package.metadata.arx]
+        maintainer = "Jane Dev <jane@example.com>"
+    "#;
+    let options = CargoManifestOptions {
+        target_dir: Some(target_dir.clone()),
+        target: Some("aarch64-unknown-linux-gnu".to_string()),
+        profile: "dev".to_string(),
+    };
+
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, dir.path(), &options).unwrap();
+
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(
+        m.files[0].source,
+        target_dir
+            .join("aarch64-unknown-linux-gnu")
+            .join("debug")
+            .join("hello-greeter")
+            .to_string_lossy()
+    );
+    assert_eq!(m.files[0].dest, "/usr/bin/hello-greeter");
+}
+
+#[test]
+fn cargo_toml_reads_config_target_dir_from_crate_root() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".cargo")).unwrap();
+    std::fs::write(
+        dir.path().join(".cargo/config.toml"),
+        "[build]\ntarget-dir = \"build-cache\"\n",
+    )
+    .unwrap();
+    let cargo = r#"
+        [package]
+        name = "configured"
+        version = "0.3.0"
+        edition = "2021"
+        description = "configured target"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "Jane Dev <jane@example.com>"
+    "#;
+
+    let m = Manifest::from_cargo_toml_at(cargo, dir.path()).unwrap();
+
+    assert_eq!(
+        m.files[0].source,
+        dir.path()
+            .join("build-cache")
+            .join("release")
+            .join("configured")
+            .to_string_lossy()
+    );
+}
+
+#[test]
+fn cargo_toml_resolves_workspace_inherited_fields_from_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let crate_root = dir.path().join("crates/app");
+    std::fs::create_dir_all(&crate_root).unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"
+        [workspace]
+        members = ["crates/app"]
+
+        [workspace.package]
+        version = "1.2.3"
+        license = "Apache-2.0"
+        authors = ["Workspace Dev <workspace@example.com>"]
+        description = "Workspace description"
+        "#,
+    )
+    .unwrap();
+    let cargo = r#"
+        [package]
+        name = "workspace-app"
+        version.workspace = true
+        license.workspace = true
+        authors.workspace = true
+        description.workspace = true
+        edition = "2021"
+    "#;
+
+    let m = Manifest::from_cargo_toml_at(cargo, &crate_root).unwrap();
+
+    assert_eq!(m.version, "1.2.3");
+    assert_eq!(m.license, "Apache-2.0");
+    assert_eq!(m.description, "Workspace description");
+    assert_eq!(m.maintainer, "Workspace Dev <workspace@example.com>");
+    assert!(
+        m.files[0].source.ends_with("target/release/workspace-app"),
+        "workspace default source should use workspace target dir, got {}",
+        m.files[0].source
+    );
+}
+
+#[test]
+fn cargo_toml_multiple_bins_require_explicit_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let cargo = r#"
+        [package]
+        name = "multi"
+        version = "0.3.0"
+        edition = "2021"
+        description = "multi"
+        license = "MIT"
+
+        [[bin]]
+        name = "one"
+        path = "src/one.rs"
+
+        [[bin]]
+        name = "two"
+        path = "src/two.rs"
+    "#;
+
+    let err = Manifest::from_cargo_toml_at(cargo, dir.path()).unwrap_err();
+
+    assert!(
+        err.to_string().contains("multiple [[bin]]"),
+        "expected multiple-bin guidance, got: {err}"
+    );
+}
+
+#[test]
+fn cargo_toml_multiple_bins_allow_explicit_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"payload\n").unwrap();
+    let cargo = format!(
+        r#"
+        [package]
+        name = "multi"
+        version = "0.3.0"
+        edition = "2021"
+        description = "multi"
+        license = "MIT"
+
+        [[bin]]
+        name = "one"
+        path = "src/one.rs"
+
+        [[bin]]
+        name = "two"
+        path = "src/two.rs"
+
+        [[package.metadata.arx.files]]
+        source = "{}"
+        dest = "/usr/bin/one"
+        mode = "0755"
+        "#,
+        payload.display()
+    );
+
+    let m = Manifest::from_cargo_toml_at(&cargo, dir.path()).unwrap();
+
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(m.files[0].source, payload.to_string_lossy());
 }
 
 #[test]

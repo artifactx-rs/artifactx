@@ -218,13 +218,25 @@ pub struct PackArgs {
     /// Output directory for built packages.
     #[arg(long, default_value = "dist")]
     pub out: PathBuf,
-    /// Build only the `.deb` (default: build both).
+    /// Cargo target triple used to locate an already-built default binary.
+    #[arg(long)]
+    pub target: Option<String>,
+    /// Cargo profile used to locate an already-built default binary.
+    #[arg(long, default_value = "release")]
+    pub profile: String,
+    /// Cargo target directory used to locate an already-built default binary.
+    #[arg(long)]
+    pub target_dir: Option<PathBuf>,
+    /// Reproducible build timestamp epoch; overrides SOURCE_DATE_EPOCH.
+    #[arg(long)]
+    pub source_date: Option<u32>,
+    /// Build only the `.deb` (default: build all formats).
     #[arg(long)]
     pub deb: bool,
-    /// Build only the `.rpm` (default: build both).
+    /// Build only the `.rpm` (default: build all formats).
     #[arg(long)]
     pub rpm: bool,
-    /// Build an Alpine Linux `.apk` package.
+    /// Build only the Alpine Linux `.apk` package (default: build all formats).
     #[arg(long)]
     pub apk: bool,
     /// Also add the built packages into the repository pool.

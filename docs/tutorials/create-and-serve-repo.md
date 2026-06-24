@@ -99,8 +99,20 @@ For Rust projects, omitting the manifest reads `./Cargo.toml` and
 `[package.metadata.arx]`:
 
 ```sh
+cargo build --release
 arx pack --out dist
 ```
+
+If the binary was built with a custom Cargo output layout, pass the matching
+selectors to `pack`; `pack` does not compile automatically:
+
+```sh
+cargo build --release --target x86_64-unknown-linux-gnu --target-dir build/target
+arx pack --target x86_64-unknown-linux-gnu --target-dir build/target --out dist
+```
+
+For reproducible package timestamps, set `SOURCE_DATE_EPOCH` or pass
+`--source-date <epoch>` for a single invocation.
 
 ## Optional: operate a repeated package drop directory
 

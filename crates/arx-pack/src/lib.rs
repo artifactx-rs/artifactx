@@ -1,5 +1,5 @@
-//! `arx-pack` — a pure-Rust packager that builds `.deb` and `.rpm` artifacts from a
-//! single TOML manifest, with **no native toolchain required** for the common
+//! `arx-pack` — a pure-Rust packager that builds `.deb`, `.rpm`, and `.apk`
+//! artifacts from a single TOML manifest, with **no native toolchain required** for the common
 //! case (no `dpkg-deb`, no `rpmbuild`, no container runtime).
 //!
 //! # Why
@@ -35,6 +35,7 @@
 //!
 //! let deb = arx_pack::build_deb(&manifest, Path::new("dist")).unwrap();
 //! let rpm = arx_pack::build_rpm(&manifest, Path::new("dist")).unwrap();
+//! let apk = arx_pack::build_apk(&manifest, Path::new("dist")).unwrap();
 //! ```
 
 mod apk;
@@ -46,7 +47,7 @@ mod rpm;
 pub use apk::build_apk;
 pub use backend::{Backend, Format};
 pub use deb::build_deb;
-pub use manifest::{DirEntry, FileEntry, Manifest, Scripts};
+pub use manifest::{CargoManifestOptions, DirEntry, FileEntry, Manifest, Scripts};
 pub use rpm::build_rpm;
 
 /// Resolve the reproducibility epoch for deterministic builds.

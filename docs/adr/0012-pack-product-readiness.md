@@ -52,19 +52,19 @@ payload compressor) and found the diagnosis correct but the completeness
 under-argued. It also identified one CRITICAL dogfood showstopper and five MAJOR
 fixes. All folded in below:
 
-- **(CRIT) `[[bin]].name` resolution.** `from_cargo_toml` currently uses
-  `[package].name` for the binary path, but Rust projects with `[[bin]].name !=
+- **(CRIT) `[[bin]].name` resolution.** Early `from_cargo_toml` used
+  `[package].name` for the binary path; Rust projects with `[[bin]].name !=
   [package].name` (like `arx` itself: package `artifactx` / bin `arx`) produce a
   different binary filename → pack would look for the wrong file. → Decision #3
-  now resolves `[[bin]].name`: when exactly one `[[bin]]` exists, `source` uses
-  the bin name (not the package name); multiple bins → error asking for an
-  explicit `files` source. Bar #3 is revised: drop `arx.toml` is still the goal,
-  but it depends on this fix landing, not gated by it being impossible.
+  resolves `[[bin]].name`: when exactly one `[[bin]]` exists, `source` uses the
+  bin name (not the package name); multiple bins → error asking for an explicit
+  `files` source.
 - **(MAJ) Target-dir resolution.** The "vendored walk-up" must cover
-  `CARGO_TARGET_DIR` → `--target-dir` → `.cargo/config.toml [build]target-dir`
+  `--target-dir` → `CARGO_TARGET_DIR` / `CARGO_BUILD_TARGET_DIR` →
+  `.cargo/config.toml [build]target-dir`
   → `<workspace-root>/target`, plus `--target <triple>` subdirectory. Any
   ambiguity → fail-loud (don't guess). → Decision #3 lists the explicit order.
-  Profile stays hardcoded `release` (documented limitation).
+  `--profile` selects the profile directory, with `dev` mapping to `debug`.
 - **(MAJ) Inherited fields.** `authors.workspace = true` (arx Cargo.toml:5) is a
   TOML table, not an array — `from_cargo_toml`'s `as_array()` silently returns
   `None`, producing `maintainer = "Unknown <unknown@localhost>"`. → Decision #3
@@ -149,15 +149,14 @@ feeds both `build_deb` and `build_rpm`.
 
 **Target dir resolution** — explicit order; any ambiguity → error:
 
-1. `CARGO_TARGET_DIR` env var.
-2. `--target-dir` flag (the CLI surfaces this; `pack` doesn't yet have one, so
-   `arx pack` would wire it — future slot; currently not passed, so falls through).
+1. `--target-dir` flag.
+2. `CARGO_TARGET_DIR` / `CARGO_BUILD_TARGET_DIR` env var.
 3. `.cargo/config.toml` `[build] target-dir`, searched upward from the crate dir.
-4. Default: `<workspace-root>/target`.
+4. Default: `<workspace-root>/target` or `<crate>/target` outside a workspace.
 
-On top of that base, append `release/` (profile, hardcoded — documented
-limitation; `--profile` / `--target <triple>` support is future work). When the
-crate is not a workspace member, default to `./target/release` (today's behavior).
+On top of that base, append `release/` by default, or
+`<target-triple>/<profile-dir>/` when `--target` is set. `--profile dev` maps to
+Cargo's `debug` directory; custom profile names map to their own directory.
 
 - **`[[bin]].name` resolution (CRIT from review).** When the default binary asset
   is derived, use the `[[bin]].name` if exactly one bin target exists (the common
@@ -221,9 +220,6 @@ crate is not a workspace member, default to `./target/release` (today's behavior
   toolchain need appears. Not required for product-ready (native is the common case).
 - **Dependency auto-detection** (`$auto`/`ldd`): out — needs host tools and is
   non-deterministic (ADR-0005).
-- **`--target <triple>` / `--profile` support in target-dir resolution**: the
-  workspace target-dir logic hardcodes `release/`. Cross-compilation profiles and
-  custom profile names remain a documented limitation.
 - **deb `conffiles`**: configuration-file marking (ADR-0005 future item; not
   needed for arx's own use). Reiterated here so readers don't assume it's covered.
 - **SUID/setgid/capabilities/SELinux contexts**, **streaming very large files**,
@@ -241,9 +237,8 @@ crate is not a workspace member, default to `./target/release` (today's behavior
 ## Open questions for review (decided)
 
 1. **Default epoch** — **decided: `0`** (fully zeroed, 1970 build date).
-   `SOURCE_DATE_EPOCH` is the escape hatch for a real date. The `arx pack` CLI
-   prints a note when `SOURCE_DATE_EPOCH` is unset: "reproducible build (epoch
-   0); set SOURCE_DATE_EPOCH for a real date".
+   `SOURCE_DATE_EPOCH` is the environment escape hatch for a real date, and
+   `arx pack --source-date <epoch>` overrides it for one invocation.
 2. **Symlink sources** — **decided: hard-error now**, with the type named in the
    message (`symlink_metadata`, not `metadata`, so symlinks are distinguishable).
    Follow semantics can be an opt-in later.
@@ -253,6 +248,5 @@ crate is not a workspace member, default to `./target/release` (today's behavior
 
 ## Future improvements
 
-- Opt-in symlink/dir tree support; richer rpm metadata (file digests already via
-  the crate); `Contents`-style file manifests; a `--source-date` flag mirroring the
-  env var.
+- Opt-in symlink following; richer rpm metadata (file digests already via the
+  crate); `Contents`-style file manifests.
