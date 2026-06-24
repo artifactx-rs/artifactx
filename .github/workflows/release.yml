@@ -4,6 +4,10 @@ on:
   push: { tags: ['v*'] }
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.repository }}-tags
+  cancel-in-progress: true
+
 permissions:
   contents: write
   packages: write
@@ -16,8 +20,11 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
+      run_release: ${{ steps.meta.outputs.run_release }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Verify version pins are synchronized
         run: scripts/sync-version.py --check
@@ -25,6 +32,7 @@ jobs:
       - name: Resolve release metadata
         id: meta
         run: |
+          RUN_RELEASE=true
           CRATE_VERSION="$(python3 - <<'PY'
           from pathlib import Path
           import re
@@ -42,10 +50,17 @@ jobs:
               echo "Tag $TAG does not match Cargo version $CRATE_VERSION" >&2
               exit 1
             fi
+
+            LATEST_TAG="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+            if [ -n "$LATEST_TAG" ] && [ "$TAG" != "$LATEST_TAG" ]; then
+              echo "Skip $TAG because $LATEST_TAG is newer."
+              RUN_RELEASE=false
+            fi
           else
             TAG="latest"
             VERSION="$CRATE_VERSION"
           fi
+          echo "run_release=$RUN_RELEASE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Release metadata: tag=$TAG version=$VERSION"
@@ -53,9 +68,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        if: steps.meta.outputs.run_release == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.meta.outputs.run_release == 'true'
 
       - name: Install build deps
+        if: steps.meta.outputs.run_release == 'true'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
           wget -qO- https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz | tar xJ
@@ -63,6 +81,7 @@ jobs:
           cargo install cargo-zigbuild
 
       - name: Build static binaries (amd64 + arm64)
+        if: steps.meta.outputs.run_release == 'true'
         run: |
           cargo zigbuild --release --target x86_64-unknown-linux-musl -p artifactx
           cargo zigbuild --release --target aarch64-unknown-linux-musl -p artifactx
@@ -74,6 +93,7 @@ jobs:
           ls -la arx-*
 
       - name: Self-package — arx packages arx (.deb + .rpm)
+        if: steps.meta.outputs.run_release == 'true'
         run: |
           TAG="${{ steps.meta.outputs.tag }}"; PKGVER="${{ steps.meta.outputs.version }}"
           chmod +x arx-${TAG}-amd64
@@ -124,7 +144,7 @@ jobs:
           ls -la dist/
 
       - name: GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
         uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -145,7 +165,7 @@ jobs:
           generate_release_notes: true
 
       - name: GHCR login
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -153,7 +173,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: GHCR multi-arch image
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.meta.outputs.run_release == 'true'
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
           for arch in amd64 arm64; do
@@ -173,11 +193,12 @@ jobs:
           docker manifest push ghcr.io/artifactx-rs/arx:latest
 
       - uses: actions/upload-artifact@v7
+        if: steps.meta.outputs.run_release == 'true'
         with: { name: arx-bin, path: arx-latest-amd64 }
 
   pages:
     needs: release
-    if: github.ref_type == 'tag' || github.ref_name == 'main'
+    if: github.ref_name == 'main' || (github.ref_type == 'tag' && needs.release.outputs.run_release == 'true')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
