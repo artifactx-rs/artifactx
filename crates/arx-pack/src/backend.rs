@@ -4,10 +4,10 @@
 //!
 //! `pack` is built around a deliberate ordering of preferences:
 //!
-//! 1. **Prefer the native host build.** Building `.deb` and `.rpm` in pure Rust
-//!    needs no `dpkg-deb`, no `rpmbuild`, no root, and no container runtime. It
-//!    is fast, dependency-light, and works identically on a developer laptop and
-//!    in CI. This is the default and the common case.
+//! 1. **Prefer the native host build.** Building `.deb`, `.rpm`, and `.apk` in
+//!    pure Rust needs no `dpkg-deb`, no `rpmbuild`, no root, and no container
+//!    runtime. It is fast, dependency-light, and works identically on a
+//!    developer laptop and in CI. This is the default and the common case.
 //!
 //! 2. **Fall back to Docker only when native genuinely can't do it.** Some
 //!    packages legitimately need a foreign toolchain — compiling against a
@@ -21,12 +21,12 @@
 //!    bleed from the host or between builds), and reproducible (sorted entries,
 //!    deterministic modes and timestamps). The native builders stage into a
 //!    fresh `tempfile` directory and emit deterministic archives for this
-//!    reason; the Docker path, once implemented, must use a fresh container per
-//!    build and never mount more of the host than required.
+//!    reason; the Docker path prepares a fresh build context, uses a fresh
+//!    container per build, and never mounts more of the host than required.
 //!
-//! The Docker backend is intentionally a documented stub in this PoC: the
-//! interface is fixed so callers can target it today, but invoking it returns a
-//! clear "not yet implemented" error rather than a half-working build.
+//! The Docker backend is an explicit opt-in fallback: it copies the requested
+//! manifest inputs into an isolated context, runs `arx pack` inside the
+//! configured image, and copies the requested `.deb`, `.rpm`, or `.apk` back.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,6 +42,24 @@ pub enum Format {
     Deb,
     Rpm,
     Apk,
+}
+
+impl Format {
+    fn pack_flag(self) -> &'static str {
+        match self {
+            Format::Deb => "--deb",
+            Format::Rpm => "--rpm",
+            Format::Apk => "--apk",
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Format::Deb => "deb",
+            Format::Rpm => "rpm",
+            Format::Apk => "apk",
+        }
+    }
 }
 
 /// How a build is executed.
@@ -111,14 +129,7 @@ fn docker_build(
     let manifest_toml = toml::to_string_pretty(&adjusted).context("serialising manifest")?;
     std::fs::write(&manifest_path, &manifest_toml).context("writing manifest.toml")?;
 
-    if format == Format::Apk {
-        anyhow::bail!("Docker backend does not yet support .apk builds; use Backend::Native");
-    }
-    let fmt_flag = match format {
-        Format::Deb => "--deb",
-        Format::Rpm => "--rpm",
-        Format::Apk => unreachable!(),
-    };
+    let fmt_flag = format.pack_flag();
     let container_out = "/build/out";
 
     // Run: docker run --rm -v <context>:/build -v <arx>:/arx <image> /arx pack manifest.toml --out <container_out>
@@ -157,13 +168,14 @@ fn docker_build(
         let p = entry.path();
         if p.is_file() {
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if (format == Format::Deb && ext == "deb") || (format == Format::Rpm && ext == "rpm") {
+            if ext == format.extension() {
                 found = Some(p);
                 break;
             }
         }
     }
-    let artifact = found.context("no .deb/.rpm found in Docker build output")?;
+    let artifact = found
+        .with_context(|| format!("no .{} found in Docker build output", format.extension()))?;
     let name = artifact.file_name().unwrap().to_string_lossy().into_owned();
     let dest = out_dir.join(&name);
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
@@ -217,4 +229,124 @@ fn copy_dir_tree(src: &Path, dest: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+
+    use super::{docker_build, Format};
+    use crate::Manifest;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn docker_format_mapping_covers_all_pack_formats() {
+        assert_eq!(Format::Deb.pack_flag(), "--deb");
+        assert_eq!(Format::Deb.extension(), "deb");
+        assert_eq!(Format::Rpm.pack_flag(), "--rpm");
+        assert_eq!(Format::Rpm.extension(), "rpm");
+        assert_eq!(Format::Apk.pack_flag(), "--apk");
+        assert_eq!(Format::Apk.extension(), "apk");
+    }
+
+    #[test]
+    fn docker_backend_invokes_apk_and_collects_apk_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir(&bin_dir).unwrap();
+        let fake_docker = bin_dir.join("docker");
+        let fake_docker_args = dir.path().join("docker.args");
+        std::fs::write(
+            &fake_docker,
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$@" > "$FAKE_DOCKER_ARGS"
+args=" $* "
+context=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-v" ]; then
+    shift
+    case "$1" in
+      *:/build) context=${1%:/build} ;;
+    esac
+  fi
+  shift || true
+done
+if [ -z "$context" ]; then
+  echo "missing /build context" >&2
+  exit 2
+fi
+mkdir -p "$context/out"
+case "$args" in
+  *" --apk "*) : > "$context/out/fake-1.0.0-r0.x86_64.apk" ;;
+  *" --deb "*) : > "$context/out/fake_1.0.0_amd64.deb" ;;
+  *" --rpm "*) : > "$context/out/fake-1.0.0-1.x86_64.rpm" ;;
+  *) echo "missing format flag" >&2; exit 3 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&fake_docker).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_docker, perms).unwrap();
+
+        let source = dir.path().join("hello");
+        std::fs::write(&source, b"#!/bin/sh\n").unwrap();
+        let manifest = Manifest::from_toml_str(&format!(
+            r#"
+name = "fake"
+version = "1.0.0"
+arch = "amd64"
+maintainer = "ArtifactX <artifactx@example.invalid>"
+description = "fake docker backend test"
+license = "MIT"
+
+[[files]]
+source = "{}"
+dest = "/usr/bin/fake"
+mode = "0755"
+"#,
+            source.display()
+        ))
+        .unwrap();
+
+        let old_path = std::env::var_os("PATH");
+        let old_fake_args = std::env::var_os("FAKE_DOCKER_ARGS");
+        let next_path = match &old_path {
+            Some(path) => {
+                let mut paths = std::env::split_paths(path).collect::<Vec<_>>();
+                paths.insert(0, bin_dir.clone());
+                std::env::join_paths(paths).unwrap()
+            }
+            None => bin_dir.clone().into_os_string(),
+        };
+        std::env::set_var("PATH", next_path);
+        std::env::set_var("FAKE_DOCKER_ARGS", &fake_docker_args);
+
+        let out_dir = dir.path().join("host-out");
+        let result = docker_build(&manifest, Format::Apk, &out_dir, "fake:image");
+
+        match old_path {
+            Some(path) => std::env::set_var("PATH", path),
+            None => std::env::remove_var("PATH"),
+        }
+        match old_fake_args {
+            Some(path) => std::env::set_var("FAKE_DOCKER_ARGS", path),
+            None => std::env::remove_var("FAKE_DOCKER_ARGS"),
+        }
+
+        let artifact = result.unwrap();
+        assert_eq!(
+            artifact.extension().and_then(|ext| ext.to_str()),
+            Some("apk")
+        );
+        assert!(artifact.exists());
+        let args = std::fs::read_to_string(fake_docker_args).unwrap();
+        assert!(args.lines().any(|arg| arg == "--apk"), "{args}");
+        assert!(!args.lines().any(|arg| arg == "--deb"), "{args}");
+        assert!(!args.lines().any(|arg| arg == "--rpm"), "{args}");
+    }
 }

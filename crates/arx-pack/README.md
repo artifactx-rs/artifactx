@@ -9,7 +9,8 @@ needed for ordinary "stage these files at these paths with this metadata"
 packaging. The same code runs identically on a developer laptop and in CI.
 
 > Status: **proof of concept.** The native `.deb`, `.rpm`, and `.apk` builders
-> are implemented and tested. The Docker backend is a documented stub (see below).
+> are implemented and tested. The Docker backend is available as an explicit,
+> opt-in fallback for builds that need a pinned container image.
 
 ## Philosophy: native-first, Docker as a fallback, hygiene always
 
@@ -158,6 +159,7 @@ let manifest = Manifest::from_toml_str(toml_str)?;
 // Direct, format-specific builders:
 let deb = arx_pack::build_deb(&manifest, Path::new("dist"))?; // dist/hello_1.2.3_amd64.deb
 let rpm = arx_pack::build_rpm(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1.x86_64.rpm
+let apk = arx_pack::build_apk(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-r0.x86_64.apk
 
 // Or via the backend abstraction:
 let backend = Backend::Native;

@@ -16,10 +16,11 @@ non-deterministic.
 
 `pack` builds each format **natively from one TOML manifest**, in **pure Rust**, with
 **no shelled-out host tools** (no `dpkg-deb`, `rpmbuild`, `ar`, `tar` binaries):
-`.deb` via the `ar`/`tar`/`flate2` crates, `.rpm` via the `rpm` crate. Scripts and
+`.deb` via the `ar`/`tar`/`flate2` crates, `.rpm` via the `rpm` crate, and
+`.apk` via deterministic tar/gzip payloads. Scripts and
 relationships (`depends`/`conflicts`/`provides`/`replaces`) are expressed once and
-rendered natively per format. A `Backend` enum keeps `Native` (implemented) separate
-from `Docker` (a documented stub): **native-first, Docker only when native genuinely
+rendered natively per format. A `Backend` enum keeps `Native` (default) separate
+from `Docker` (explicit opt-in): **native-first, Docker only when native genuinely
 can't** (charter principle 8). Builds stage into a temp dir; entries are sorted for
 determinism.
 
@@ -31,7 +32,8 @@ determinism.
   the moat over `nfpm` (Go, not embeddable) and `FPM` (Ruby): we also *publish*
   what we build.
 - Bad: we don't yet cover every field (triggers, source-package nuances).
-- Bad: the Docker fallback is a stub.
+- Bad: the Docker fallback still depends on a caller-provided image and a
+  compatible host `arx` binary; it is intentionally not the default path.
 
 ## Alternatives considered
 
@@ -42,5 +44,5 @@ determinism.
 ## Future improvements
 
 `--from <staging-dir>` (checkinstall's value without mutating the host); Arch
-output; the real Docker backend for builds that truly need a foreign toolchain;
+output; richer Docker images for builds that truly need a foreign toolchain;
 triggers and source packages.

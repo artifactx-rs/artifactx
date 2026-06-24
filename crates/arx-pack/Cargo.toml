@@ -3,10 +3,10 @@ name = "arx-pack"
 version = "0.2.7"
 edition.workspace = true
 authors.workspace = true
-description = "Pure-Rust packager: build .deb and .rpm from a single TOML manifest, no native toolchain required for the common case."
+description = "Pure-Rust packager: build .deb, .rpm, and .apk from a single TOML manifest, no native toolchain required for the common case."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/artifactx-rs/artifactx"
-keywords = ["packaging", "deb", "rpm", "debian", "rpm-build"]
+keywords = ["packaging", "deb", "rpm", "apk", "debian"]
 categories = ["development-tools::build-utils"]
 
 [dependencies]

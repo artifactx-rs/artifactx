@@ -81,9 +81,10 @@ fixes. All folded in below:
   two. → Decision #1 now lists all three. Tests assert a *fixed* build-time value
   (not a same-second byte-compare).
 - **(MAJ) Unified regular-file gate.** `std::fs::read` follows symlinks silently;
-  a FIFO/device would hang. Both deb and rpm builders currently don't check. →
+  a FIFO/device would hang if any builder read sources directly. →
   Decision #2 now specifies a **shared** `symlink_metadata(source)
-  .file_type().is_file()` check *before* staging, applied once for both builders.
+  .file_type().is_file()` check *before* staging, applied once before package
+  rendering.
 - **(MIN) Test input matrix + deb epoch consistency.** Decision #4 lists the
   minimum test inputs (single file, multi-file across directories, maintainer
   scripts, empty section). Decision #1 notes all 4 mtime sites (tar, ar, gzip,
@@ -100,7 +101,7 @@ fixes. All folded in below:
    complementary `[package.metadata.arx]` + explicit `source` — the target-dir and
    `[[bin]].name`/`authors.workspace` fixes make either path work).
 4. **No silent wrong-arch / wrong-file-type** — failures are loud.
-5. **Honest scope** — Docker backend stays a documented stub; dependency
+5. **Honest scope** — Docker backend stays explicit opt-in; dependency
    auto-detection stays out (ADR-0005).
 
 ## Decision (proposed)
@@ -221,8 +222,8 @@ Cargo's `debug` directory; custom profile names map to their own directory.
 
 ## Explicitly NOT in this ADR (charter — compete by deleting)
 
-- **Docker backend**: stays a documented stub; revisit only if a real foreign-
-  toolchain need appears. Not required for product-ready (native is the common case).
+- **Docker backend defaults**: Docker remains explicit opt-in and caller-image
+  driven. It is not required for product-ready native packaging.
 - **Dependency auto-detection** (`$auto`/`ldd`): out — needs host tools and is
   non-deterministic (ADR-0005).
 - **SUID/setgid/capabilities/SELinux contexts**, **streaming very large files**,

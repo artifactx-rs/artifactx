@@ -53,9 +53,10 @@ pub use rpm::build_rpm;
 /// Resolve the reproducibility epoch for deterministic builds.
 ///
 /// Read the `SOURCE_DATE_EPOCH` env var (the reproducible-builds standard); if
-/// unset or unparseable, default to `0`. Both `.deb` (tar/ar/gzip mtimes) and
-/// `.rpm` (`source_date` → BUILDTIME + payload mtime + signature timestamp) feed
-/// from this single value so the two formats share one deterministic clock.
+/// unset or unparseable, default to `0`. `.deb` (tar/ar/gzip mtimes), `.rpm`
+/// (`source_date` → BUILDTIME + payload mtime + signature timestamp), and `.apk`
+/// (tar/gzip mtimes) feed from this single value so all package formats share
+/// one deterministic clock.
 pub fn resolve_source_epoch() -> u32 {
     if let Ok(val) = std::env::var("SOURCE_DATE_EPOCH") {
         if let Ok(epoch) = val.trim().parse::<u32>() {
