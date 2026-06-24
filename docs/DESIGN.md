@@ -12,7 +12,7 @@ the [charter](../CLAUDE.md)). For the *why* behind specific choices, read the
 
 | Pillar | Where | What |
 | --- | --- | --- |
-| **Package** | `crates/arx-pack` | A manifest → native `.deb`/`.rpm`/`.apk`, pure Rust, no toolchain. |
+| **Package** | `crates/arx-pack` | A manifest → native `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst`, pure Rust, no toolchain. |
 | **Publish (apt)** | `crates/arx-debrepo` | A pool of `.deb` → signed `Packages`/`Release`/`Contents`. |
 | **Publish (yum)** | `createrepo_rs` (dep) | A pool of `.rpm` → signed `repodata`. |
 | **Orchestration** | `crates/arx` | The CLI + HTTP server that wires it all together. |
@@ -83,7 +83,7 @@ GPL. See [ADR-0001](adr/0001-workspace-and-licensing.md).
 - `crates/arx/src/main.rs` — every subcommand is a `cmd_*` function.
 - `crates/arx-debrepo/src/lib.rs` — `stage_dist` → `commit_dist` is the whole apt engine.
 - `crates/arx/src/server.rs` — the HTTP API.
-- `crates/arx-pack/src/{deb,rpm,apk}.rs` — the native package builders.
+- `crates/arx-pack/src/{deb,rpm,apk,arch}.rs` — the native package builders.
 
 ## Non-goals
 

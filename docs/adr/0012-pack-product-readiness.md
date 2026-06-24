@@ -78,7 +78,7 @@ fixes. All folded in below:
   builder.rs has three timestamp sites (`BUILDTIME`, payload mtime, *and* signature
   timestamp at builder.rs:649) — all covered by `source_date`; payload gzip mtime
   is also 0 via `flate2::GzEncoder::new`. The ADR's original argument only named
-  two. → Decision #1 now lists all three. Tests assert a *fixed* build-time value
+  two. → Decision #1 now lists the shared deterministic timestamp boundary. Tests assert a *fixed* build-time value
   (not a same-second byte-compare).
 - **(MAJ) Unified regular-file gate.** `std::fs::read` follows symlinks silently;
   a FIFO/device would hang if any builder read sources directly. →
@@ -91,7 +91,7 @@ fixes. All folded in below:
   data-gzip) must go through one helper. "Not in this ADR" now explicitly
   reiterates: conffiles, `--target`, `--profile`.
 
-1. **Deterministic across time and host for *both* `.deb` and `.rpm`** — proven by
+1. **Deterministic across time and host for native package outputs** — proven by
    a test that asserts the *embedded timestamp is a fixed value* (not a
    same-second byte compare).
 2. **Real `dpkg`/`rpm` accept the output** — validated, even if gated on tool
@@ -130,21 +130,21 @@ zero epoch shows the RPM `Build Date` as 1970 — this is expected, documented, 
 ar member headers, `control.tar.gz` gzip, `data.tar.gz` gzip) via a single
 `resolve_source_epoch()` helper. Default `0` preserves today's byte-identical
 output (all four sites already use `0`); a non-zero `SOURCE_DATE_EPOCH` gives
-both formats a consistent, auditable timestamp. The helper lives in `lib.rs` and
-feeds both `build_deb` and `build_rpm`.
+all native package formats a consistent, auditable timestamp. The helper lives
+in `lib.rs` and feeds every native builder.
 
 ### 2. Fail loud, not silent-wrong
 
 - Unknown `arch` → **error** with the accepted spellings, instead of defaulting to
   `amd64`/`x86_64`. (`all`/`noarch` stay valid.)
 - **Unified regular-file gate (shared, pre-staging).** Before a `files[].source`
-  reaches either builder, a single `symlink_metadata(source).file_type().is_file()`
+  reaches any builder, a single `symlink_metadata(source).file_type().is_file()`
   check (not `metadata()` — that follows symlinks, so you can't distinguish them)
   gates every source path. Symlink → error ("source is a symlink, not a regular
   file"); directory → error; device/FIFO → error; each with the type named in the
-  message. This means `std::fs::read` (deb) never follows a symlink silently and
-  never hangs on a device, and rpm's `with_file` never sees a non-file. Both
-  builders share one gate — no drift.
+  message. This means source reads never follow symlinks silently, never hang on devices,
+  and format-specific builders never see a non-file. All builders share one gate
+  — no drift.
 
 ### 3. Cargo workspace support (ADR-0010 follow-up, revised)
 
@@ -200,13 +200,13 @@ Cargo's `debug` directory; custom profile names map to their own directory.
 - **Minimum test input matrix.** The real-tool test covers: single file; multiple
   files across nested directories; a package with maintainer scripts; a package
   with relationships (depends/conflicts); empty `section`/`group`. Each input is
-  asserted against both `dpkg-deb` and `rpm`.
+  asserted against both `dpkg-deb` and `rpm`; pure-archive formats are asserted by structural tests in `arx-pack`.
 
 ## Consequences
 
-- Good: the determinism claim becomes **true and proven** for both formats (all
-  three rpm timestamp sites and all four deb mtime sites gated through one
-  helper). `SOURCE_DATE_EPOCH` support slots `pack` into reproducible-build
+- Good: the determinism claim stays **true and proven** across native outputs (rpm
+  timestamp sites, deb mtime sites, and tar/gzip/zstd archive metadata gated
+  through one helper). `SOURCE_DATE_EPOCH` support slots `pack` into reproducible-build
   pipelines at zero cost (default `0` = today's deterministic bytes). Wrong-arch/
   wrong-file footguns become loud, shared-gate errors. Rust workspace members get
   zero-config packaging with explicit, ordered target-dir resolution.

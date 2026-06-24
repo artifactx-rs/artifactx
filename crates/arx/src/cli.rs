@@ -38,7 +38,7 @@ pub enum Command {
     Rollback(RollbackArgs),
     /// List retained published states (all targets, or one).
     History(HistoryArgs),
-    /// Build a `.deb`/`.rpm`/`.apk` from a manifest (the Package pillar).
+    /// Build a `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst` from a manifest (the Package pillar).
     Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
     Push(PushArgs),
@@ -239,6 +239,9 @@ pub struct PackArgs {
     /// Build only the Alpine Linux `.apk` package (default: build all formats).
     #[arg(long)]
     pub apk: bool,
+    /// Build only the Arch Linux `.pkg.tar.zst` package (default: build all formats).
+    #[arg(long)]
+    pub arch_pkg: bool,
     /// Also add the built packages into the repository pool.
     #[arg(long)]
     pub add: bool,

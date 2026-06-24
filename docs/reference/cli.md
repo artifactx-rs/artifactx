@@ -22,7 +22,7 @@ for the authoritative option list in your installed version.
 | `arx publish-dir <DIR>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks. |
 | `arx rollback [TARGET]` | Roll a target back to a retained published state. |
 | `arx history [TARGET]` | List retained published states. |
-| `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, or `.apk` packages from a manifest. |
+| `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, `.apk`, or Arch `.pkg.tar.zst` packages from a manifest. |
 | `arx push --url <URL> <PACKAGES>...` | Upload packages to a running `arx serve` and publish remotely. |
 | `arx rm <NAME>` | Remove packages from the pool, then publish. |
 | `arx search [QUERY]` | Search local apt/yum pool entries before GC, remove, promote, or cutover. |
@@ -83,7 +83,11 @@ or by listing absolute installed paths in top-level `config_files` when a file
 comes from `[[dirs]]`. Listed paths must match installed regular files. The
 marker writes Debian `conffiles` and RPM `%config(noreplace)` metadata; APK
 builds accept the marker but keep the file as ordinary payload until
-Alpine-specific backup semantics are added.
+Alpine-specific backup semantics are added; Arch builds write `backup` entries
+in `.PKGINFO`.
+
+By default `arx pack` emits every supported package format. Use `--deb`,
+`--rpm`, `--apk`, or `--arch-pkg` to restrict the output set.
 
 For Rust crates, omitting `MANIFEST` reads `./Cargo.toml`; passing a path named
 `Cargo.toml` derives package identity from `[package]` and packaging details from

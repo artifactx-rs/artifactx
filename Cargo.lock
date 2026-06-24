@@ -239,9 +239,11 @@ dependencies = [
  "md-5",
  "rpm",
  "serde",
+ "sha2",
  "tar",
  "tempfile",
  "toml",
+ "zstd",
 ]
 
 [[package]]

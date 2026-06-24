@@ -21,7 +21,7 @@ ship a directory-shaped payload: static assets, documentation trees, config
 examples, service units, or other non-binary resources.
 
 The current shared validation step deliberately rejects directory sources before
-any builder sees them. That keeps `.deb`, `.rpm`, and `.apk` behavior aligned and
+any builder sees them. That keeps `.deb`, `.rpm`, `.apk`, and Arch behavior aligned and
 avoids accidental traversal of symlinks, FIFOs, devices, or host-specific files.
 
 Thanks to **@daamien** for raising this gap in issue #14 and for connecting it to
@@ -48,7 +48,7 @@ dir_mode = "0755"
 Implementation requirements:
 
 1. **Shared semantics:** directory expansion must feed the same normalized staged
-   file list for `.deb`, `.rpm`, and `.apk`.
+   file list for `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst`.
 2. **Determinism:** traversal order must be stable and sorted; package output
    must not depend on host filesystem ordering.
 3. **Explicit modes:** files and directories need predictable mode defaults or
@@ -64,7 +64,7 @@ Implementation requirements:
    across package formats.
 
 This ADR is the pack-side answer to issue #14: it lets a package manifest install
-a directory tree into the generated `.deb`, `.rpm`, or `.apk`. It is distinct
+a directory tree into the generated `.deb`, `.rpm`, `.apk`, or `.pkg.tar.zst`. It is distinct
 from ADR-0019, which covers repository-side ingestion of directories that already
 contain built `.deb` or `.rpm` files.
 
@@ -84,7 +84,7 @@ contain built `.deb` or `.rpm` files.
 ## Alternatives considered
 
 - **Use `rpm::PackageBuilder::with_dir()` directly.** Rejected: this would make
-  rpm behavior richer than deb/apk and break the shared-manifest promise.
+  rpm behavior richer than the other package builders and break the shared-manifest promise.
 - **Allow directories in `[[files]]`.** Rejected for now: it makes a single table
   mean both one file and recursive expansion, which hides important mode and
   conflict semantics.

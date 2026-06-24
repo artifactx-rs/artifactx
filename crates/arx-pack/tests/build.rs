@@ -1,8 +1,8 @@
 //! Integration tests for the `arx-pack` crate.
 //!
-//! These build real `.deb` and `.rpm` artifacts from a sample manifest and read
-//! them back to assert the metadata round-trips. The `.deb` is re-parsed inline
-//! with `ar` + `tar` + `flate2` (no dependency on the sibling `arx-debrepo` crate)
+//! These build real package artifacts from a sample manifest and read them back
+//! to assert the metadata round-trips. The `.deb` is re-parsed inline with
+//! `ar`, `tar`, and `flate2` (no dependency on the sibling `arx-debrepo` crate)
 //! to keep this crate standalone.
 
 use std::io::Read;
@@ -634,6 +634,88 @@ fn builds_apk() {
 }
 
 #[test]
+fn builds_arch_pkg() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = sample_manifest(dir.path());
+    let arch_path = arx_pack::build_arch_pkg(&manifest, dir.path()).expect("arch pkg builds");
+    assert!(arch_path.exists());
+    assert!(arch_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .ends_with("hello-1.2.3-1-x86_64.pkg.tar.zst"));
+
+    let (names, pkginfo, buildinfo, mtree) = read_arch_package(&arch_path);
+    assert!(names.iter().any(|name| name == ".BUILDINFO"), "{names:?}");
+    assert!(names.iter().any(|name| name == ".MTREE"), "{names:?}");
+    assert!(names.iter().any(|name| name == ".PKGINFO"), "{names:?}");
+    assert!(
+        names.iter().any(|name| name == "usr/bin/hello"),
+        "{names:?}"
+    );
+    assert!(pkginfo.contains("pkgname = hello"), "PKGINFO:\n{pkginfo}");
+    assert!(
+        pkginfo.contains("xdata = pkgtype=pkg"),
+        "PKGINFO:\n{pkginfo}"
+    );
+    assert!(pkginfo.contains("pkgver = 1.2.3-1"), "PKGINFO:\n{pkginfo}");
+    assert!(pkginfo.contains("arch = x86_64"), "PKGINFO:\n{pkginfo}");
+    assert!(pkginfo.contains("depend = libc6"), "PKGINFO:\n{pkginfo}");
+    assert!(buildinfo.contains("format = 2"), "BUILDINFO:\n{buildinfo}");
+    assert!(
+        mtree.contains("./usr/bin/hello type=file"),
+        "MTREE:\n{mtree}"
+    );
+    assert!(
+        mtree.contains("sha256digest="),
+        "MTREE should carry file digests:\n{mtree}"
+    );
+}
+
+#[test]
+fn arch_pkg_wraps_maintainer_scripts() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("hello");
+    let postinst = dir.path().join("postinst.sh");
+    std::fs::write(&payload, b"#!/bin/sh\necho hello\n").unwrap();
+    std::fs::write(&postinst, b"cat <<EOF\ninstalled\nEOF\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        r#"
+        name = "scripted"
+        version = "1.0.0"
+        arch = "amd64"
+        maintainer = "Dev <dev@example.com>"
+        description = "scripted"
+        license = "MIT"
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/scripted"
+        mode = "0755"
+
+        [scripts]
+        postinst = "{}"
+        "#,
+        payload.display(),
+        postinst.display()
+    ))
+    .unwrap();
+
+    let arch = arx_pack::build_arch_pkg(&manifest, dir.path()).unwrap();
+    let install = read_arch_text_entry(&arch, ".INSTALL");
+    assert!(
+        install.contains("post_install()"),
+        "INSTALL missing post_install wrapper:\n{install}"
+    );
+    assert!(
+        install.contains("cat <<EOF\ninstalled\nEOF\n"),
+        "INSTALL missing verbatim script body:\n{install}"
+    );
+    let (_, _, _, mtree) = read_arch_package(&arch);
+    assert!(mtree.contains("./.INSTALL type=file"), "MTREE:\n{mtree}");
+}
+
+#[test]
 fn config_file_marking_maps_to_deb_conffiles_and_rpm_flags() {
     let dir = tempfile::tempdir().unwrap();
     let conf = dir.path().join("app.conf");
@@ -692,6 +774,13 @@ fn config_file_marking_maps_to_deb_conffiles_and_rpm_flags() {
             .iter()
             .any(|n| n.trim_start_matches('.') == "etc/config-demo/app.conf"),
         "apk should still carry the config file as a normal payload: {apk_names:?}"
+    );
+
+    let arch = arx_pack::build_arch_pkg(&manifest, &dir.path().join("arch")).unwrap();
+    let (_, pkginfo, _, _) = read_arch_package(&arch);
+    assert!(
+        pkginfo.contains("backup = etc/config-demo/app.conf"),
+        "Arch PKGINFO should mark config files as backup entries:\n{pkginfo}"
     );
 }
 
@@ -782,7 +871,7 @@ fn config_files_paths_are_validated_against_installed_files() {
 }
 
 #[test]
-fn directory_entries_expand_into_deb_rpm_and_apk_payloads() {
+fn directory_entries_expand_into_all_native_payloads() {
     let dir = tempfile::tempdir().unwrap();
     let assets = dir.path().join("assets");
     std::fs::create_dir_all(assets.join("css")).unwrap();
@@ -856,6 +945,23 @@ fn directory_entries_expand_into_deb_rpm_and_apk_payloads() {
             .any(|n| n.trim_start_matches('.') == "usr/share/web-assets/css/style.css"),
         "apk missing expanded nested file: {apk_names:?}"
     );
+
+    let arch = arx_pack::build_arch_pkg(&manifest, &dir.path().join("arch")).unwrap();
+    let (arch_names, _, _, arch_mtree) = read_arch_package(&arch);
+    assert!(
+        arch_names.iter().any(|n| n == "usr/share/web-assets"),
+        "Arch package missing expanded root dir: {arch_names:?}"
+    );
+    assert!(
+        arch_names
+            .iter()
+            .any(|n| n == "usr/share/web-assets/css/style.css"),
+        "Arch package missing expanded nested file: {arch_names:?}"
+    );
+    assert!(
+        arch_mtree.contains("./usr/share/web-assets/css/style.css type=file"),
+        "Arch mtree missing expanded nested file: {arch_mtree}"
+    );
 }
 
 #[test]
@@ -894,14 +1000,15 @@ fn directory_entries_reject_symlinks_and_duplicate_destinations() {
 }
 
 #[test]
-fn backend_native_builds_both() {
+fn backend_native_builds_all_formats() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
     let backend = Backend::Native;
     let deb = backend.build(&manifest, Format::Deb, dir.path()).unwrap();
     let rpm = backend.build(&manifest, Format::Rpm, dir.path()).unwrap();
     let apk = backend.build(&manifest, Format::Apk, dir.path()).unwrap();
-    assert!(deb.exists() && rpm.exists() && apk.exists());
+    let arch = backend.build(&manifest, Format::Arch, dir.path()).unwrap();
+    assert!(deb.exists() && rpm.exists() && apk.exists() && arch.exists());
 }
 
 #[test]
@@ -1001,6 +1108,54 @@ fn read_apk_names(path: &Path) -> Vec<String> {
         .unwrap()
         .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
         .collect()
+}
+
+/// Return entry names and key text metadata from an Arch `.pkg.tar.zst`.
+fn read_arch_package(path: &Path) -> (Vec<String>, String, String, String) {
+    let data = std::fs::read(path).unwrap();
+    let tar_bytes = zstd::stream::decode_all(data.as_slice()).unwrap();
+    let mut archive = tar::Archive::new(tar_bytes.as_slice());
+    let mut names = Vec::new();
+    let mut pkginfo = String::new();
+    let mut buildinfo = String::new();
+    let mut mtree = String::new();
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let name = entry.path().unwrap().to_string_lossy().into_owned();
+        names.push(name.clone());
+        match name.as_str() {
+            ".PKGINFO" => {
+                entry.read_to_string(&mut pkginfo).unwrap();
+            }
+            ".BUILDINFO" => {
+                entry.read_to_string(&mut buildinfo).unwrap();
+            }
+            ".MTREE" => {
+                let mut gz = Vec::new();
+                entry.read_to_end(&mut gz).unwrap();
+                let mut decoder = flate2::read::GzDecoder::new(gz.as_slice());
+                decoder.read_to_string(&mut mtree).unwrap();
+            }
+            _ => {}
+        }
+    }
+    (names, pkginfo, buildinfo, mtree)
+}
+
+fn read_arch_text_entry(path: &Path, wanted: &str) -> String {
+    let data = std::fs::read(path).unwrap();
+    let tar_bytes = zstd::stream::decode_all(data.as_slice()).unwrap();
+    let mut archive = tar::Archive::new(tar_bytes.as_slice());
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let name = entry.path().unwrap().to_string_lossy().into_owned();
+        if name == wanted {
+            let mut text = String::new();
+            entry.read_to_string(&mut text).unwrap();
+            return text;
+        }
+    }
+    panic!("{wanted} entry not found in {}", path.display());
 }
 
 /// Return the entry names inside a `.deb`'s `control.tar.gz`.

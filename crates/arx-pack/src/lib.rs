@@ -1,6 +1,7 @@
-//! `arx-pack` — a pure-Rust packager that builds `.deb`, `.rpm`, and `.apk`
-//! artifacts from a single TOML manifest, with **no native toolchain required** for the common
-//! case (no `dpkg-deb`, no `rpmbuild`, no container runtime).
+//! `arx-pack` — a pure-Rust packager that builds `.deb`, `.rpm`, `.apk`, and
+//! Arch `.pkg.tar.zst` artifacts from a single TOML manifest, with **no native
+//! toolchain required** for the common case (no `dpkg-deb`, no `rpmbuild`, no
+//! container runtime).
 //!
 //! # Why
 //!
@@ -36,15 +37,18 @@
 //! let deb = arx_pack::build_deb(&manifest, Path::new("dist")).unwrap();
 //! let rpm = arx_pack::build_rpm(&manifest, Path::new("dist")).unwrap();
 //! let apk = arx_pack::build_apk(&manifest, Path::new("dist")).unwrap();
+//! let arch = arx_pack::build_arch_pkg(&manifest, Path::new("dist")).unwrap();
 //! ```
 
 mod apk;
+mod arch;
 mod backend;
 mod deb;
 mod manifest;
 mod rpm;
 
 pub use apk::build_apk;
+pub use arch::build_arch_pkg;
 pub use backend::{Backend, Format};
 pub use deb::build_deb;
 pub use manifest::{CargoManifestOptions, DirEntry, FileEntry, Manifest, Scripts};
@@ -54,9 +58,9 @@ pub use rpm::build_rpm;
 ///
 /// Read the `SOURCE_DATE_EPOCH` env var (the reproducible-builds standard); if
 /// unset or unparseable, default to `0`. `.deb` (tar/ar/gzip mtimes), `.rpm`
-/// (`source_date` → BUILDTIME + payload mtime + signature timestamp), and `.apk`
-/// (tar/gzip mtimes) feed from this single value so all package formats share
-/// one deterministic clock.
+/// (`source_date` → BUILDTIME + payload mtime + signature timestamp), `.apk`
+/// (tar/gzip mtimes), and Arch `.pkg.tar.zst` (tar/gzip mtree mtimes) feed from
+/// this single value so all package formats share one deterministic clock.
 pub fn resolve_source_epoch() -> u32 {
     if let Ok(val) = std::env::var("SOURCE_DATE_EPOCH") {
         if let Ok(epoch) = val.trim().parse::<u32>() {

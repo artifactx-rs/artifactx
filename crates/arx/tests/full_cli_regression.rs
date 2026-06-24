@@ -2339,9 +2339,11 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
         out.to_str().unwrap(),
         "--rpm",
         "--apk",
+        "--arch-pkg",
     ]);
     assert!(out.join("packed-1.0.0-1.x86_64.rpm").exists());
     assert!(out.join("packed-1.0.0-r0.x86_64.apk").exists());
+    assert!(out.join("packed-1.0.0-1-x86_64.pkg.tar.zst").exists());
 
     let add_out = tmp.path().join("add-dist");
     arx_ok(&[
@@ -2357,6 +2359,7 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
     assert!(root
         .join("yum/myrepo/x86_64/packed-1.0.0-1.x86_64.rpm")
         .exists());
+    assert!(add_out.join("packed-1.0.0-1-x86_64.pkg.tar.zst").exists());
 }
 
 #[test]

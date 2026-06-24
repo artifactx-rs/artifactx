@@ -1,6 +1,7 @@
 //! The packaging manifest: a single TOML document describing one package and
-//! the files it installs. The same manifest drives both the `.deb` and `.rpm`
-//! builders, so packagers describe intent once and target both ecosystems.
+//! the files it installs. The same manifest drives the native `.deb`, `.rpm`,
+//! `.apk`, and Arch `.pkg.tar.zst` builders, so packagers describe intent once
+//! and target multiple ecosystems.
 
 use std::path::{Path, PathBuf};
 

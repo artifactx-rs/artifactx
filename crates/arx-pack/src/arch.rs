@@ -1,0 +1,357 @@
+//! Native, pure-Rust Arch Linux / ALPM `.pkg.tar.zst` builder.
+//!
+//! The package is a zstd-compressed tar archive with ALPM metadata at the root:
+//! `.BUILDINFO`, gzip-compressed `.MTREE`, `.PKGINFO`, optional `.INSTALL`, and
+//! the payload files. See `alpm-package(7)`, `PKGINFO(5)`, `BUILDINFO(5)`, and
+//! `ALPM-MTREE(5)`.
+
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
+
+use crate::manifest::Manifest;
+
+/// Build an Arch Linux `.pkg.tar.zst` package for `manifest`, writing it into
+/// `out_dir`.
+pub fn build_arch_pkg(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
+    validate_arch_identity(manifest)?;
+    let payload = crate::expand_payload(manifest)?;
+    let arch = arch_pkg_arch(&manifest.arch)?;
+    let full_version = arch_full_version(&manifest.version)?;
+    let epoch = crate::resolve_source_epoch();
+
+    let pkginfo = render_pkginfo(manifest, arch, &full_version, &payload, epoch);
+    let buildinfo = render_buildinfo(manifest, arch, &full_version, epoch);
+    let install = render_install_script(manifest)?;
+    let mtree = render_mtree(&payload, &pkginfo, &buildinfo, install.as_deref(), epoch)?;
+
+    let mut tar_bytes = Vec::new();
+    {
+        let mut tar = tar::Builder::new(&mut tar_bytes);
+        tar.mode(tar::HeaderMode::Deterministic);
+        append_bytes(&mut tar, ".BUILDINFO", buildinfo.as_bytes(), 0o644, epoch)?;
+        append_bytes(&mut tar, ".MTREE", &mtree, 0o644, epoch)?;
+        append_bytes(&mut tar, ".PKGINFO", pkginfo.as_bytes(), 0o644, epoch)?;
+        if let Some(install) = install {
+            append_bytes(&mut tar, ".INSTALL", install.as_bytes(), 0o644, epoch)?;
+        }
+
+        for (rel, mode) in arch_dirs(&payload) {
+            append_dir(&mut tar, &rel, mode, epoch)?;
+        }
+        for file in &payload.files {
+            append_bytes(&mut tar, &file.rel, &file.data, file.mode, epoch)?;
+        }
+        tar.finish().context("finishing Arch package tar")?;
+    }
+
+    let body = zstd::stream::encode_all(tar_bytes.as_slice(), 19)
+        .context("compressing Arch package with zstd")?;
+    std::fs::create_dir_all(out_dir)
+        .with_context(|| format!("creating output dir {}", out_dir.display()))?;
+    let filename = format!("{}-{}-{}.pkg.tar.zst", manifest.name, full_version, arch);
+    let out_path = out_dir.join(&filename);
+    std::fs::write(&out_path, &body).with_context(|| format!("writing {}", out_path.display()))?;
+    Ok(out_path)
+}
+
+fn validate_arch_identity(manifest: &Manifest) -> Result<()> {
+    if manifest.name.is_empty()
+        || manifest.name.starts_with(['-', '.'])
+        || !manifest
+            .name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '.' | '_' | '+' | '-'))
+    {
+        bail!(
+            "invalid Arch package name {:?} — accepted characters: ASCII alnum plus @ . _ + -, not starting with - or .",
+            manifest.name
+        );
+    }
+    Ok(())
+}
+
+fn arch_full_version(version: &str) -> Result<String> {
+    if version.is_empty()
+        || version
+            .chars()
+            .any(|c| c == '/' || c == '-' || c.is_whitespace())
+    {
+        bail!(
+            "invalid Arch package version {:?} — arx appends pkgrel '-1', so the manifest version must not contain '/', '-' or whitespace",
+            version
+        );
+    }
+    Ok(format!("{version}-1"))
+}
+
+fn render_pkginfo(
+    manifest: &Manifest,
+    arch: &str,
+    full_version: &str,
+    payload: &crate::ExpandedPayload,
+    epoch: u32,
+) -> String {
+    let mut out = String::new();
+    push_kv(&mut out, "pkgname", &manifest.name);
+    push_kv(&mut out, "pkgbase", &manifest.name);
+    push_kv(&mut out, "xdata", "pkgtype=pkg");
+    push_kv(&mut out, "pkgver", full_version);
+    push_kv(&mut out, "pkgdesc", &single_line(&manifest.description));
+    push_kv(&mut out, "url", "");
+    push_kv(&mut out, "builddate", &epoch.to_string());
+    push_kv(&mut out, "packager", &manifest.maintainer);
+    push_kv(&mut out, "size", &payload_size(payload).to_string());
+    push_kv(&mut out, "arch", arch);
+    push_kv(&mut out, "license", &manifest.license);
+    for rel in payload
+        .files
+        .iter()
+        .filter(|file| file.config)
+        .map(|file| &file.rel)
+    {
+        push_kv(&mut out, "backup", rel);
+    }
+    for dep in &manifest.depends {
+        push_kv(&mut out, "depend", dep);
+    }
+    for conflict in &manifest.conflicts {
+        push_kv(&mut out, "conflict", conflict);
+    }
+    for provide in &manifest.provides {
+        push_kv(&mut out, "provides", provide);
+    }
+    for replace in &manifest.replaces {
+        push_kv(&mut out, "replaces", replace);
+    }
+    out
+}
+
+fn render_buildinfo(manifest: &Manifest, arch: &str, full_version: &str, epoch: u32) -> String {
+    let synthetic_pkgbuild = format!(
+        "# generated by arx-pack from manifest\npkgname={}\npkgver={full_version}\narch={arch}\n",
+        manifest.name
+    );
+    let mut out = String::new();
+    push_kv(&mut out, "format", "2");
+    push_kv(&mut out, "pkgname", &manifest.name);
+    push_kv(&mut out, "pkgbase", &manifest.name);
+    push_kv(&mut out, "pkgver", full_version);
+    push_kv(&mut out, "pkgarch", arch);
+    push_kv(
+        &mut out,
+        "pkgbuild_sha256sum",
+        &sha256_hex(synthetic_pkgbuild.as_bytes()),
+    );
+    push_kv(&mut out, "packager", &manifest.maintainer);
+    push_kv(&mut out, "builddate", &epoch.to_string());
+    push_kv(&mut out, "builddir", "/build");
+    push_kv(&mut out, "startdir", "/build");
+    push_kv(&mut out, "buildtool", "arx-pack");
+    push_kv(
+        &mut out,
+        "buildtoolver",
+        &format!("{}-1-{arch}", env!("CARGO_PKG_VERSION")),
+    );
+    out
+}
+
+fn render_install_script(manifest: &Manifest) -> Result<Option<String>> {
+    let mut out = String::new();
+    append_script_fn(&mut out, "pre_install", manifest.scripts.preinst.as_deref())?;
+    append_script_fn(
+        &mut out,
+        "post_install",
+        manifest.scripts.postinst.as_deref(),
+    )?;
+    append_script_fn(&mut out, "pre_remove", manifest.scripts.prerm.as_deref())?;
+    append_script_fn(&mut out, "post_remove", manifest.scripts.postrm.as_deref())?;
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
+    }
+}
+
+fn append_script_fn(out: &mut String, name: &str, path: Option<&str>) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let body =
+        std::fs::read_to_string(path).with_context(|| format!("reading {name} script {path}"))?;
+    out.push_str(name);
+    out.push_str("() {\n");
+    out.push_str(&body);
+    if !body.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str("}\n\n");
+    Ok(())
+}
+
+fn render_mtree(
+    payload: &crate::ExpandedPayload,
+    pkginfo: &str,
+    buildinfo: &str,
+    install: Option<&str>,
+    epoch: u32,
+) -> Result<Vec<u8>> {
+    let mut mtree = String::from("#mtree\n");
+    push_mtree_file(&mut mtree, ".BUILDINFO", 0o644, epoch, buildinfo.as_bytes())?;
+    push_mtree_file(&mut mtree, ".PKGINFO", 0o644, epoch, pkginfo.as_bytes())?;
+    if let Some(install) = install {
+        push_mtree_file(&mut mtree, ".INSTALL", 0o644, epoch, install.as_bytes())?;
+    }
+    for (rel, mode) in arch_dirs(payload) {
+        push_mtree_dir(&mut mtree, &rel, mode, epoch)?;
+    }
+    for file in &payload.files {
+        push_mtree_file(&mut mtree, &file.rel, file.mode, epoch, &file.data)?;
+    }
+
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(mtree.as_bytes())
+        .context("writing Arch .MTREE gzip body")?;
+    gz.finish().context("finishing Arch .MTREE gzip")
+}
+
+fn arch_dirs(payload: &crate::ExpandedPayload) -> BTreeMap<String, u32> {
+    let mut dirs = BTreeMap::new();
+    for dir in &payload.dirs {
+        let rel = dir.rel.trim_matches('/').to_string();
+        if !rel.is_empty() {
+            dirs.insert(rel, dir.mode);
+        }
+    }
+    for file in &payload.files {
+        let mut prefix = String::new();
+        let mut parts = file.rel.split('/').collect::<Vec<_>>();
+        parts.pop();
+        for part in parts {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            dirs.entry(prefix.clone()).or_insert(0o755);
+        }
+    }
+    dirs
+}
+
+fn append_bytes<W: Write>(
+    tar: &mut tar::Builder<W>,
+    name: &str,
+    bytes: &[u8],
+    mode: u32,
+    epoch: u32,
+) -> Result<()> {
+    let mut h = tar::Header::new_gnu();
+    h.set_entry_type(tar::EntryType::Regular);
+    h.set_mode(mode);
+    h.set_size(bytes.len() as u64);
+    h.set_mtime(epoch as u64);
+    h.set_uid(0);
+    h.set_gid(0);
+    h.set_cksum();
+    tar.append_data(&mut h, name, bytes)
+        .with_context(|| format!("appending Arch package file {name}"))
+}
+
+fn append_dir<W: Write>(
+    tar: &mut tar::Builder<W>,
+    name: &str,
+    mode: u32,
+    epoch: u32,
+) -> Result<()> {
+    let mut h = tar::Header::new_gnu();
+    h.set_entry_type(tar::EntryType::Directory);
+    h.set_mode(mode);
+    h.set_size(0);
+    h.set_mtime(epoch as u64);
+    h.set_uid(0);
+    h.set_gid(0);
+    h.set_path(name)
+        .with_context(|| format!("setting Arch package dir path {name}"))?;
+    h.set_cksum();
+    tar.append(&h, std::io::empty())
+        .with_context(|| format!("appending Arch package dir {name}"))
+}
+
+fn push_kv(out: &mut String, key: &str, value: &str) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(value);
+    out.push('\n');
+}
+
+fn push_mtree_dir(out: &mut String, path: &str, mode: u32, epoch: u32) -> Result<()> {
+    out.push_str(&mtree_path(path)?);
+    out.push_str(&format!(
+        " type=dir uid=0 gid=0 mode={mode:o} time={epoch}.0\n"
+    ));
+    Ok(())
+}
+
+fn push_mtree_file(out: &mut String, path: &str, mode: u32, epoch: u32, data: &[u8]) -> Result<()> {
+    out.push_str(&mtree_path(path)?);
+    out.push_str(&format!(
+        " type=file uid=0 gid=0 mode={mode:o} time={epoch}.0 size={} sha256digest={}\n",
+        data.len(),
+        sha256_hex(data)
+    ));
+    Ok(())
+}
+
+fn mtree_path(path: &str) -> Result<String> {
+    if path.is_empty() || path.contains('\n') || path.contains('\r') {
+        bail!("invalid Arch mtree path {path:?}");
+    }
+    let mut out = String::from("./");
+    for b in path.bytes() {
+        match b {
+            b' ' => out.push_str("\\040"),
+            b'\t' => out.push_str("\\011"),
+            b'\\' => out.push_str("\\\\"),
+            _ => out.push(b as char),
+        }
+    }
+    Ok(out)
+}
+
+fn single_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn payload_size(payload: &crate::ExpandedPayload) -> usize {
+    payload.files.iter().map(|file| file.data.len()).sum()
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let digest = Sha256::digest(data);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn arch_pkg_arch(arch: &str) -> Result<&'static str> {
+    match arch {
+        "x86_64" | "amd64" => Ok("x86_64"),
+        "aarch64" | "arm64" => Ok("aarch64"),
+        "armv7h" | "armv7hl" | "armv7" | "armhf" => Ok("armv7h"),
+        "i686" | "i386" | "x86" => Ok("i686"),
+        "ppc64le" | "ppc64el" => Ok("ppc64le"),
+        "s390x" => Ok("s390x"),
+        "riscv64" => Ok("riscv64"),
+        "any" | "all" | "noarch" => Ok("any"),
+        other => bail!(
+            "unknown Arch architecture {:?} — accepted: x86_64/amd64, aarch64/arm64, \
+             armv7h/armv7hl/armv7/armhf, i686/i386/x86, ppc64le/ppc64el, s390x, riscv64, any/all/noarch",
+            other
+        ),
+    }
+}

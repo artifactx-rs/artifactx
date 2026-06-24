@@ -3,10 +3,10 @@ name = "arx-pack"
 version = "0.2.7"
 edition.workspace = true
 authors.workspace = true
-description = "Pure-Rust packager: build .deb, .rpm, and .apk from a single TOML manifest, no native toolchain required for the common case."
+description = "Pure-Rust packager: build .deb, .rpm, .apk, and Arch .pkg.tar.zst from a single TOML manifest, no native toolchain required for the common case."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/artifactx-rs/artifactx"
-keywords = ["packaging", "deb", "rpm", "apk", "debian"]
+keywords = ["packaging", "deb", "rpm", "apk", "arch"]
 categories = ["development-tools::build-utils"]
 
 [dependencies]
@@ -19,6 +19,8 @@ ar.workspace = true
 tar.workspace = true
 flate2.workspace = true
 md-5.workspace = true
+sha2.workspace = true
+zstd.workspace = true
 
 # Native .rpm assembly: the same crate createrepo_rs uses.
 rpm = "0.14"

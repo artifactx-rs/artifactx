@@ -4,10 +4,11 @@
 //!
 //! `pack` is built around a deliberate ordering of preferences:
 //!
-//! 1. **Prefer the native host build.** Building `.deb`, `.rpm`, and `.apk` in
-//!    pure Rust needs no `dpkg-deb`, no `rpmbuild`, no root, and no container
-//!    runtime. It is fast, dependency-light, and works identically on a
-//!    developer laptop and in CI. This is the default and the common case.
+//! 1. **Prefer the native host build.** Building `.deb`, `.rpm`, `.apk`, and
+//!    Arch `.pkg.tar.zst` in pure Rust needs no `dpkg-deb`, no `rpmbuild`, no
+//!    root, and no container runtime. It is fast, dependency-light, and works
+//!    identically on a developer laptop and in CI. This is the default and the
+//!    common case.
 //!
 //! 2. **Fall back to Docker only when native genuinely can't do it.** Some
 //!    packages legitimately need a foreign toolchain — compiling against a
@@ -26,7 +27,7 @@
 //!
 //! The Docker backend is an explicit opt-in fallback: it copies the requested
 //! manifest inputs into an isolated context, runs `arx pack` inside the
-//! configured image, and copies the requested `.deb`, `.rpm`, or `.apk` back.
+//! configured image, and copies the requested package artifact back.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,7 +35,7 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 use crate::manifest::Manifest;
-use crate::{build_apk, build_deb, build_rpm};
+use crate::{build_apk, build_arch_pkg, build_deb, build_rpm};
 
 /// Which output format to produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub enum Format {
     Deb,
     Rpm,
     Apk,
+    Arch,
 }
 
 impl Format {
@@ -50,15 +52,23 @@ impl Format {
             Format::Deb => "--deb",
             Format::Rpm => "--rpm",
             Format::Apk => "--apk",
+            Format::Arch => "--arch-pkg",
         }
     }
 
-    fn extension(self) -> &'static str {
+    fn artifact_suffix(self) -> &'static str {
         match self {
             Format::Deb => "deb",
             Format::Rpm => "rpm",
             Format::Apk => "apk",
+            Format::Arch => "pkg.tar.zst",
         }
+    }
+
+    fn matches_artifact(self, path: &Path) -> bool {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(self.artifact_suffix()))
     }
 }
 
@@ -82,6 +92,7 @@ impl Backend {
                 Format::Deb => build_deb(manifest, out_dir),
                 Format::Rpm => build_rpm(manifest, out_dir),
                 Format::Apk => build_apk(manifest, out_dir),
+                Format::Arch => build_arch_pkg(manifest, out_dir),
             },
             Backend::Docker { image } => docker_build(manifest, format, out_dir, image),
         }
@@ -166,16 +177,17 @@ fn docker_build(
     {
         let entry = entry?;
         let p = entry.path();
-        if p.is_file() {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == format.extension() {
-                found = Some(p);
-                break;
-            }
+        if p.is_file() && format.matches_artifact(&p) {
+            found = Some(p);
+            break;
         }
     }
-    let artifact = found
-        .with_context(|| format!("no .{} found in Docker build output", format.extension()))?;
+    let artifact = found.with_context(|| {
+        format!(
+            "no .{} found in Docker build output",
+            format.artifact_suffix()
+        )
+    })?;
     let name = artifact.file_name().unwrap().to_string_lossy().into_owned();
     let dest = out_dir.join(&name);
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
@@ -234,6 +246,7 @@ fn copy_dir_tree(src: &Path, dest: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use std::sync::Mutex;
 
     use super::{docker_build, Format};
@@ -244,11 +257,14 @@ mod tests {
     #[test]
     fn docker_format_mapping_covers_all_pack_formats() {
         assert_eq!(Format::Deb.pack_flag(), "--deb");
-        assert_eq!(Format::Deb.extension(), "deb");
+        assert_eq!(Format::Deb.artifact_suffix(), "deb");
         assert_eq!(Format::Rpm.pack_flag(), "--rpm");
-        assert_eq!(Format::Rpm.extension(), "rpm");
+        assert_eq!(Format::Rpm.artifact_suffix(), "rpm");
         assert_eq!(Format::Apk.pack_flag(), "--apk");
-        assert_eq!(Format::Apk.extension(), "apk");
+        assert_eq!(Format::Apk.artifact_suffix(), "apk");
+        assert_eq!(Format::Arch.pack_flag(), "--arch-pkg");
+        assert_eq!(Format::Arch.artifact_suffix(), "pkg.tar.zst");
+        assert!(Format::Arch.matches_artifact(Path::new("fake-1.0.0-1-x86_64.pkg.tar.zst")));
     }
 
     #[test]

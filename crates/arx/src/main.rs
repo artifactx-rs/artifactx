@@ -1480,11 +1480,12 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
     };
     let manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
 
-    // Default (no flags): build all three formats.
-    let all = !args.deb && !args.rpm && !args.apk;
+    // Default (no flags): build all package formats.
+    let all = !args.deb && !args.rpm && !args.apk && !args.arch_pkg;
     let do_deb = args.deb || all;
     let do_rpm = args.rpm || all;
     let do_apk = args.apk || all;
+    let do_arch_pkg = args.arch_pkg || all;
     let mut built = Vec::new();
     if do_deb {
         built.push(arx_pack::build_deb(&manifest, &args.out).context("building .deb")?);
@@ -1494,6 +1495,10 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
     }
     if do_apk {
         built.push(arx_pack::build_apk(&manifest, &args.out).context("building .apk")?);
+    }
+    if do_arch_pkg {
+        built
+            .push(arx_pack::build_arch_pkg(&manifest, &args.out).context("building .pkg.tar.zst")?);
     }
     for p in &built {
         println!("Built {}", p.display());
@@ -1506,6 +1511,16 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         let mut cache = cache::PackageFileCache::load(&args.root);
         let mut cache_dirty = false;
         for p in &built {
+            if p.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".pkg.tar.zst"))
+            {
+                eprintln!(
+                    "Skipped {} (.pkg.tar.zst repositories are not supported by arx add)",
+                    p.display()
+                );
+                continue;
+            }
             match p.extension().and_then(|e| e.to_str()) {
                 Some("deb" | "rpm") => {
                     let (dest, _) = add_to_pool(&args.root, &cfg, p, component, repo, &mut cache)?;

@@ -5,7 +5,7 @@
 
 ## Context
 
-The "Package" pillar must turn intent into `.deb` and `.rpm`. Two historical
+The "Package" pillar must turn package intent into distro-native artifacts without conversion. Two historical
 approaches: **convert** an existing package to another format (`alien`), or
 **render** each format from a neutral description (`FPM`, `nfpm`, `EPM`). `alien`
 silently drops maintainer scripts and dependencies — conversion is lossy at the
@@ -16,8 +16,9 @@ non-deterministic.
 
 `pack` builds each format **natively from one TOML manifest**, in **pure Rust**, with
 **no shelled-out host tools** (no `dpkg-deb`, `rpmbuild`, `ar`, `tar` binaries):
-`.deb` via the `ar`/`tar`/`flate2` crates, `.rpm` via the `rpm` crate, and
-`.apk` via deterministic tar/gzip payloads. Scripts and
+`.deb` via the `ar`/`tar`/`flate2` crates, `.rpm` via the `rpm` crate,
+`.apk` via deterministic tar/gzip payloads, and Arch `.pkg.tar.zst` via
+ALPM metadata plus deterministic tar/zstd payloads. Scripts and
 relationships (`depends`/`conflicts`/`provides`/`replaces`) are expressed once and
 rendered natively per format. A `Backend` enum keeps `Native` (default) separate
 from `Docker` (explicit opt-in): **native-first, Docker only when native genuinely
@@ -43,6 +44,6 @@ determinism.
 
 ## Future improvements
 
-`--from <staging-dir>` (checkinstall's value without mutating the host); Arch
-output; richer Docker images for builds that truly need a foreign toolchain;
-triggers and source packages.
+`--from <staging-dir>` (checkinstall's value without mutating the host);
+richer Docker images for builds that truly need a foreign toolchain; triggers,
+source packages, and deeper per-format policy fields.

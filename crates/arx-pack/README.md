@@ -1,20 +1,20 @@
 # arx-pack
 
-**Pure-Rust packager: build `.deb`, `.rpm`, and `.apk` from a single TOML manifest — no native toolchain required for the common case.**
+**Pure-Rust packager: build `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` from a single TOML manifest — no native toolchain required for the common case.**
 
 `arx-pack` is the *Package* pillar of ArtifactX. You describe a package once — its
 metadata and the files it installs — and `arx-pack` emits Debian `.deb`, RPM
-`.rpm`, and Alpine `.apk` packages. No `dpkg-deb`, no `rpmbuild`, no root, and no container runtime
+`.rpm`, Alpine `.apk`, and Arch `.pkg.tar.zst` packages. No `dpkg-deb`, no `rpmbuild`, no root, and no container runtime
 needed for ordinary "stage these files at these paths with this metadata"
 packaging. The same code runs identically on a developer laptop and in CI.
 
-> Status: **proof of concept.** The native `.deb`, `.rpm`, and `.apk` builders
+> Status: **proof of concept.** The native `.deb`, `.rpm`, `.apk`, and `.pkg.tar.zst` builders
 > are implemented and tested. The Docker backend is available as an explicit,
 > opt-in fallback for builds that need a pinned container image.
 
 ## Philosophy: native-first, Docker as a fallback, hygiene always
 
-1. **Prefer the native host build.** Building `.deb`, `.rpm`, and `.apk` in pure Rust is
+1. **Prefer the native host build.** Building `.deb`, `.rpm`, `.apk`, and `.pkg.tar.zst` in pure Rust is
    fast, dependency-light, and toolchain-free. This is the default and the
    common case.
 2. **Fall back to Docker only when native genuinely can't do it.** Some packages
@@ -34,7 +34,7 @@ packaging. The same code runs identically on a developer laptop and in CI.
 ```toml
 name = "hello"
 version = "1.2.3"
-arch = "amd64"            # accepts deb (amd64) or rpm (x86_64) spellings
+arch = "amd64"            # accepts ecosystem spellings; normalizes per format
 maintainer = "Jane Dev <jane@example.com>"
 description = """A friendly greeter
 A longer paragraph describing the package."""
@@ -70,13 +70,18 @@ dir_mode  = "0755"         # optional; defaults to 0755
 # prerm    = "scripts/prerm.sh"
 ```
 
+In Arch packages, maintainer scripts are wrapped into `.INSTALL` functions:
+`preinst` → `pre_install`, `postinst` → `post_install`, `prerm` →
+`pre_remove`, and `postrm` → `post_remove`.
+
 Configuration files are ordinary payload files with package-manager policy
 attached. Mark an explicit `[[files]]` entry with `config = true`, or list an
 absolute installed path in `config_files` when the file comes from `[[dirs]]`.
 Every `config_files` entry must match an installed regular file so typos fail
 before any package is written. The marker maps to Debian `conffiles` and RPM
-`%config(noreplace)`; APK output currently carries the file as normal payload
-because this packager has no Alpine-specific backup marker yet.
+`%config(noreplace)` and Arch `backup` entries; APK output currently carries
+the file as normal payload because this packager has no Alpine-specific backup
+marker yet.
 
 ## From a Cargo project (zero config)
 
@@ -100,7 +105,7 @@ depends = ["libc6"]
 
 ```bash
 cargo build --release
-arx pack            # reads ./Cargo.toml → .deb + .rpm + .apk in dist/
+arx pack            # reads ./Cargo.toml → .deb + .rpm + .apk + .pkg.tar.zst in dist/
 ```
 
 `pack` does not run `cargo build` for you. It reads the binary that already
@@ -160,6 +165,7 @@ let manifest = Manifest::from_toml_str(toml_str)?;
 let deb = arx_pack::build_deb(&manifest, Path::new("dist"))?; // dist/hello_1.2.3_amd64.deb
 let rpm = arx_pack::build_rpm(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1.x86_64.rpm
 let apk = arx_pack::build_apk(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-r0.x86_64.apk
+let arch = arx_pack::build_arch_pkg(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1-x86_64.pkg.tar.zst
 
 // Or via the backend abstraction:
 let backend = Backend::Native;
@@ -176,9 +182,10 @@ let deb = backend.build(&manifest, Format::Deb, Path::new("dist"))?;
 | `arx_pack::build_deb(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.deb`, return its path. |
 | `arx_pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
 | `arx_pack::build_apk(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.apk`, return its path. |
+| `arx_pack::build_arch_pkg(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build an Arch `.pkg.tar.zst`, return its path. |
 | `Backend::{Native, Docker { image }}` | Build backend. `Native` is the default; `Docker` shells out to a configured container image when requested. |
 | `Backend::build(&Manifest, Format, out_dir) -> Result<PathBuf>` | Dispatch a build through a backend. |
-| `Format::{Deb, Rpm, Apk}` | Output format selector. |
+| `Format::{Deb, Rpm, Apk, Arch}` | Output format selector. |
 
 Errors are `anyhow::Result`. Directory entries are expanded once through the
 shared manifest path, sorted deterministically, and reject symlinks, special
@@ -196,6 +203,11 @@ from another Rust tool.
 - **`.rpm`** is assembled via the [`rpm`](https://crates.io/crates/rpm) crate
   (the same one `createrepo_rs` uses), mapping the manifest onto its
   `PackageBuilder`.
+- **`.apk`** is assembled as a deterministic gzip-compressed tar archive with
+  Alpine `.PKGINFO`, optional install scripts, and payload entries.
+- **Arch `.pkg.tar.zst`** is assembled as a deterministic zstd-compressed tar
+  archive with ALPM `.BUILDINFO`, gzip-compressed `.MTREE`, `.PKGINFO`,
+  optional `.INSTALL`, and payload entries.
 
 ## License
 

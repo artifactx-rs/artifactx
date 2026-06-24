@@ -212,11 +212,15 @@ From zero to a signed repo:
 
 ```bash
 arx init                              # create repo + signing key
-arx pack ./Cargo.toml --out dist      # build .deb .rpm .apk
+arx pack ./Cargo.toml --out dist      # build .deb .rpm .apk .pkg.tar.zst
 arx add dist                          # add the built .deb/.rpm packages
 arx publish                           # sign + index
 arx serve                             # local server on 127.0.0.1:8080
 ```
+
+`arx pack` emits all supported package artifacts by default. `arx add` currently
+indexes the apt/yum repository formats (`.deb`/`.rpm`) and leaves `.apk` /
+`.pkg.tar.zst` artifacts in the output directory for downstream handling.
 
 For repeated package drop directories, `publish-dir` wraps discovery, no-op
 detection, publish, optional live cutover, optional RPM payload signing, and
@@ -348,7 +352,7 @@ cargo build --release
 |---|---|
 | `arx init` | Create repository layout, config, and signing key |
 | `arx import` | Migrate packages from an existing apt/yum repo into ArtifactX |
-| `arx pack` | Build `.deb`, `.rpm`, `.apk` from a manifest or `Cargo.toml` |
+| `arx pack` | Build `.deb`, `.rpm`, `.apk`, `.pkg.tar.zst` from a manifest or `Cargo.toml` |
 | `arx add` | Put existing `.deb` / `.rpm` files, or directories containing them, into the pool |
 | `arx publish` | Generate and sign apt + yum metadata; optionally export + cut over live public symlinks |
 | `arx serve` | Serve apt/dnf-compatible repo + REST API + `/metrics` |

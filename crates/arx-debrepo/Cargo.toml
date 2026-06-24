@@ -23,7 +23,7 @@ toml.workspace = true
 walkdir.workspace = true
 xz2.workspace = true
 sha1 = "0.10"
-zstd = "0.13"
+zstd.workspace = true
 
 [dev-dependencies]
 ar.workspace = true
