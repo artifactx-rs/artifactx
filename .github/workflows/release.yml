@@ -215,6 +215,8 @@ jobs:
             printf 'FROM scratch\nCOPY arx /arx\nENTRYPOINT ["/arx"]\n' > /tmp/ghcr/$arch/Dockerfile
             docker buildx build \
               --platform "$platform" \
+              --provenance=false \
+              --sbom=false \
               -t ghcr.io/artifactx-rs/arx:${TAG}-$arch \
               -f /tmp/ghcr/$arch/Dockerfile \
               /tmp/ghcr/$arch \
