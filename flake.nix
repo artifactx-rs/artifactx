@@ -13,6 +13,8 @@
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
+        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        version = cargoToml.package.version;
         rust = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "clippy" ];
           targets = [ "x86_64-unknown-linux-musl" ];
@@ -22,7 +24,7 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "arx";
-          version = "0.2.7";
+          version = version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
           nativeBuildInputs = with pkgs; [ pkg-config ];
