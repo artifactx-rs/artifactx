@@ -201,7 +201,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.meta.outputs.is_tag_release == 'true' && steps.meta.outputs.run_release == 'true'
 
       - name: GHCR multi-arch image
