@@ -178,18 +178,55 @@ fn cmd_search(args: &cli::SearchArgs) -> Result<()> {
     } else if infos.is_empty() {
         println!("No packages matched.");
     } else {
-        for info in infos {
-            let kind = match info.kind {
-                pool::Kind::Apt => "apt",
-                pool::Kind::Yum => "yum",
-            };
-            println!(
-                "{}\t{}\t{}\t{}\t{}",
-                info.name, info.version, info.arch, info.scope, kind
-            );
-        }
+        print_package_table(&infos);
     }
     Ok(())
+}
+
+fn print_package_table(infos: &[pool::PackageInfo]) {
+    let name_width = infos
+        .iter()
+        .map(|info| info.name.len())
+        .max()
+        .unwrap_or(0)
+        .max("NAME".len());
+    let version_width = infos
+        .iter()
+        .map(|info| info.version.len())
+        .max()
+        .unwrap_or(0)
+        .max("VERSION".len());
+    let arch_width = infos
+        .iter()
+        .map(|info| info.arch.len())
+        .max()
+        .unwrap_or(0)
+        .max("ARCH".len());
+    let scope_width = infos
+        .iter()
+        .map(|info| info.scope.len())
+        .max()
+        .unwrap_or(0)
+        .max("SCOPE".len());
+
+    println!(
+        "{:<name_width$}  {:<version_width$}  {:<arch_width$}  {:<scope_width$}  KIND",
+        "NAME", "VERSION", "ARCH", "SCOPE"
+    );
+    println!(
+        "{:-<name_width$}  {:-<version_width$}  {:-<arch_width$}  {:-<scope_width$}  ----",
+        "", "", "", ""
+    );
+    for info in infos {
+        let kind = match info.kind {
+            pool::Kind::Apt => "apt",
+            pool::Kind::Yum => "yum",
+        };
+        println!(
+            "{:<name_width$}  {:<version_width$}  {:<arch_width$}  {:<scope_width$}  {}",
+            info.name, info.version, info.arch, info.scope, kind
+        );
+    }
 }
 
 fn cmd_export(args: &cli::ExportArgs) -> Result<()> {
