@@ -2696,8 +2696,64 @@ fn search_cli_filters_pool_entries_and_emits_json() {
         String::from_utf8_lossy(&text.stderr)
     );
     let stdout = String::from_utf8_lossy(&text.stdout);
-    assert!(stdout.contains("otherpkg\t1.0-1\tamd64\tmain\tapt"));
+    assert!(stdout.contains("NAME      VERSION  ARCH   SCOPE  KIND"));
+    assert!(stdout.contains("otherpkg  1.0-1    amd64  main   apt"));
     assert!(!stdout.contains("demo-agent"));
+}
+
+#[test]
+fn search_cli_prefilters_nonmatching_pool_files_and_logs_scan_stats() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let keep = tmp.path().join("demo-agent_2.0-1_amd64.deb");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    write_deb(&keep, "demo-agent", "2.0-1", "amd64");
+    arx_ok(&[
+        "add",
+        keep.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+
+    let bad_rpm_dir = root.join("yum/qgnet/x86_64");
+    std::fs::create_dir_all(&bad_rpm_dir).unwrap();
+    std::fs::write(
+        bad_rpm_dir.join("zabbix-broken-1.0-1.x86_64.rpm"),
+        b"not an rpm",
+    )
+    .unwrap();
+
+    let output = common::arx_command()
+        .env("RUST_LOG", "debug")
+        .args(["search", "demo", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "search should skip nonmatching bad rpm before metadata parsing\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("demo-agent  2.0-1    amd64  main   apt"));
+    assert!(
+        !stdout.contains("pool search completed"),
+        "debug logs must not pollute search output:\n{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pool search completed"),
+        "debug logs should identify search scan timing/counts:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("yum_files_skipped_by_hint=1"),
+        "debug logs should expose skipped yum candidates:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("\u{1b}"),
+        "redirected debug logs should not include ANSI escape codes:\n{stderr}"
+    );
 }
 
 #[test]

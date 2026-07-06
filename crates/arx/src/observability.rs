@@ -1,5 +1,7 @@
 //! tracing + metrics initialization.
 
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -15,14 +17,26 @@ pub enum LogFormat {
 pub fn init_tracing(format: LogFormat) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let registry = tracing_subscriber::registry().with(filter);
+    let use_ansi = std::io::stderr().is_terminal();
     match format {
         LogFormat::Json => {
             registry
-                .with(tracing_subscriber::fmt::layer().json())
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .json()
+                        .with_ansi(use_ansi)
+                        .with_writer(std::io::stderr),
+                )
                 .init();
         }
         LogFormat::Text => {
-            registry.with(tracing_subscriber::fmt::layer()).init();
+            registry
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(use_ansi)
+                        .with_writer(std::io::stderr),
+                )
+                .init();
         }
     }
 }
