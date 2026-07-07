@@ -381,6 +381,70 @@ fn cutover_exports_validates_and_switches_live_symlink() {
 }
 
 #[test]
+fn cutover_prunes_stale_unreferenced_staging_exports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let public = tmp.path().join("public");
+    let live = public.join("deb");
+    let staging = tmp.path().join("cutovers");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    for version in ["1.0-1", "2.0-1", "3.0-1", "4.0-1"] {
+        let deb = tmp.path().join(format!(
+            "cutover-prune_{}_amd64.deb",
+            version.replace('.', "_")
+        ));
+        write_deb(&deb, "cutover-prune", version, "amd64");
+        arx_ok(&[
+            "add",
+            deb.to_str().unwrap(),
+            "--root",
+            repo.to_str().unwrap(),
+        ]);
+        arx_ok(&[
+            "cutover",
+            "--root",
+            repo.to_str().unwrap(),
+            "--apt-live",
+            live.to_str().unwrap(),
+            "--staging-dir",
+            staging.to_str().unwrap(),
+            "--keep-cutovers",
+            "0",
+        ]);
+    }
+
+    let retained: Vec<_> = std::fs::read_dir(&staging)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("cutover-"))
+        })
+        .collect();
+    assert_eq!(
+        retained.len(),
+        2,
+        "retention should keep only current live and previous rollback export roots when --keep-cutovers=0: {retained:?}"
+    );
+
+    let live_target = std::fs::read_link(&live).expect("live symlink target");
+    let previous_target =
+        std::fs::read_link(public.join("deb.previous")).expect("previous rollback symlink target");
+    assert!(
+        live_target.exists(),
+        "current live target should not be pruned: {}",
+        live_target.display()
+    );
+    assert!(
+        previous_target.exists(),
+        "previous rollback target should not be pruned: {}",
+        previous_target.display()
+    );
+}
+
+#[test]
 fn publish_can_export_and_switch_live_symlink() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

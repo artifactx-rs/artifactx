@@ -191,6 +191,7 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink.
 - `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink.
 - `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
 - `--repo <REPO>` / `--arch <ARCH>`: select the yum repo/architectures for `--yum-flat-live`.
 - `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
@@ -231,6 +232,7 @@ state so unchanged runs can exit quickly.
 - `--full`: rebuild metadata from scratch.
 - `--apt` / `--yum`: limit the publish to one format.
 - `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
 - `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--sign-rpms`: sign unsigned source RPM payloads with the system `rpm --addsign` backend before ingest. ArtifactX skips already-signed RPMs and verifies each payload is signed.
@@ -348,6 +350,7 @@ ordinary directories are refused so one-time migrations stay explicit.
 - `--apt-live <PATH>`: live apt path to switch to the staged `deb` export.
 - `--yum-flat-live <PATH>`: live flat yum path to switch to the staged `repo` export.
 - `--staging-dir <DIR>`: parent directory for versioned cutover exports. Defaults near the first live path.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
 - `--repo <REPO>`: yum repo name to export. Defaults to `[yum].repo`.
 - `--arch <ARCH>`: limit yum export to one or more architectures.
 - `--dry-run`: publish/export/preflight but do not switch live pointers.
@@ -356,7 +359,9 @@ ordinary directories are refused so one-time migrations stay explicit.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
 
 A successful second and later cutover leaves `<live>.previous` pointing to the
-previous live target for rollback.
+previous live target for rollback. Retention cleanup never removes the current
+live target or that rollback target; set `--keep-cutovers 0` to keep only those
+protected exports.
 
 ### `arx export`
 

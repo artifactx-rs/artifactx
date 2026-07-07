@@ -16,6 +16,7 @@ pub struct CutoverOptions {
     pub apt_live: Option<PathBuf>,
     pub yum_flat_live: Option<PathBuf>,
     pub staging_dir: Option<PathBuf>,
+    pub keep_cutovers: usize,
     pub repo: Option<String>,
     pub arch: Vec<String>,
     pub dry_run: bool,
@@ -173,10 +174,100 @@ pub fn run(
         lines.push(cutover_line("yum live", live, &target, previous.as_deref()));
     }
 
+    let removed = prune_staging_exports(opts, &staging_root, &version_root)?;
+    if removed > 0 {
+        lines.push(format!(
+            "cutover cleanup: removed {removed} stale staging dir(s)"
+        ));
+    }
+
     Ok(CutoverReport {
         staging_root: version_root,
         lines,
     })
+}
+
+fn prune_staging_exports(
+    opts: &CutoverOptions,
+    staging_root: &Path,
+    current_version: &Path,
+) -> Result<usize> {
+    let mut protected = Vec::new();
+    push_existing_canonical(&mut protected, current_version);
+    for live in [&opts.apt_live, &opts.yum_flat_live].into_iter().flatten() {
+        push_live_target(&mut protected, live)?;
+        push_live_target(&mut protected, &live.with_extension("previous"))?;
+    }
+
+    let mut candidates = Vec::new();
+    let entries = match std::fs::read_dir(staging_root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", staging_root.display())),
+    };
+    for entry in entries {
+        let entry = entry.with_context(|| format!("reading {}", staging_root.display()))?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with("cutover-") || !path.is_dir() || is_protected(&path, &protected) {
+            continue;
+        }
+        candidates.push((name.to_string(), path));
+    }
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut removed = 0;
+    for (_, path) in candidates.into_iter().skip(opts.keep_cutovers) {
+        std::fs::remove_dir_all(&path).with_context(|| format!("removing {}", path.display()))?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
+fn push_live_target(protected: &mut Vec<PathBuf>, live: &Path) -> Result<()> {
+    let target = match std::fs::read_link(live) {
+        Ok(target) => target,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", live.display())),
+    };
+    let resolved = if target.is_absolute() {
+        target
+    } else {
+        live.parent().unwrap_or_else(|| Path::new(".")).join(target)
+    };
+    push_existing_canonical(protected, &resolved);
+    Ok(())
+}
+
+fn push_existing_canonical(paths: &mut Vec<PathBuf>, path: &Path) {
+    let Ok(canonical) = path.canonicalize() else {
+        return;
+    };
+    if canonical
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("cutover-"))
+    {
+        paths.push(canonical);
+        return;
+    }
+    if let Some(parent) = canonical.parent().filter(|parent| {
+        parent
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("cutover-"))
+    }) {
+        paths.push(parent.to_path_buf());
+    }
+}
+
+fn is_protected(path: &Path, protected: &[PathBuf]) -> bool {
+    path.canonicalize()
+        .map(|canonical| protected.iter().any(|item| item == &canonical))
+        .unwrap_or(false)
 }
 
 fn formats(opts: &CutoverOptions) -> String {

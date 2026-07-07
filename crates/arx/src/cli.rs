@@ -191,6 +191,9 @@ pub struct PublishArgs {
     /// Directory that receives versioned cutover exports. Defaults near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
+    /// Number of old unreferenced cutover export directories to keep after a live switch.
+    #[arg(long, default_value_t = 2)]
+    pub keep_cutovers: usize,
     /// Yum repo name to export when `--yum-flat-live` is set (defaults to `[yum].repo`).
     #[arg(long)]
     pub repo: Option<String>,
@@ -319,6 +322,9 @@ pub struct PublishDirArgs {
     /// Directory that receives versioned cutover exports. Defaults near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
+    /// Number of old unreferenced cutover export directories to keep after a live switch.
+    #[arg(long, default_value_t = 2)]
+    pub keep_cutovers: usize,
     /// Limit yum export to one or more architectures when `--yum-flat-live` is set.
     #[arg(long)]
     pub arch: Vec<String>,
@@ -658,6 +664,9 @@ pub struct CutoverArgs {
     /// Directory that receives versioned cutover exports. Defaults near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
+    /// Number of old unreferenced cutover export directories to keep after a live switch.
+    #[arg(long, default_value_t = 2)]
+    pub keep_cutovers: usize,
     /// Yum repo name to export (defaults to `[yum].repo`).
     #[arg(long)]
     pub repo: Option<String>,
