@@ -993,6 +993,7 @@ fn publish_dir_publish(root: &Path, cfg: &Config, args: &cli::PublishDirArgs) ->
                 &passphrase,
                 cfg.apt.strict,
                 incremental,
+                None,
             )?
             .summary,
         );
@@ -1358,7 +1359,7 @@ fn cmd_mirror_blocking(args: &cli::MirrorArgs) -> Result<()> {
         let key = load_key(&args.root, &cfg)?;
         let passphrase = resolve_passphrase(None)?.unwrap_or_default();
         let _lock = PublishLock::acquire(&args.root)?;
-        let apt = publish_apt(&args.root, &cfg, key.as_ref(), &passphrase, false, true)?;
+        let apt = publish_apt(&args.root, &cfg, key.as_ref(), &passphrase, false, true, None)?;
         println!("Published: {}", apt.summary);
     }
     Ok(())
@@ -1414,6 +1415,7 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
                     &passphrase,
                     cfg.apt.strict,
                     true,
+                    None,
                 )?
                 .summary,
             );
@@ -1690,6 +1692,7 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
 
     // CPU-bound generation runs on a blocking thread.
     let publish_cfg = cfg.clone();
+    let dist_override = args.dist.clone();
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
@@ -1701,6 +1704,7 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
                     &passphrase,
                     strict,
                     incremental,
+                    dist_override.as_deref(),
                 )?
                 .summary,
             );
@@ -1907,10 +1911,12 @@ fn publish_apt(
     passphrase: &str,
     strict: bool,
     incremental: bool,
+    dist_override: Option<&str>,
 ) -> Result<AptPublish> {
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
-    let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
+    let dist_str = dist_override.unwrap_or(&cfg.apt.dist);
+    let dist = scope::validate_scope_name(dist_str, "apt dist")?;
     let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
 
     let release = cfg.apt_release();
@@ -2465,7 +2471,7 @@ fn cmd_publish_static(root: &Path, cfg: &Config) -> Result<String> {
     )?;
     let key = load_key(root, cfg)?;
     let passphrase = resolve_passphrase(None)?.unwrap_or_default();
-    let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true)?;
+    let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true, None)?;
     let yum = publish_yum(root, cfg, key.as_ref(), &passphrase, true)?;
     let summary = format!("{}; {yum}", apt.summary);
     hooks::run(
