@@ -426,20 +426,20 @@ fn gc_keeps_yum_rollback_pins_with_relative_root() {
     assert!(
         arx_in(
             tmp.path(),
-            &["publish", "--root", "repo", "--yum", "--full"]
+            &["publish", "--root", "./repo", "--yum", "--full"]
         ),
         "relative-root initial publish failed"
     );
 
     pack_rpm(&root, &noarch, "shared", "2.0.0", "noarch");
     assert!(
-        arx_in(tmp.path(), &["publish", "--root", "repo", "--yum"]),
+        arx_in(tmp.path(), &["publish", "--root", "./repo", "--yum"]),
         "relative-root second publish failed"
     );
 
     let gc = common::arx_command()
         .current_dir(tmp.path())
-        .args(["gc", "shared", "--keep", "1", "--yum", "--root", "repo"])
+        .args(["gc", "shared", "--keep", "1", "--yum", "--root", "./repo"])
         .output()
         .unwrap();
     assert!(
