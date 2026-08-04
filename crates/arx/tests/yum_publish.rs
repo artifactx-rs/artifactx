@@ -296,6 +296,45 @@ fn noarch_packages_are_indexed_by_every_arch_repo() {
 }
 
 #[test]
+fn incremental_publish_updates_noarch_location_after_moving_rpm() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    assert!(
+        arx(&["init", root.to_str().unwrap(), "--no-key"]),
+        "arx init failed"
+    );
+
+    let repo = root.join("yum/myrepo");
+    let arch_dir = repo.join("x86_64");
+    let rpm_name = "shareddata-1.0.0-1.noarch.rpm";
+    pack_rpm(root, &arch_dir, "shareddata", "1.0.0", "noarch");
+
+    assert!(
+        arx(&["publish", "--root", root.to_str().unwrap(), "--yum"]),
+        "initial arx publish --yum failed"
+    );
+    let first = read_primary_xml(&arch_dir.join("repodata"));
+    assert!(
+        first.contains(&format!("<location href=\"{rpm_name}\"/>")),
+        "initial index must use the local RPM location:\n{first}"
+    );
+
+    let noarch_dir = repo.join("noarch");
+    std::fs::create_dir_all(&noarch_dir).unwrap();
+    std::fs::rename(arch_dir.join(rpm_name), noarch_dir.join(rpm_name)).unwrap();
+
+    assert!(
+        arx(&["publish", "--root", root.to_str().unwrap(), "--yum"]),
+        "incremental arx publish --yum after moving RPM failed"
+    );
+    let second = read_primary_xml(&arch_dir.join("repodata"));
+    assert!(
+        second.contains(&format!("<location href=\"../noarch/{rpm_name}\"/>")),
+        "moved noarch RPM must switch to a relative sibling location:\n{second}"
+    );
+}
+
+#[test]
 fn publish_repo_scopes_yum_metadata_to_one_repo() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();

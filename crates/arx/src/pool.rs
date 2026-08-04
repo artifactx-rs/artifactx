@@ -878,11 +878,21 @@ mod tests {
     }
 
     #[test]
-    fn yum_rollback_href_is_normalized_before_gc_pinning() {
-        let href = Path::new("/repo/yum/myrepo/x86_64/../noarch/shared.rpm");
-        assert_eq!(
-            normalize_path(href),
-            PathBuf::from("/repo/yum/myrepo/noarch/shared.rpm")
-        );
+    fn yum_rollback_state_pins_normalized_noarch_href() {
+        let tmp = tempfile::tempdir().unwrap();
+        let arch_dir = tmp.path().join("yum/myrepo/x86_64");
+        let state = arch_dir.join(".states/repodata/000001");
+        let noarch = tmp.path().join("yum/myrepo/noarch/shared.rpm");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(noarch.parent().unwrap()).unwrap();
+        std::fs::write(&noarch, b"rpm").unwrap();
+        let xml =
+            br#"<metadata><package><location href="../noarch/shared.rpm"/></package></metadata>"#;
+        let compressed = crate::createrepo_rs::compression::gzip_compress(xml, 6).unwrap();
+        std::fs::write(state.join("sha256-primary.xml.gz"), compressed).unwrap();
+
+        let referenced = referenced_yum_files(&tmp.path().join("yum"));
+
+        assert!(referenced.contains(&noarch));
     }
 }
