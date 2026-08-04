@@ -19,6 +19,7 @@ SYNCED_FILES = [
     ROOT / "flake.nix",
     ROOT / "crates/arx/src/openapi.yaml",
     ROOT / "docs/reference/openapi.yaml",
+    ROOT / "docs/reference/http-api.md",
 ]
 
 
@@ -71,6 +72,8 @@ def sync_text(path: Path, version: str) -> str:
         return replace_once(text, r'ghcr\.io/artifactx-rs/arx:v[^\s]+', f'ghcr.io/artifactx-rs/arx:v{version}', path)
     if path.match("flake.nix"):
         return replace_once(text, r'version\s*=\s*"[^"]+";', f'version = "{version}";', path)
+    if path.match("docs/reference/http-api.md"):
+        return replace_once(text, r'^\s*"version":\s*"[^"]+"\s*$', f'  "version": "{version}"', path)
     if path.match("crates/arx/src/openapi.yaml") or path.match("docs/reference/openapi.yaml"):
         text = replace_once(text, r'^\s*version:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"  version: {version}", path)
         return replace_once(text, r'^\s*example:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"          example: {version}", path)
