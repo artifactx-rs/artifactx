@@ -17,7 +17,7 @@ Start with the [documentation map](docs/README.md) if you want the import tutori
 ```bash
 # Path 1: migrate a slice of an existing repo, then serve it
 arx init ./repo
-arx import https://packages.example.com --apt --dist stable --component main --match-name myapp
+arx import https://packages.example.com --apt --dist stable --component main --match-name myapp --root ./repo
 arx publish --root ./repo
 arx serve --root ./repo
 ```
@@ -461,7 +461,10 @@ Change `[apt.release]` `origin`, `label`, `description`, and `signing.user_id` b
 
 - Workspace tests pass with `cargo test --workspace`.
 - `cargo clippy --workspace --all-targets -- -D warnings` is clean.
-- Real apt/dnf flows are covered by integration tests where host tools are available.
+- Package builders have gated real-tool checks for `dpkg-deb` and `rpm`; they
+  run when those host tools are available.
+- The manual legacy apt/yum flow is documented in
+  `scripts/e2e-legacy-export.sh`; it is not part of the default workspace gate.
 - Package output is deterministic with `SOURCE_DATE_EPOCH` support.
 
 ## Project links

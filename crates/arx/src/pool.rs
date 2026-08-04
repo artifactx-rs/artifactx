@@ -747,7 +747,7 @@ pub fn gc(options: GcOptions<'_>) -> Result<GcReport> {
                     .strip_prefix(apt_root)
                     .map(|rel| referenced.contains(rel.to_string_lossy().as_ref()))
                     .unwrap_or(false),
-                Kind::Yum => referenced_rpm.contains(&e.path),
+                Kind::Yum => referenced_rpm.contains(&normalize_path(&e.path)),
             };
             if pinned {
                 retained_for_rollback += 1;

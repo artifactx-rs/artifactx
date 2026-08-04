@@ -69,7 +69,7 @@ arx serve --root ./repo
 Build packages and add them:
 
 ```sh
-arx pack ./arx.toml --out dist
+arx pack ./Cargo.toml --out dist
 arx add dist --root ./repo
 arx publish --root ./repo
 ```

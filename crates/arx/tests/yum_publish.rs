@@ -14,6 +14,14 @@ mod common;
 fn arx(args: &[&str]) -> bool {
     common::arx_command().args(args).status().unwrap().success()
 }
+fn arx_in(cwd: &Path, args: &[&str]) -> bool {
+    common::arx_command()
+        .current_dir(cwd)
+        .args(args)
+        .status()
+        .unwrap()
+        .success()
+}
 
 fn write_pack_manifest(path: &Path, payload: &Path, name: &str, version: &str) {
     write_pack_manifest_for_arch(path, payload, name, version, "x86_64");
@@ -401,5 +409,51 @@ fn publish_repo_scopes_yum_metadata_to_one_repo() {
     assert!(
         !el10.join("repodata").exists(),
         "a failed --repo publish must not publish other repos"
+    );
+}
+
+#[test]
+fn gc_keeps_yum_rollback_pins_with_relative_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    assert!(
+        arx(&["init", root.to_str().unwrap(), "--no-key"]),
+        "arx init failed"
+    );
+
+    let noarch = root.join("yum/myrepo/noarch");
+    pack_rpm(&root, &noarch, "shared", "1.0.0", "noarch");
+    assert!(
+        arx_in(
+            tmp.path(),
+            &["publish", "--root", "repo", "--yum", "--full"]
+        ),
+        "relative-root initial publish failed"
+    );
+
+    pack_rpm(&root, &noarch, "shared", "2.0.0", "noarch");
+    assert!(
+        arx_in(tmp.path(), &["publish", "--root", "repo", "--yum"]),
+        "relative-root second publish failed"
+    );
+
+    let gc = common::arx_command()
+        .current_dir(tmp.path())
+        .args(["gc", "shared", "--keep", "1", "--yum", "--root", "repo"])
+        .output()
+        .unwrap();
+    assert!(
+        gc.status.success(),
+        "relative-root yum gc failed:\n{}",
+        String::from_utf8_lossy(&gc.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&gc.stdout).contains("pinned by retained rollback states"),
+        "relative-root yum gc must report pinned package:\n{}",
+        String::from_utf8_lossy(&gc.stdout)
+    );
+    assert!(
+        noarch.join("shared-1.0.0-1.noarch.rpm").exists(),
+        "relative-root gc must preserve the RPM referenced by rollback state"
     );
 }

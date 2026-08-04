@@ -516,7 +516,7 @@ components:
           example: arx
         version:
           type: string
-          example: 0.1.4
+          example: 0.3.4
     PackageInfo:
       type: object
       required: [name, version, arch, scope, kind]

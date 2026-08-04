@@ -133,7 +133,7 @@ Response:
 ```json
 {
   "name": "arx",
-  "version": "0.1.4"
+  "version": "0.3.4"
 }
 ```
 

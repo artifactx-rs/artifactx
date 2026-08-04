@@ -154,13 +154,13 @@ This controls archive metadata and package metadata that carry build timestamps.
 
 ## Docker backend boundary
 
-Native build is the default and the common path. The Docker backend is an
-explicit fallback for packages that need a pinned foreign build environment. It
-runs `arx pack` inside the configured image and collects the requested artifact
-suffix, including `.pkg.tar.zst` for Arch output.
+Native build is the only backend exposed by the `arx pack` CLI. The
+`arx-pack` library also exposes a Docker backend API for callers that need a
+pinned foreign build environment, but there is currently no CLI option or
+manifest field that selects a Docker image.
 
-Do not use Docker to paper over missing manifest metadata. If the native path can
-stage the files and render the package, prefer native.
+Do not use Docker to paper over missing manifest metadata. If the native path
+can stage the files and render the package, prefer native.
 
 ## Limits and non-goals
 

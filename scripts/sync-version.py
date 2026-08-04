@@ -72,7 +72,8 @@ def sync_text(path: Path, version: str) -> str:
     if path.match("flake.nix"):
         return replace_once(text, r'version\s*=\s*"[^"]+";', f'version = "{version}";', path)
     if path.match("crates/arx/src/openapi.yaml") or path.match("docs/reference/openapi.yaml"):
-        return replace_once(text, r'^\s*version:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"  version: {version}", path)
+        text = replace_once(text, r'^\s*version:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"  version: {version}", path)
+        return replace_once(text, r'^\s*example:\s*[0-9]+\.[0-9]+\.[0-9]+\s*$', f"          example: {version}", path)
     raise SystemExit(f"no sync rule for {path.relative_to(ROOT)}")
 
 
