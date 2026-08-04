@@ -709,7 +709,7 @@ pub fn import_yum(
 #[cfg(test)]
 mod tests {
     use super::import_client;
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
 
@@ -719,6 +719,9 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let bytes_read = stream.read(&mut request).unwrap();
+            assert!(bytes_read > 0);
             stream
                 .write_all(
                     format!(
