@@ -88,23 +88,22 @@ async fn main() -> Result<()> {
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
             let apt_pool_root = selected_apt_pool_root(&args.root, args.apt, args.yum)?;
+            let apt_base = selected_apt_base(&args.root, args.apt, args.yum)?;
             let yum_base = selected_yum_base(&args.root, args.apt, args.yum)?;
-            let report = pool::gc(
-                &args.root,
-                pool::GcOptions {
-                    name: args.name.as_deref(),
-                    name_prefix: args.name_prefix.as_deref(),
-                    keep: args.keep,
-                    keep_within_days: args.keep_within,
-                    grace_days: args.grace,
-                    apt_pool_root: &apt_pool_root,
-                    yum_base: &yum_base,
-                    apt: args.apt,
-                    yum: args.yum,
-                    dry_run: args.dry_run,
-                    retain_rollback_states: !args.ignore_rollback_states,
-                },
-            )?;
+            let report = pool::gc(pool::GcOptions {
+                name: args.name.as_deref(),
+                name_prefix: args.name_prefix.as_deref(),
+                keep: args.keep,
+                keep_within_days: args.keep_within,
+                grace_days: args.grace,
+                apt_pool_root: &apt_pool_root,
+                apt_base: &apt_base,
+                yum_base: &yum_base,
+                apt: args.apt,
+                yum: args.yum,
+                dry_run: args.dry_run,
+                retain_rollback_states: !args.ignore_rollback_states,
+            })?;
             for e in &report.pruned {
                 let tag = if report.dry_run {
                     "[dry-run] would prune"
@@ -408,14 +407,22 @@ async fn cmd_init(args: &cli::InitArgs) -> Result<()> {
     if let Some(ref pd) = args.pool_dir {
         cfg.apt.pool_dir = pd.clone();
     }
+    // Custom base dirs (e.g. publishing straight into a web root).
+    if let Some(base) = &args.apt_base_dir {
+        cfg.apt.base_dir = base.clone();
+    }
+    if let Some(base) = &args.yum_base_dir {
+        cfg.yum.base_dir = base.clone();
+    }
 
     // Create directory structure using config-driven paths.
     let pool = cfg.checked_apt_pool_root(root)?;
     let keys = cfg.keys_dir(root)?;
     let yum = cfg.checked_yum_base(root)?;
+    let dists = cfg.checked_apt_dists(root)?;
     for dir in [
         pool.as_path(),
-        &root.join("apt/dists"),
+        dists.as_path(),
         yum.as_path(),
         keys.as_path(),
     ] {
@@ -1174,7 +1181,7 @@ fn publish_dir_outputs_ok(
             return Ok(false);
         }
     } else if args.apt || (!args.yum && has_deb) {
-        let apt_root = root.join("apt");
+        let apt_root = cfg.checked_apt_base(root)?;
         if !apt_layout_ok(&apt_root, cfg) {
             return Ok(false);
         }
@@ -1690,6 +1697,7 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
 
     // CPU-bound generation runs on a blocking thread.
     let publish_cfg = cfg.clone();
+    let publish_repo = args.repo.clone();
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
@@ -1706,9 +1714,10 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
             );
         }
         if do_yum {
-            lines.push(publish_yum(
+            lines.push(publish_yum_repos(
                 &root,
                 &publish_cfg,
+                publish_repo.as_deref(),
                 key.as_ref(),
                 &passphrase,
                 incremental,
@@ -1766,14 +1775,27 @@ async fn fetch_oidc_token(
     Ok(body.value)
 }
 
+/// Config for pool-scoped commands: `arx.toml` when present, defaults otherwise
+/// (`arx rm`/`gc`/`search` also work on a bare directory of packages).
+fn pool_config(root: &Path) -> Result<Config> {
+    if root.join(config::CONFIG_FILE).exists() {
+        Config::load(root)
+    } else {
+        Ok(Config::default())
+    }
+}
+
+fn selected_apt_base(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> {
+    if apt || !yum {
+        pool_config(root)?.checked_apt_base(root)
+    } else {
+        Ok(root.join("apt"))
+    }
+}
+
 fn selected_apt_pool_root(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> {
     if apt || !yum {
-        let config_path = root.join("arx.toml");
-        if config_path.exists() {
-            Config::load(root)?.checked_apt_pool_root(root)
-        } else {
-            Config::default().checked_apt_pool_root(root)
-        }
+        pool_config(root)?.checked_apt_pool_root(root)
     } else {
         Ok(root.join("apt/pool"))
     }
@@ -1781,12 +1803,7 @@ fn selected_apt_pool_root(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> 
 
 fn selected_yum_base(root: &Path, apt: bool, yum: bool) -> Result<PathBuf> {
     if yum || !apt {
-        let config_path = root.join("arx.toml");
-        if config_path.exists() {
-            Config::load(root)?.checked_yum_base(root)
-        } else {
-            Config::default().checked_yum_base(root)
-        }
+        pool_config(root)?.checked_yum_base(root)
     } else {
         Ok(root.join("yum"))
     }
@@ -1908,7 +1925,7 @@ fn publish_apt(
     strict: bool,
     incremental: bool,
 ) -> Result<AptPublish> {
-    let apt_root = root.join("apt");
+    let apt_root = cfg.checked_apt_base(root)?;
     let start = std::time::Instant::now();
     let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
     let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
@@ -1982,28 +1999,93 @@ fn publish_yum(
     passphrase: &str,
     incremental: bool,
 ) -> Result<String> {
+    publish_yum_repos(root, cfg, None, key, passphrase, incremental)
+}
+
+/// Publish yum repodata. `repo` scopes the run to a single
+/// `<yum-base>/<repo>` directory (`arx publish --repo`, issue #125); `None`
+/// publishes every repo directory found under the yum base.
+fn publish_yum_repos(
+    root: &Path,
+    cfg: &Config,
+    repo: Option<&str>,
+    key: Option<&SignedSecretKey>,
+    passphrase: &str,
+    incremental: bool,
+) -> Result<String> {
     let yum_root = cfg.checked_yum_base(root)?;
+    let repo_dirs = match repo {
+        Some(repo) => {
+            let repo = scope::validate_scope_name(repo, "yum repo")?;
+            let dir = yum_root.join(repo);
+            if !dir.is_dir() {
+                bail!(
+                    "{} does not exist; --repo must name an existing yum repo directory",
+                    dir.display()
+                );
+            }
+            vec![dir]
+        }
+        None => child_dirs(&yum_root)?,
+    };
+
     let mut total = 0usize;
-    let mut repos = 0usize;
-    if yum_root.is_dir() {
-        for repo_entry in std::fs::read_dir(&yum_root)? {
-            let repo_path = repo_entry?.path();
-            if !repo_path.is_dir() {
-                continue;
-            }
-            for arch_entry in std::fs::read_dir(&repo_path)? {
-                let arch_path = arch_entry?.path();
-                if arch_path.is_dir() {
-                    let n = yum::build_repodata(&arch_path, key, passphrase, incremental)?;
-                    total += n;
-                    repos += 1;
-                }
-            }
+    let mut indexes = 0usize;
+    let mut mirrored_noarch = 0usize;
+    for repo_path in repo_dirs {
+        let arch_dirs = child_dirs(&repo_path)?;
+        // `noarch` packages are installable on every architecture, so each
+        // concrete arch index advertises them from the shared noarch directory.
+        let noarch_dir = arch_dirs
+            .iter()
+            .find(|dir| dir.file_name().is_some_and(|name| name == "noarch"));
+        let noarch = match noarch_dir {
+            Some(dir) => yum::scan_rpms(dir)?,
+            None => Vec::new(),
+        };
+        for arch_path in &arch_dirs {
+            let shared = if Some(arch_path) == noarch_dir {
+                [].as_slice()
+            } else {
+                noarch.as_slice()
+            };
+            let indexed = yum::build_repodata(arch_path, shared, key, passphrase, incremental)?;
+            total += indexed.saturating_sub(shared.len());
+            mirrored_noarch += shared.len();
+            indexes += 1;
         }
     }
+
+    let tail = if mirrored_noarch > 0 {
+        format!(" (+{mirrored_noarch} noarch index entry(ies))")
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "yum: indexed {total} package(s) across {repos} repo/arch dir(s)"
+        "yum: indexed {total} package(s) across {indexes} repo/arch dir(s){tail}"
     ))
+}
+
+/// Visible sub-directories of `dir`, sorted, empty when `dir` does not exist.
+fn child_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut dirs = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let path = entry
+            .with_context(|| format!("reading an entry in {}", dir.display()))?
+            .path();
+        let hidden = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with('.'));
+        if path.is_dir() && !hidden {
+            dirs.push(path);
+        }
+    }
+    dirs.sort();
+    Ok(dirs)
 }
 
 async fn cmd_serve(args: &cli::ServeArgs) -> Result<()> {
@@ -2288,7 +2370,7 @@ pub(crate) fn target_link(root: &Path, cfg: &Config, target: &str) -> Result<Pat
         Some(_) => bail!("invalid rollback target {target:?}: expected <repo>/<arch>"),
         None => {
             let dist = scope::validate_scope_name(target, "apt dist")?;
-            Ok(root.join("apt/dists").join(dist))
+            Ok(cfg.checked_apt_dists(root)?.join(dist))
         }
     }
 }
@@ -2309,12 +2391,17 @@ fn visible_children(dir: &Path) -> Vec<String> {
 /// Every rollback target present in the repo: apt dists and yum `repo/arch`.
 fn all_targets(root: &Path, cfg: &Config) -> Vec<String> {
     let mut targets = Vec::new();
-    for dist in visible_children(&root.join("apt/dists")) {
-        if target_link(root, cfg, &dist).is_ok() {
-            targets.push(dist);
-        } else {
-            tracing::warn!(target = %dist, "skipping invalid apt history target");
+    match cfg.checked_apt_dists(root) {
+        Ok(dists) => {
+            for dist in visible_children(&dists) {
+                if target_link(root, cfg, &dist).is_ok() {
+                    targets.push(dist);
+                } else {
+                    tracing::warn!(target = %dist, "skipping invalid apt history target");
+                }
+            }
         }
+        Err(e) => tracing::warn!(error = %e, "skipping apt history targets: invalid apt base dir"),
     }
     let yum = match cfg.checked_yum_base(root) {
         Ok(path) => path,

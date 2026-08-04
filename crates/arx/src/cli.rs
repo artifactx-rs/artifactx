@@ -84,6 +84,14 @@ pub struct InitArgs {
     /// Custom apt pool subdirectory name (default `"pool"`).
     #[arg(long)]
     pub pool_dir: Option<String>,
+    /// Repo-relative apt base directory holding `dists/` and the pool
+    /// (default `"apt"`, e.g. `"public/apt"`).
+    #[arg(long)]
+    pub apt_base_dir: Option<String>,
+    /// Repo-relative yum base directory holding `<repo>/<arch>/`
+    /// (default `"yum"`, e.g. `"public/yum"`).
+    #[arg(long)]
+    pub yum_base_dir: Option<String>,
     /// Encrypt the signing key with the passphrase in this file (else
     /// `ARX_KEY_PASSPHRASE`; if neither, the key is stored unencrypted).
     #[arg(long)]
@@ -194,7 +202,8 @@ pub struct PublishArgs {
     /// Number of old unreferenced cutover export directories to keep after a live switch.
     #[arg(long, default_value_t = 2)]
     pub keep_cutovers: usize,
-    /// Yum repo name to export when `--yum-flat-live` is set (defaults to `[yum].repo`).
+    /// Publish only this yum repo directory, and export it when
+    /// `--yum-flat-live` is set. Defaults to every repo under the yum base.
     #[arg(long)]
     pub repo: Option<String>,
     /// Limit yum export to one or more architectures when `--yum-flat-live` is set.

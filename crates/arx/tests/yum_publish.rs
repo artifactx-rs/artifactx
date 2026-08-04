@@ -16,23 +16,52 @@ fn arx(args: &[&str]) -> bool {
 }
 
 fn write_pack_manifest(path: &Path, payload: &Path, name: &str, version: &str) {
+    write_pack_manifest_for_arch(path, payload, name, version, "x86_64");
+}
+
+fn write_pack_manifest_for_arch(
+    path: &Path,
+    payload: &Path,
+    name: &str,
+    version: &str,
+    arch: &str,
+) {
     std::fs::write(
         path,
         format!(
             "name = \"{name}\"\n\
              version = \"{version}\"\n\
-             arch = \"x86_64\"\n\
+             arch = \"{arch}\"\n\
              maintainer = \"T <t@localhost>\"\n\
              description = \"{name}\"\n\
              license = \"MIT\"\n\
              [[files]]\n\
              source = \"{}\"\n\
-             dest = \"/usr/bin/{name}\"\n\
-             mode = \"0755\"\n",
+             dest = \"/usr/share/{name}/data\"\n\
+             mode = \"0644\"\n",
             payload.display()
         ),
     )
     .unwrap();
+}
+
+/// Build one `.rpm` for `arch` straight into `out`.
+fn pack_rpm(root: &Path, out: &Path, name: &str, version: &str, arch: &str) {
+    let payload = root.join(format!("{name}.data"));
+    std::fs::write(&payload, format!("{name}\n")).unwrap();
+    let manifest = root.join(format!("{name}-{arch}.toml"));
+    write_pack_manifest_for_arch(&manifest, &payload, name, version, arch);
+    std::fs::create_dir_all(out).unwrap();
+    assert!(
+        arx(&[
+            "pack",
+            manifest.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--rpm",
+        ]),
+        "arx pack {name} ({arch}) failed"
+    );
 }
 
 fn read_primary_xml(repodata: &Path) -> String {
@@ -202,5 +231,126 @@ fn yum_incremental_publish_caches_xml_fragments_for_small_adds() {
     assert!(
         xml.contains("beta"),
         "primary.xml must include new package: {xml}"
+    );
+}
+
+#[test]
+fn noarch_packages_are_indexed_by_every_arch_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    assert!(
+        arx(&["init", root.to_str().unwrap(), "--no-key"]),
+        "arx init failed"
+    );
+
+    let repo = root.join("yum/myrepo");
+    pack_rpm(root, &repo.join("x86_64"), "toolx", "1.0.0", "x86_64");
+    pack_rpm(root, &repo.join("aarch64"), "toolx", "1.0.0", "aarch64");
+    pack_rpm(root, &repo.join("noarch"), "shareddata", "1.0.0", "noarch");
+
+    assert!(
+        arx(&["publish", "--root", root.to_str().unwrap(), "--yum"]),
+        "arx publish --yum failed"
+    );
+
+    for arch in ["x86_64", "aarch64"] {
+        let xml = read_primary_xml(&repo.join(arch).join("repodata"));
+        assert!(
+            xml.contains("<location href=\"../noarch/shareddata-1.0.0-1.noarch.rpm\"/>"),
+            "{arch} index must advertise the shared noarch package:\n{xml}"
+        );
+        assert!(
+            xml.contains("packages=\"2\""),
+            "{arch} index must count its own package plus the noarch one:\n{xml}"
+        );
+        assert!(
+            !repo
+                .join(arch)
+                .join("shareddata-1.0.0-1.noarch.rpm")
+                .exists(),
+            "noarch payloads must not be copied into {arch}"
+        );
+    }
+
+    // The noarch repo itself keeps plain local locations.
+    let noarch_xml = read_primary_xml(&repo.join("noarch").join("repodata"));
+    assert!(
+        noarch_xml.contains("<location href=\"shareddata-1.0.0-1.noarch.rpm\"/>"),
+        "the noarch index must reference its own directory:\n{noarch_xml}"
+    );
+    assert!(
+        !noarch_xml.contains("toolx"),
+        "arch-specific packages must not leak into the noarch index:\n{noarch_xml}"
+    );
+
+    // A second incremental publish must keep the folded entries.
+    assert!(
+        arx(&["publish", "--root", root.to_str().unwrap(), "--yum"]),
+        "second arx publish --yum failed"
+    );
+    let xml = read_primary_xml(&repo.join("x86_64").join("repodata"));
+    assert!(
+        xml.contains("<location href=\"../noarch/shareddata-1.0.0-1.noarch.rpm\"/>"),
+        "incremental publish must keep the shared noarch location:\n{xml}"
+    );
+}
+
+#[test]
+fn publish_repo_scopes_yum_metadata_to_one_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    assert!(
+        arx(&["init", root.to_str().unwrap(), "--no-key"]),
+        "arx init failed"
+    );
+
+    let el9 = root.join("yum/el9/x86_64");
+    let el10 = root.join("yum/el10/x86_64");
+    pack_rpm(root, &el9, "alpha", "1.0.0", "x86_64");
+    pack_rpm(root, &el10, "beta", "1.0.0", "x86_64");
+
+    assert!(
+        arx(&[
+            "publish",
+            "--root",
+            root.to_str().unwrap(),
+            "--yum",
+            "--repo",
+            "el9",
+        ]),
+        "arx publish --yum --repo el9 failed"
+    );
+    assert!(
+        el9.join("repodata/repomd.xml").exists(),
+        "--repo el9 must publish el9"
+    );
+    assert!(
+        !el10.join("repodata").exists(),
+        "--repo el9 must not publish other repos"
+    );
+
+    let missing = common::arx_command()
+        .args([
+            "publish",
+            "--root",
+            root.to_str().unwrap(),
+            "--yum",
+            "--repo",
+            "el11",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !missing.status.success(),
+        "--repo naming a missing directory must fail instead of publishing everything"
+    );
+    assert!(
+        String::from_utf8_lossy(&missing.stderr).contains("does not exist"),
+        "stderr should name the missing repo directory: {}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+    assert!(
+        !el10.join("repodata").exists(),
+        "a failed --repo publish must not publish other repos"
     );
 }

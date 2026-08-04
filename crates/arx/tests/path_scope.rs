@@ -360,3 +360,37 @@ fn publish_rejects_configured_yum_base_that_escapes_repo_root() {
         "unsafe yum base_dir must not create a directory outside the repo"
     );
 }
+
+#[test]
+fn publish_rejects_configured_apt_base_that_escapes_repo_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+
+    let init = common::arx_command()
+        .args(["init", root.to_str().unwrap(), "--no-key"])
+        .output()
+        .unwrap();
+    assert!(init.status.success(), "init failed: {init:?}");
+
+    let config_path = root.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("base_dir = \"apt\"", "base_dir = \"../escape\""),
+    )
+    .unwrap();
+
+    let output = common::arx_command()
+        .args(["publish", "--apt", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "unsafe apt base_dir should fail before publishing"
+    );
+    assert!(
+        !tmp.path().join("escape").exists(),
+        "unsafe apt base_dir must not create a directory outside the repo"
+    );
+}

@@ -268,6 +268,78 @@ fn every_cli_subcommand_is_wired_into_help() {
 }
 
 #[test]
+fn nested_base_dirs_publish_into_a_web_root_subdirectory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&[
+        "init",
+        root.to_str().unwrap(),
+        "--no-key",
+        "--apt-base-dir",
+        "public/apt",
+        "--yum-base-dir",
+        "public/yum",
+    ]);
+
+    let deb = tmp.path().join("hello_1.0_amd64.deb");
+    write_deb(&deb, "hello", "1.0", "amd64");
+    let payload = tmp.path().join("payload");
+    std::fs::write(&payload, b"#!/bin/sh\necho hi\n").unwrap();
+    let manifest = tmp.path().join("m.toml");
+    write_pack_manifest(&manifest, &payload, "greeter", "1.2.3");
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--rpm",
+        "--out",
+        tmp.path().join("dist").to_str().unwrap(),
+    ]);
+    let rpm = std::fs::read_dir(tmp.path().join("dist"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("rpm"))
+        .expect("pack should emit an .rpm");
+
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        rpm.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    arx_ok(&["publish", "--root", root.to_str().unwrap()]);
+
+    assert!(
+        root.join("public/apt/pool/main/hello_1.0_amd64.deb")
+            .exists(),
+        "add must place .deb files under the configured apt base dir"
+    );
+    assert!(
+        root.join("public/apt/dists/stable/Release").is_file(),
+        "publish must write apt metadata under the configured apt base dir"
+    );
+    assert!(
+        root.join("public/yum/myrepo/x86_64/repodata/repomd.xml")
+            .is_file(),
+        "publish must write yum metadata under the configured yum base dir"
+    );
+    assert!(
+        !root.join("apt").exists() && !root.join("yum").exists(),
+        "the default apt/yum directories must not be created when base_dir is set"
+    );
+
+    // Rollback state discovery has to follow the configured base dirs too.
+    let history = arx_output(&["history", "--root", root.to_str().unwrap()]);
+    assert!(history.status.success(), "arx history failed: {history:?}");
+    let listed = String::from_utf8_lossy(&history.stdout);
+    assert!(
+        listed.contains("stable") && listed.contains("myrepo/x86_64"),
+        "history must find targets under nested base dirs:\n{listed}"
+    );
+}
+
+#[test]
 fn version_output_includes_build_metadata() {
     let output = arx_output(&["--version"]);
     assert!(output.status.success());

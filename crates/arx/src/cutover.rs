@@ -8,7 +8,7 @@ use pgp::composed::SignedSecretKey;
 use walkdir::WalkDir;
 
 use crate::config::Config;
-use crate::{export, hooks, publish_apt, publish_yum};
+use crate::{export, hooks, publish_apt};
 
 #[derive(Debug, Clone)]
 pub struct CutoverOptions {
@@ -68,7 +68,14 @@ pub fn run(
             );
         }
         if opts.yum_flat_live.is_some() {
-            published.push(publish_yum(&opts.root, cfg, key, passphrase, incremental)?);
+            published.push(crate::publish_yum_repos(
+                &opts.root,
+                cfg,
+                opts.repo.as_deref(),
+                key,
+                passphrase,
+                incremental,
+            )?);
         }
         let summary = published.join("; ");
         hooks::run(

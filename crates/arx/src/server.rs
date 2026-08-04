@@ -100,7 +100,7 @@ fn client_target_link(root: &Path, cfg: &Config, target: &str) -> Result<PathBuf
         ))),
         None => {
             let dist = client_scope_name(target, "apt dist")?;
-            Ok(root.join("apt/dists").join(dist))
+            Ok(cfg.checked_apt_dists(root)?.join(dist))
         }
     }
 }
@@ -452,23 +452,22 @@ async fn gc_handler(State(st): State<AppState>, Query(q): Query<GcQuery>) -> Res
     let blocking = move || -> Result<GcResult> {
         let _lock = crate::PublishLock::acquire(&st.root)?;
         let apt_pool_root = st.cfg.checked_apt_pool_root(&st.root)?;
+        let apt_base = st.cfg.checked_apt_base(&st.root)?;
         let yum_base = st.cfg.checked_yum_base(&st.root)?;
-        let report = pool::gc(
-            &st.root,
-            pool::GcOptions {
-                name: q.name.as_deref(),
-                name_prefix: q.name_prefix.as_deref(),
-                keep: q.keep,
-                keep_within_days: q.keep_within_days,
-                grace_days: q.grace_days,
-                apt_pool_root: &apt_pool_root,
-                yum_base: &yum_base,
-                apt: q.apt,
-                yum: q.yum,
-                dry_run: q.dry_run,
-                retain_rollback_states: !q.ignore_rollback_states,
-            },
-        )?;
+        let report = pool::gc(pool::GcOptions {
+            name: q.name.as_deref(),
+            name_prefix: q.name_prefix.as_deref(),
+            keep: q.keep,
+            keep_within_days: q.keep_within_days,
+            grace_days: q.grace_days,
+            apt_pool_root: &apt_pool_root,
+            apt_base: &apt_base,
+            yum_base: &yum_base,
+            apt: q.apt,
+            yum: q.yum,
+            dry_run: q.dry_run,
+            retain_rollback_states: !q.ignore_rollback_states,
+        })?;
         let pruned = report.pruned.iter().map(pool::Entry::info).collect();
         let published = if report.dry_run || report.pruned.is_empty() {
             None

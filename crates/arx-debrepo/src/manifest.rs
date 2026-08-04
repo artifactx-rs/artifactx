@@ -22,8 +22,8 @@ pub struct CachedPackage {
     pub sha256: String,
     /// Pre-built Packages stanza (control fields + Filename/Size/MD5sum/SHA1/SHA256).
     pub stanza: String,
-    /// Cached Debian package identity. Older manifests and yum manifests leave
-    /// these empty, which makes the publisher fall back to parsing control.tar.
+    /// Cached Debian package identity. Yum manifests use this field for the
+    /// rendered location href; older manifests leave it empty and are rebuilt.
     #[serde(default)]
     pub package: String,
     #[serde(default)]

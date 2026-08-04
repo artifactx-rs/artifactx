@@ -24,7 +24,7 @@ pub struct YumExportReport {
 }
 
 pub fn export_apt(root: &Path, cfg: &Config, out: &Path) -> Result<PathBuf> {
-    let apt_root = root.join("apt");
+    let apt_root = cfg.checked_apt_base(root)?;
     let dists = apt_root.join("dists");
     let pool = cfg.checked_apt_pool_root(root)?;
     if !dists.is_dir() {
@@ -91,7 +91,9 @@ pub fn export_yum_flat(
                 copied += 1;
             }
         }
-        let indexed = yum::build_repodata(&staging, key, passphrase, false)?;
+        // The flat export copies every arch (including noarch) into one
+        // directory, so nothing needs a shared cross-directory location.
+        let indexed = yum::build_repodata(&staging, &[], key, passphrase, false)?;
         materialize_symlink_dir(&staging.join("repodata"))?;
         remove_if_exists(&staging.join(".states"))?;
         remove_if_exists(&staging.join(".arx-manifest.toml"))?;

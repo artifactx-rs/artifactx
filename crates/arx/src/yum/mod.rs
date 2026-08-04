@@ -80,29 +80,37 @@ fn write_stream(
 /// Build repodata for a single `<dir>` containing `.rpm` files, writing into
 /// `<dir>/repodata/`. If `key` is provided, also writes `repomd.xml.asc`.
 ///
+/// `shared` names RPMs stored in a sibling directory of `dir` that this repodata
+/// must advertise as well: `noarch` packages belong to every concrete arch repo,
+/// so they are indexed with a relative `../<dir>/<file>.rpm` location instead of
+/// being copied into each arch directory (issue #124).
+///
 /// When `incremental` is true, (mtime, size) of every `.rpm` is compared against
 /// `.arx-manifest.toml`. If nothing changed, the repodata rebuild is skipped
 /// entirely — O(scan) instead of O(repo). Set `incremental = false` (or `--full`)
 /// to rebuild everything.
 pub fn build_repodata(
     dir: &Path,
+    shared: &[PathBuf],
     key: Option<&pgp::composed::SignedSecretKey>,
     passphrase: &str,
     incremental: bool,
 ) -> Result<usize> {
-    let rpms = scan_rpms(dir)?;
+    let mut rpms = scan_rpms(dir)?;
+    let hrefs = shared_hrefs(shared);
+    rpms.extend(shared.iter().cloned());
 
-    if incremental && cache_is_fresh(dir, &rpms)? {
+    if incremental && cache_is_fresh(dir, &rpms, &hrefs)? {
         return Ok(rpms.len());
     }
 
     let repodata = prepare_staging_dir(dir)?;
     let package_count = if incremental {
-        let metadata = load_or_build_incremental_metadata(dir, &rpms)?;
+        let metadata = load_or_build_incremental_metadata(dir, &rpms, &hrefs)?;
         write_repodata_from_fragments(&repodata, metadata.as_slice(), key, passphrase)?;
         metadata.len()
     } else {
-        let packages = parse_rpms(&rpms)?;
+        let packages = parse_rpms(&rpms, &hrefs)?;
         write_repodata(&repodata, packages.as_slice(), key, passphrase)?;
         packages.len()
     };
@@ -111,13 +119,39 @@ pub fn build_repodata(
     Ok(package_count)
 }
 
-fn scan_rpms(dir: &Path) -> Result<Vec<PathBuf>> {
+/// `location href` for each shared RPM, relative to the repodata directory being
+/// written: `../<sibling-dir>/<file>.rpm`.
+fn shared_hrefs(shared: &[PathBuf]) -> HashMap<PathBuf, String> {
+    let mut hrefs = HashMap::with_capacity(shared.len());
+    for rpm in shared {
+        let file = rpm.file_name().and_then(|n| n.to_str());
+        let sibling = rpm
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str());
+        if let (Some(file), Some(sibling)) = (file, sibling) {
+            hrefs.insert(rpm.clone(), format!("../{sibling}/{file}"));
+        }
+    }
+    hrefs
+}
+
+/// Point a parsed package at its shared location, if it has one.
+fn apply_shared_href(package: &mut Package, path: &Path, hrefs: &HashMap<PathBuf, String>) {
+    if let Some(href) = hrefs.get(path) {
+        package.location = href.clone();
+        package.location_href = Some(href.clone());
+        package.filename = href.clone();
+    }
+}
+
+pub(crate) fn scan_rpms(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(DirectoryWalker::new(dir)
         .with_context(|| format!("scanning {}", dir.display()))?
         .collect())
 }
 
-fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
+fn cache_is_fresh(dir: &Path, rpms: &[PathBuf], hrefs: &HashMap<PathBuf, String>) -> Result<bool> {
     if rpms.is_empty() {
         return Ok(false);
     }
@@ -131,8 +165,10 @@ fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
             if all_match {
                 let (mtime, size) = stat_mtime_size(rpm);
                 all_match = mtime.zip(size).is_some_and(|(m, s)| {
+                    let expected_location = hrefs.get(rpm).map(|s| s.as_str()).unwrap_or(fname);
                     manifest.lookup(fname, m, s).is_some_and(|cached| {
-                        !cached.stanza.is_empty()
+                        cached.package == expected_location
+                            && !cached.stanza.is_empty()
                             && !cached.contents.is_empty()
                             && !cached.other.is_empty()
                     })
@@ -153,10 +189,13 @@ fn cache_is_fresh(dir: &Path, rpms: &[PathBuf]) -> Result<bool> {
     Ok(false)
 }
 
-fn parse_rpms(rpms: &[PathBuf]) -> Result<Vec<Package>> {
+fn parse_rpms(rpms: &[PathBuf], hrefs: &HashMap<PathBuf, String>) -> Result<Vec<Package>> {
     Ok(parse_rpms_with_paths(rpms)?
         .into_iter()
-        .map(|(_, pkg)| pkg)
+        .map(|(path, mut pkg)| {
+            apply_shared_href(&mut pkg, &path, hrefs);
+            pkg
+        })
         .collect())
 }
 
@@ -225,6 +264,7 @@ fn write_repodata(
 #[derive(Debug, Clone)]
 struct YumPackageMetadata {
     filename: String,
+    location: String,
     mtime: u64,
     size: u64,
     primary: String,
@@ -329,6 +369,7 @@ fn commit_repodata(dir: &Path, repodata: &Path) -> Result<()> {
 fn load_or_build_incremental_metadata(
     dir: &Path,
     rpms: &[PathBuf],
+    hrefs: &HashMap<PathBuf, String>,
 ) -> Result<Vec<YumPackageMetadata>> {
     let manifest = arx_debrepo::manifest::FileManifest::load(dir).unwrap_or_default();
     let mut on_disk = HashSet::new();
@@ -346,12 +387,17 @@ fn load_or_build_incremental_metadata(
             .zip(size)
             .and_then(|(m, s)| manifest.lookup(&fname, m, s));
         if let (Some(mtime), Some(size), Some(cached)) = (mtime, size, cached) {
-            if !cached.stanza.is_empty() && !cached.contents.is_empty() && !cached.other.is_empty()
+            let expected_location = hrefs.get(rpm).map(|s| s.as_str()).unwrap_or(fname.as_str());
+            if cached.package == expected_location
+                && !cached.stanza.is_empty()
+                && !cached.contents.is_empty()
+                && !cached.other.is_empty()
             {
                 metadata_by_name.insert(
                     fname.clone(),
                     YumPackageMetadata {
-                        filename: fname,
+                        filename: fname.clone(),
+                        location: expected_location.to_string(),
                         mtime,
                         size,
                         primary: cached.stanza.clone(),
@@ -365,7 +411,7 @@ fn load_or_build_incremental_metadata(
         pending.push(rpm.clone());
     }
 
-    for (path, package) in parse_rpms_with_paths(&pending)? {
+    for (path, mut package) in parse_rpms_with_paths(&pending)? {
         let fname = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -375,11 +421,13 @@ fn load_or_build_incremental_metadata(
         let (mtime, size) = mtime
             .zip(size)
             .ok_or_else(|| anyhow!("stat failed for {}", path.display()))?;
+        apply_shared_href(&mut package, &path, hrefs);
         let fragments = package_fragments(&package)?;
         metadata_by_name.insert(
             fname.clone(),
             YumPackageMetadata {
-                filename: fname,
+                filename: fname.clone(),
+                location: hrefs.get(&path).cloned().unwrap_or_else(|| fname.clone()),
                 mtime,
                 size,
                 primary: fragments.primary,
@@ -492,7 +540,7 @@ fn save_yum_manifest(dir: &Path, packages: &[YumPackageMetadata], keep: &HashSet
                 size: package.size,
                 sha256: String::new(), // yum side: not used for cache lookups
                 stanza: package.primary.clone(),
-                package: String::new(),
+                package: package.location.clone(),
                 version: String::new(),
                 architecture: String::new(),
                 contents: package.filelists.clone(),

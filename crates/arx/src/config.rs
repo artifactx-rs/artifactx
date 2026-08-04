@@ -204,9 +204,18 @@ pub struct Apt {
     /// the CLI `--strict` flag also forces it on. Default `false` (forgiving).
     #[serde(default)]
     pub strict: bool,
-    /// Custom pool subdirectory under `apt/`. Default `"pool"`.
+    /// Base directory under the repository root holding apt metadata and the
+    /// pool. Default `"apt"`. May be a multi-segment repo-relative path such as
+    /// `"public/apt"` so the published tree can live inside a web root.
+    #[serde(default = "default_apt_base")]
+    pub base_dir: String,
+    /// Custom pool subdirectory under the apt base dir. Default `"pool"`.
     #[serde(default = "default_pool_dir")]
     pub pool_dir: String,
+}
+
+fn default_apt_base() -> String {
+    "apt".into()
 }
 
 fn default_pool_dir() -> String {
@@ -221,6 +230,7 @@ impl Default for Apt {
             component: "main".into(),
             valid_days: 0,
             strict: false,
+            base_dir: "apt".into(),
             pool_dir: "pool".into(),
         }
     }
@@ -230,7 +240,9 @@ impl Default for Apt {
 pub struct Yum {
     /// Default repo name for `arx add`.
     pub repo: String,
-    /// Base directory under repo root for yum packages. Default `"yum"`.
+    /// Base directory under the repository root for yum repositories. Default
+    /// `"yum"`. May be a multi-segment repo-relative path such as
+    /// `"public/yum"`.
     #[serde(default = "default_yum_base")]
     pub base_dir: String,
 }
@@ -306,18 +318,34 @@ impl Config {
         )?))
     }
 
+    /// Absolute path to the apt base directory after validating `base_dir`
+    /// stays repo-relative.
+    pub fn checked_apt_base(&self, root: &Path) -> Result<PathBuf> {
+        Ok(root.join(scope::validate_repo_relative_path(
+            &self.apt.base_dir,
+            "apt base dir",
+        )?))
+    }
+
+    /// Absolute path to `dists` under the apt base directory.
+    pub fn checked_apt_dists(&self, root: &Path) -> Result<PathBuf> {
+        Ok(self.checked_apt_base(root)?.join("dists"))
+    }
+
     /// Absolute path to the apt pool root after validating `pool_dir` is a
     /// single logical repository name, not a filesystem path.
     pub fn checked_apt_pool_root(&self, root: &Path) -> Result<PathBuf> {
         let pool_dir = scope::validate_scope_name(&self.apt.pool_dir, "apt pool dir")?;
-        Ok(root.join("apt").join(pool_dir))
+        Ok(self.checked_apt_base(root)?.join(pool_dir))
     }
 
-    /// Absolute path to the yum base directory after validating `base_dir` is
-    /// a single logical repository name, not a filesystem path.
+    /// Absolute path to the yum base directory after validating `base_dir`
+    /// stays repo-relative.
     pub fn checked_yum_base(&self, root: &Path) -> Result<PathBuf> {
-        let base_dir = scope::validate_scope_name(&self.yum.base_dir, "yum base dir")?;
-        Ok(root.join(base_dir))
+        Ok(root.join(scope::validate_repo_relative_path(
+            &self.yum.base_dir,
+            "yum base dir",
+        )?))
     }
 }
 

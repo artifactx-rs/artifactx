@@ -5,7 +5,7 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Instant, SystemTime};
 
@@ -548,11 +548,11 @@ pub struct GcReport {
 }
 
 /// Pool-relative `Filename:` paths referenced by any retained apt published state
-/// (`apt/dists/.states/**/Packages`). Such files must not be pruned, or a
+/// (`<apt-base>/dists/.states/**/Packages`). Such files must not be pruned, or a
 /// rolled-back index would 404.
-fn referenced_apt_files(root: &Path) -> std::collections::HashSet<String> {
+fn referenced_apt_files(apt_base: &Path) -> std::collections::HashSet<String> {
     let mut set = std::collections::HashSet::new();
-    let states = root.join("apt/dists/.states");
+    let states = apt_base.join("dists/.states");
     if !states.is_dir() {
         return set;
     }
@@ -602,12 +602,27 @@ fn referenced_yum_files(yum_base: &Path) -> std::collections::HashSet<PathBuf> {
         if let Ok(gz) = std::fs::read(p) {
             if let Ok(xml) = crate::createrepo_rs::compression::gzip_decompress(&gz) {
                 for href in extract_hrefs(&String::from_utf8_lossy(&xml)) {
-                    set.insert(arch_dir.join(href));
+                    set.insert(normalize_path(&arch_dir.join(href)));
                 }
             }
         }
     }
     set
+}
+
+/// Normalize lexical `.`/`..` components without touching the filesystem.
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 /// Pull `href="..."` values out of a primary.xml body (cheap, parser-free).
@@ -637,6 +652,7 @@ pub struct GcOptions<'a> {
     pub keep_within_days: u32,
     pub grace_days: u32,
     pub apt_pool_root: &'a Path,
+    pub apt_base: &'a Path,
     pub yum_base: &'a Path,
     pub apt: bool,
     pub yum: bool,
@@ -644,11 +660,11 @@ pub struct GcOptions<'a> {
     pub retain_rollback_states: bool,
 }
 
-pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
+pub fn gc(options: GcOptions<'_>) -> Result<GcReport> {
     use std::collections::BTreeMap;
 
     let referenced = if options.retain_rollback_states {
-        referenced_apt_files(root)
+        referenced_apt_files(options.apt_base)
     } else {
         std::collections::HashSet::new()
     };
@@ -657,7 +673,7 @@ pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
     } else {
         std::collections::HashSet::new()
     };
-    let apt_root = root.join("apt");
+    let apt_root = options.apt_base;
 
     let mut groups: BTreeMap<(Kind, String, String, String), Vec<Entry>> = BTreeMap::new();
     for e in list(
@@ -728,7 +744,7 @@ pub fn gc(root: &Path, options: GcOptions<'_>) -> Result<GcReport> {
             let pinned = match e.kind {
                 Kind::Apt => e
                     .path
-                    .strip_prefix(&apt_root)
+                    .strip_prefix(apt_root)
                     .map(|rel| referenced.contains(rel.to_string_lossy().as_ref()))
                     .unwrap_or(false),
                 Kind::Yum => referenced_rpm.contains(&e.path),
@@ -858,6 +874,15 @@ mod tests {
         assert_eq!(
             version_order(&yum("1.0", None, "2"), &yum("1.0", None, "1")),
             Some(Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn yum_rollback_href_is_normalized_before_gc_pinning() {
+        let href = Path::new("/repo/yum/myrepo/x86_64/../noarch/shared.rpm");
+        assert_eq!(
+            normalize_path(href),
+            PathBuf::from("/repo/yum/myrepo/noarch/shared.rpm")
         );
     }
 }

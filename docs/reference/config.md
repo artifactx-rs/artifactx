@@ -22,6 +22,7 @@ dist = "stable"
 component = "main"
 valid_days = 7
 strict = false
+base_dir = "apt"
 pool_dir = "pool"
 
 [apt.release]
@@ -108,19 +109,40 @@ setups. Use `--addr` to override at runtime.
 | `component` | Default apt component. |
 | `valid_days` | Days until `Release` `Valid-Until`; `0` omits the field. |
 | `strict` | Fail publish/server writes when packages are skipped. |
-| `pool_dir` | Apt pool subdirectory under `apt/`. |
+| `base_dir` | Base directory holding `dists/` and the pool. Default `apt`. |
+| `pool_dir` | Apt pool subdirectory under `base_dir`. Default `pool`. |
 
 `arx init` writes `valid_days = 7` for new repositories so stale apt metadata
 expires. Republish refreshes the window.
+
+`base_dir` may be a multi-segment repo-relative path, so a repository can publish
+straight into a web root:
+
+```toml
+[apt]
+base_dir = "public/apt"
+
+[yum]
+base_dir = "public/yum"
+```
+
+Clients then point at `<base-url>/public/apt` and `<base-url>/public/yum/<repo>/<arch>`.
+Absolute paths, `..`, and unsafe segments are rejected before any file is written.
+Changing `base_dir` on an existing repository moves the client-visible URL; move
+the existing directory yourself and update client configuration.
 
 ## `[yum]`
 
 | Key | Meaning |
 | --- | --- |
-| `repo` | Default yum repo name. |
-| `base_dir` | Base directory for yum repositories. |
+| `repo` | Default yum repo name for `arx add`. |
+| `base_dir` | Base directory for yum repositories. Default `yum`. |
 
 A typical published path is `yum/<repo>/<arch>/repodata/repomd.xml`. Yum metadata is generated as gzip (`*.xml.gz`) so older CentOS 7 clients remain compatible. Use `arx export --yum-flat-out <DIR>` when an existing public URL expects a flat repo such as `/repo/*.rpm` plus `/repo/repodata`.
+
+`noarch` packages live once in `<base-dir>/<repo>/noarch/` and every concrete
+arch index advertises them with a relative location, so `dnf install` finds a
+`noarch` package from any architecture's repository without duplicated files.
 
 ## `[oidc]`
 

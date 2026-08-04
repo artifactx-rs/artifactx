@@ -167,6 +167,8 @@ arx push --url http://127.0.0.1:8080 --token 'change-me' dist/myapp.deb
 - `--no-key`: create config and directories without generating a key.
 - `--key-dir <DIR>`: place generated keys under a custom repo-relative directory.
 - `--pool-dir <DIR>`: choose the apt pool subdirectory name.
+- `--apt-base-dir <DIR>`: repo-relative apt base directory (default `apt`, e.g. `public/apt`).
+- `--yum-base-dir <DIR>`: repo-relative yum base directory (default `yum`, e.g. `public/yum`).
 - `--passphrase-file <FILE>`: encrypt generated key with the file contents.
 
 ### `arx key`
@@ -192,7 +194,8 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink.
 - `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set.
 - `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
-- `--repo <REPO>` / `--arch <ARCH>`: select the yum repo/architectures for `--yum-flat-live`.
+- `--repo <REPO>`: publish only `<yum-base>/<REPO>` instead of every yum repo directory, and select the repo exported by `--yum-flat-live`. Fails when the directory does not exist.
+- `--arch <ARCH>`: limit the `--yum-flat-live` export to these architectures.
 - `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
