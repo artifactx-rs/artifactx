@@ -175,6 +175,10 @@ pub struct PublishArgs {
     /// Repository root.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
+    /// apt distribution to publish, overriding `[apt].dist`. Also sets the
+    /// published `Release` `Suite`/`Codename`. apt-only.
+    #[arg(long)]
+    pub dist: Option<String>,
     /// Only publish the apt repository.
     #[arg(long)]
     pub apt: bool,

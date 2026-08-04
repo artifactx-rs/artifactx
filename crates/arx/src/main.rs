@@ -1629,7 +1629,13 @@ impl Drop for PublishLock {
 
 async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     let root = args.root.clone();
-    let cfg = Config::load(&root).context("loading config; run `arx init` first")?;
+    if args.dist.is_some() && args.yum && !args.apt {
+        bail!("--dist selects the apt distribution to publish and has no effect with --yum");
+    }
+    let cfg = with_apt_dist_override(
+        Config::load(&root).context("loading config; run `arx init` first")?,
+        args.dist.as_deref(),
+    )?;
     let key = load_key(&root, &cfg)?;
 
     // Resolve the passphrase up front if the key is encrypted.
@@ -1916,6 +1922,30 @@ impl std::fmt::Display for StrictSkip {
     }
 }
 impl std::error::Error for StrictSkip {}
+
+/// Apply `arx publish --dist <DIST>`: publish a distribution other than
+/// `[apt].dist` without editing `arx.toml` (issue #126).
+///
+/// The flag names the distribution being published, so it also renames the
+/// `Release` `Suite`/`Codename`. Keeping configured identity would emit
+/// `dists/<DIST>` whose `Release` advertises a different suite, which apt
+/// reports as a conflicting distribution on every update. Origin, Label, and
+/// Description keep their configured (or legacy `[repo]`) values.
+fn with_apt_dist_override(cfg: Config, dist: Option<&str>) -> Result<Config> {
+    let Some(dist) = dist else {
+        return Ok(cfg);
+    };
+    let dist = scope::validate_scope_name(dist, "apt dist")?.to_string();
+    let release = cfg.apt_release().clone();
+    let mut cfg = cfg;
+    cfg.apt.release = config::RepoMeta {
+        suite: Some(dist.clone()),
+        codename: Some(dist.clone()),
+        ..release
+    };
+    cfg.apt.dist = dist;
+    Ok(cfg)
+}
 
 fn publish_apt(
     root: &Path,
