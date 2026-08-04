@@ -234,6 +234,7 @@ fn yum_incremental_publish_caches_xml_fragments_for_small_adds() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn noarch_packages_are_indexed_by_every_arch_repo() {
     let tmp = tempfile::tempdir().unwrap();
