@@ -186,6 +186,7 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 
 - `--apt`: publish only apt metadata.
 - `--yum`: publish only yum metadata.
+- `--dist <DIST>`: publish apt metadata for `dists/<DIST>` instead of `[apt].dist`, without editing `arx.toml`. The published `Release` advertises `Suite: <DIST>` and `Codename: <DIST>` so clients pointed at `<DIST>` do not see a conflicting distribution; `Origin`, `Label`, and `Description` keep their configured values. Rejected together with `--yum` alone, because it only affects apt.
 - `--full`: rebuild all metadata from scratch.
 - `--strict`: fail if packages are skipped.
 - `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink.
@@ -196,6 +197,13 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--passphrase-file <FILE>`: unlock encrypted signing key.
+
+Publishing several suites from one pool is a repeat of the same command:
+
+```sh
+arx publish --apt --dist trixie --root ./repo
+arx publish --apt --dist noble --root ./repo
+```
 
 Configured `pre_publish` hooks run before metadata changes, and `post_publish`
 hooks run after a successful publish. See

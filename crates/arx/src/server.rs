@@ -545,7 +545,7 @@ async fn publish_handler(State(st): State<AppState>) -> Response {
             &crate::hooks::HookContext::new().with("ARX_FORMATS", "apt,yum"),
         )?;
         let k = key.as_deref();
-        let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true, None)?;
+        let apt = crate::publish_apt(&root, &cfg, k, &passphrase, cfg.apt.strict, true)?;
         let yum = crate::publish_yum(&root, &cfg, k, &passphrase, true)?;
         let summary = format!("{}; {yum}", apt.summary);
         crate::hooks::run(
@@ -899,7 +899,7 @@ fn publish_selected(
     )?;
     let mut published = Vec::new();
     if do_apt {
-        let apt = crate::publish_apt(root, cfg, key, passphrase, cfg.apt.strict, true, None)?;
+        let apt = crate::publish_apt(root, cfg, key, passphrase, cfg.apt.strict, true)?;
         published.push(apt.summary);
     }
     if do_yum {
@@ -932,7 +932,6 @@ fn publish_both(st: &AppState) -> Result<String> {
         &st.passphrase,
         st.cfg.apt.strict,
         true,
-        None,
     )?;
     let yum = crate::publish_yum(&st.root, &st.cfg, st.key.as_deref(), &st.passphrase, true)?;
     let summary = format!("{}; {yum}", apt.summary);
@@ -983,7 +982,6 @@ fn ingest(
                 &st.passphrase,
                 st.cfg.apt.strict,
                 true,
-                None,
             )?;
             crate::hooks::run(
                 &st.root,

@@ -1006,6 +1006,85 @@ fn import_accepts_aptly_hash_prefixed_deb_filenames() {
 }
 
 #[test]
+fn publish_dist_override_adds_a_second_dist_with_matching_release_identity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    // Imported repositories carry their own Suite/Codename identity; publishing
+    // another dist must not advertise the configured one (ADR-0022).
+    let config_path = root.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace(
+            "[apt.release]\n",
+            "[apt.release]\nsuite = \"oldstable\"\ncodename = \"bullseye\"\n",
+        ),
+    )
+    .unwrap();
+
+    let deb = tmp.path().join("hello_1.0_amd64.deb");
+    write_deb(&deb, "hello", "1.0", "amd64");
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+
+    arx_ok(&["publish", "--apt", "--root", root.to_str().unwrap()]);
+    arx_ok(&[
+        "publish",
+        "--apt",
+        "--dist",
+        "trixie",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+
+    let configured = std::fs::read_to_string(root.join("apt/dists/stable/Release")).unwrap();
+    assert!(configured.contains("Suite: oldstable"), "{configured}");
+    assert!(configured.contains("Codename: bullseye"), "{configured}");
+
+    let overridden = std::fs::read_to_string(root.join("apt/dists/trixie/Release")).unwrap();
+    assert!(
+        overridden.contains("Suite: trixie") && overridden.contains("Codename: trixie"),
+        "--dist must keep Release identity consistent with the published dist:\n{overridden}"
+    );
+    assert!(
+        overridden.contains("Origin: ArtifactX"),
+        "--dist must not reset the configured Origin:\n{overridden}"
+    );
+    assert!(
+        root.join("apt/dists/trixie/main/binary-amd64/Packages")
+            .exists(),
+        "--dist publish should index the pool under the overridden dist"
+    );
+    assert!(
+        std::fs::read_to_string(&config_path)
+            .unwrap()
+            .contains("dist = \"stable\""),
+        "--dist is a publish-time override and must not rewrite arx.toml"
+    );
+
+    let rejected = arx_output(&[
+        "publish",
+        "--yum",
+        "--dist",
+        "trixie",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(!rejected.status.success(), "--yum --dist must be rejected");
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("no effect with --yum"),
+        "stderr should explain that --dist is apt-only: {}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+}
+
+#[test]
 fn import_api_publish_true_imports_and_publishes_apt_metadata() {
     let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();

@@ -993,7 +993,6 @@ fn publish_dir_publish(root: &Path, cfg: &Config, args: &cli::PublishDirArgs) ->
                 &passphrase,
                 cfg.apt.strict,
                 incremental,
-                None,
             )?
             .summary,
         );
@@ -1359,7 +1358,7 @@ fn cmd_mirror_blocking(args: &cli::MirrorArgs) -> Result<()> {
         let key = load_key(&args.root, &cfg)?;
         let passphrase = resolve_passphrase(None)?.unwrap_or_default();
         let _lock = PublishLock::acquire(&args.root)?;
-        let apt = publish_apt(&args.root, &cfg, key.as_ref(), &passphrase, false, true, None)?;
+        let apt = publish_apt(&args.root, &cfg, key.as_ref(), &passphrase, false, true)?;
         println!("Published: {}", apt.summary);
     }
     Ok(())
@@ -1415,7 +1414,6 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
                     &passphrase,
                     cfg.apt.strict,
                     true,
-                    None,
                 )?
                 .summary,
             );
@@ -1624,7 +1622,13 @@ impl Drop for PublishLock {
 
 async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     let root = args.root.clone();
-    let cfg = Config::load(&root).context("loading config; run `arx init` first")?;
+    if args.dist.is_some() && args.yum && !args.apt {
+        bail!("--dist selects the apt distribution to publish and has no effect with --yum");
+    }
+    let cfg = with_apt_dist_override(
+        Config::load(&root).context("loading config; run `arx init` first")?,
+        args.dist.as_deref(),
+    )?;
     let key = load_key(&root, &cfg)?;
 
     // Resolve the passphrase up front if the key is encrypted.
@@ -1692,7 +1696,6 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
 
     // CPU-bound generation runs on a blocking thread.
     let publish_cfg = cfg.clone();
-    let dist_override = args.dist.clone();
     let summary = tokio::task::spawn_blocking(move || -> Result<String> {
         let mut lines = Vec::new();
         if do_apt {
@@ -1704,7 +1707,6 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
                     &passphrase,
                     strict,
                     incremental,
-                    dist_override.as_deref(),
                 )?
                 .summary,
             );
@@ -1904,6 +1906,30 @@ impl std::fmt::Display for StrictSkip {
 }
 impl std::error::Error for StrictSkip {}
 
+/// Apply `arx publish --dist <DIST>`: publish a distribution other than
+/// `[apt].dist` without editing `arx.toml` (issue #126).
+///
+/// The flag names the distribution being published, so it also renames the
+/// `Release` `Suite`/`Codename`. Keeping configured identity would emit
+/// `dists/<DIST>` whose `Release` advertises a different suite, which apt
+/// reports as a conflicting distribution on every update. Origin, Label, and
+/// Description keep their configured (or legacy `[repo]`) values.
+fn with_apt_dist_override(cfg: Config, dist: Option<&str>) -> Result<Config> {
+    let Some(dist) = dist else {
+        return Ok(cfg);
+    };
+    let dist = scope::validate_scope_name(dist, "apt dist")?.to_string();
+    let release = cfg.apt_release().clone();
+    let mut cfg = cfg;
+    cfg.apt.release = config::RepoMeta {
+        suite: Some(dist.clone()),
+        codename: Some(dist.clone()),
+        ..release
+    };
+    cfg.apt.dist = dist;
+    Ok(cfg)
+}
+
 fn publish_apt(
     root: &Path,
     cfg: &Config,
@@ -1911,12 +1937,10 @@ fn publish_apt(
     passphrase: &str,
     strict: bool,
     incremental: bool,
-    dist_override: Option<&str>,
 ) -> Result<AptPublish> {
     let apt_root = root.join("apt");
     let start = std::time::Instant::now();
-    let dist_str = dist_override.unwrap_or(&cfg.apt.dist);
-    let dist = scope::validate_scope_name(dist_str, "apt dist")?;
+    let dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
     let pool_dir = scope::validate_scope_name(&cfg.apt.pool_dir, "apt pool dir")?;
 
     let release = cfg.apt_release();
@@ -2471,7 +2495,7 @@ fn cmd_publish_static(root: &Path, cfg: &Config) -> Result<String> {
     )?;
     let key = load_key(root, cfg)?;
     let passphrase = resolve_passphrase(None)?.unwrap_or_default();
-    let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true, None)?;
+    let apt = publish_apt(root, cfg, key.as_ref(), &passphrase, false, true)?;
     let yum = publish_yum(root, cfg, key.as_ref(), &passphrase, true)?;
     let summary = format!("{}; {yum}", apt.summary);
     hooks::run(

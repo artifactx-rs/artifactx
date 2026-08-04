@@ -63,7 +63,6 @@ pub fn run(
                     passphrase,
                     cfg.apt.strict,
                     incremental,
-                    None,
                 )?
                 .summary,
             );
