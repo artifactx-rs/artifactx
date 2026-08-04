@@ -657,6 +657,10 @@ fn default_arch_str() -> String {
     "amd64".into()
 }
 
+fn validate_import_url(raw: &str, allow_private: bool) -> Result<()> {
+    crate::import::validate_import_url(raw, allow_private)
+}
+
 #[derive(Serialize)]
 struct ImportResult {
     imported: usize,
@@ -672,6 +676,7 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
     let key = st.key.clone();
     let passphrase = Arc::clone(&st.passphrase);
     let blocking = move || -> Result<ImportResult> {
+        validate_import_url(&q.url, cfg.server.allow_private_imports)?;
         let do_apt = q.apt || !q.yum;
         let do_yum = q.yum || !q.apt;
         let mut imported = 0usize;
@@ -694,6 +699,7 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
                 arch,
                 match_name: q.match_name.as_deref(),
                 limit: q.limit,
+                allow_private: cfg.server.allow_private_imports,
             })?;
         }
         if do_yum {
@@ -701,7 +707,15 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
                 Some(repo) => client_scope_name(repo, "yum repo")?,
                 None => &cfg.yum.repo,
             };
-            imported += crate::import::import_yum(&root, &cfg, &q.url, repo, q.limit, false)?;
+            imported += crate::import::import_yum(
+                &root,
+                &cfg,
+                &q.url,
+                repo,
+                q.limit,
+                false,
+                cfg.server.allow_private_imports,
+            )?;
         }
         let published = if q.publish {
             let _lock = crate::PublishLock::acquire(&root)?;
@@ -1151,13 +1165,28 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::{
-        bad_request, client_target_link, err_response, promote_files, HISTORY_ROUTE, ROLLBACK_ROUTE,
+        bad_request, client_target_link, err_response, promote_files, validate_import_url,
+        HISTORY_ROUTE, ROLLBACK_ROUTE,
     };
     use axum::{
         http::StatusCode,
         routing::{get, post},
         Router,
     };
+
+    #[test]
+    fn import_url_rejects_local_targets_and_non_http_schemes() {
+        assert!(validate_import_url("file:///etc/passwd", false).is_err());
+        assert!(validate_import_url("http://127.0.0.1:8080", false).is_err());
+        assert!(validate_import_url("http://localhost:8080", false).is_err());
+        assert!(validate_import_url("http://[::ffff:127.0.0.1]:8080", false).is_err());
+        assert!(validate_import_url("http://127.0.0.1:8080", true).is_ok());
+    }
+
+    #[test]
+    fn import_url_rejects_credentials() {
+        assert!(validate_import_url("https://user:pass@example.com", false).is_err());
+    }
 
     #[test]
     fn embedded_openapi_matches_reference_doc() {

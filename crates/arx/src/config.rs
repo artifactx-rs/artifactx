@@ -174,12 +174,17 @@ impl Default for Signing {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Server {
     pub addr: String,
+    /// Permit explicitly configured private/loopback upstreams for local mirrors.
+    /// Keep disabled by default so API import cannot reach internal services.
+    #[serde(default)]
+    pub allow_private_imports: bool,
 }
 
 impl Default for Server {
     fn default() -> Self {
         Self {
             addr: "127.0.0.1:8080".into(),
+            allow_private_imports: false,
         }
     }
 }
@@ -363,6 +368,7 @@ mod tests {
         assert!(text.contains("[apt.release]"));
         assert_eq!(back.signing.private_key, "keys/private.asc");
         assert_eq!(back.server.addr, "127.0.0.1:8080");
+        assert!(!back.server.allow_private_imports);
         assert_eq!(back.apt.dist, "stable");
         assert_eq!(back.yum.repo, "myrepo");
     }

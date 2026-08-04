@@ -139,7 +139,7 @@ fn hex_sha256(data: &[u8]) -> String {
 /// Read a `.deb`'s control + raw bytes, validating the fields the index needs
 /// (Package/Version/Architecture). Returns a human reason on any failure so the
 /// caller can skip-and-record instead of aborting the whole publish.
-/// Return (mtime_secs, file_size) for a deb path, or `(None, None)` on stat error.
+/// Return (mtime_nanoseconds, file_size) for a deb path, or `(None, None)` on stat error.
 fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
     std::fs::metadata(path)
         .ok()
@@ -148,7 +148,7 @@ fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs());
+                .and_then(|d| u64::try_from(d.as_nanos()).ok());
             (mtime, Some(m.len()))
         })
         .unwrap_or((None, None))
@@ -285,11 +285,12 @@ pub fn stage_dist(
     let mut skipped: Vec<SkippedDeb> = Vec::new();
     // Contents-<arch> data: arch → accumulated file\tpackage lines.
     let mut contents: BTreeMap<String, String> = BTreeMap::new();
-    // (Package, Version, Architecture) -> (sha256, source path) already indexed.
-    // Lets identical double-adds be idempotent and flags genuine collisions
-    // (same identity, different bytes). Keyed across the whole dist; iteration is
+    // (component, Package, Version, Architecture) -> (sha256, source path)
+    // already indexed. This keeps identical double-adds within one component
+    // idempotent while allowing the same package identity in separate components;
+    // iteration is
     // `debs_in`'s sorted order (deb.rs sort) so "first wins" is deterministic.
-    let mut seen: HashMap<(String, String, String), (String, PathBuf)> = HashMap::new();
+    let mut seen: HashMap<(String, String, String, String), (String, PathBuf)> = HashMap::new();
 
     for component in &components {
         let mut by_arch: BTreeMap<String, String> = BTreeMap::new();
@@ -305,8 +306,12 @@ pub fn stage_dist(
         let mut on_disk: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for deb_path in debs_in(apt_root, pool_subdir, component) {
-            let fname = deb_path.file_name().unwrap().to_string_lossy().to_string();
-            on_disk.insert(fname.clone());
+            let rel_path = deb_path
+                .strip_prefix(&pool_comp)
+                .expect("deb path is below its component pool")
+                .to_string_lossy()
+                .replace('\\', "/");
+            on_disk.insert(rel_path.clone());
 
             // Stat for cache lookup.
             let (mtime, fsize) = stat_mtime_size(&deb_path);
@@ -318,7 +323,7 @@ pub fn stage_dist(
             let cached = if incremental {
                 mtime
                     .zip(fsize)
-                    .and_then(|(m, s)| comp_manifest.lookup(&fname, m, s))
+                    .and_then(|(m, s)| comp_manifest.lookup(&rel_path, m, s))
                     .cloned()
             } else {
                 None
@@ -403,14 +408,19 @@ pub fn stage_dist(
                             }
                         };
                         let sha = hex_sha256(&deb_bytes);
-                        let rel = format!("{pool_subdir}/{component}/{fname}");
+                        let rel = format!("{pool_subdir}/{component}/{rel_path}");
                         let stanza = package_stanza(&control, &rel, &deb_bytes);
                         (name, version, arch, sha, stanza, None)
                     }
                 };
 
             // Dedup (shared, fast-path and slow-path).
-            let key = (name.clone(), version.clone(), arch.clone());
+            let key = (
+                component.clone(),
+                name.clone(),
+                version.clone(),
+                arch.clone(),
+            );
             if let Some((prev_sha, prev_path)) = seen.get(&key) {
                 if prev_sha != &sha {
                     let reason = format!(
@@ -469,7 +479,7 @@ pub fn stage_dist(
             if incremental {
                 if let (Some(m), Some(sz)) = (mtime, fsize) {
                     next_manifest.insert(
-                        fname.clone(),
+                        rel_path.clone(),
                         manifest::CachedPackage {
                             mtime: m,
                             size: sz,

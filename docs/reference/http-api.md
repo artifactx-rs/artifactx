@@ -391,6 +391,11 @@ For yum imports, metadata entries whose downloaded RPM fails size/checksum
 validation are skipped with a warning so one damaged historical entry does not
 block the rest of the migration.
 
+The `url` must use `http` or `https`, must not contain credentials, and must
+resolve to a public address. Redirects and package locations must remain on the
+same upstream origin. Set `[server].allow_private_imports = true` only for a
+trusted local mirror that intentionally uses private or loopback addresses.
+
 ```sh
 curl -fsSL -X POST \
   -H "Authorization: Bearer $ARX_SERVE_TOKEN" \

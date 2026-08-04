@@ -35,7 +35,7 @@ fn stat_mtime_size(path: &Path) -> (Option<u64>, Option<u64>) {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs());
+                .and_then(|d| u64::try_from(d.as_nanos()).ok());
             (mtime, Some(m.len()))
         })
         .unwrap_or((None, None))

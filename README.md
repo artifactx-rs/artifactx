@@ -453,6 +453,7 @@ user_id = "ArtifactX Repository Signing <signing@artifactx.local>"
 
 [server]
 addr = "127.0.0.1:8080"
+allow_private_imports = false
 ```
 
 Change `[apt.release]` `origin`, `label`, `description`, and `signing.user_id` before generating or importing a production key if your apt repo should present your company identity instead of the ArtifactX default.

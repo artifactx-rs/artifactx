@@ -4,7 +4,6 @@ set -euo pipefail
 # Build the GitHub Pages dogfood repository and landing page.
 test -x ./build/arx
 
-
 python3 - <<'PY'
 from pathlib import Path
 import os
@@ -22,14 +21,19 @@ path.write_text('\n'.join(lines) + '\n')
 PY
 ./build/arx pack packaging/arx.toml --out dist
 
-
 if [ -z "${ARX_SIGNING_KEY:-}" ]; then
   echo "ARX_SIGNING_KEY is required for the public Pages repo so clients keep trusting a stable key." >&2
   exit 1
 fi
 ./build/arx init public --no-key
-printf '%s' "$ARX_SIGNING_KEY" > /tmp/key.asc
-./build/arx key import /tmp/key.asc --root public
+key_file="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/arx-signing-key.XXXXXX")"
+chmod 600 "$key_file"
+cleanup_key_file() {
+  rm -f "$key_file"
+}
+trap cleanup_key_file EXIT
+printf '%s' "$ARX_SIGNING_KEY" >"$key_file"
+./build/arx key import "$key_file" --root public
 if ./build/arx add --help | grep -q 'directories'; then
   ./build/arx add dist --root public
 else
@@ -37,7 +41,7 @@ else
 fi
 ./build/arx publish --root public
 cp public/keys/public.asc public/public.asc
-rm -f public/keys/private.asc /tmp/key.asc
+rm -f public/keys/private.asc
 test -s public/public.asc
 test ! -e public/keys/private.asc
 OWNER="$GITHUB_REPOSITORY_OWNER"

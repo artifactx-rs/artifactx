@@ -1396,13 +1396,22 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
             arch: &args.arch,
             match_name: args.match_name.as_deref(),
             limit: args.limit,
+            allow_private: true,
         })?;
         total += n;
     }
     if do_yum {
         let repo = args.component.as_deref().unwrap_or(&cfg.yum.repo);
         scope::validate_scope_name(repo, "yum repo")?;
-        let n = import::import_yum(&args.root, &cfg, &args.url, repo, args.limit, args.strict)?;
+        let n = import::import_yum(
+            &args.root,
+            &cfg,
+            &args.url,
+            repo,
+            args.limit,
+            args.strict,
+            true,
+        )?;
         total += n;
     }
 

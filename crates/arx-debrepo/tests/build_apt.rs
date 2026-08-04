@@ -303,6 +303,49 @@ fn same_identity_different_content_is_a_collision() {
 }
 
 #[test]
+fn nested_pool_paths_are_preserved_in_filename_stanzas() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    let nested = apt.join("pool/main/vendor");
+    std::fs::create_dir_all(&nested).unwrap();
+    write_deb(
+        &nested.join("nested_1.0_amd64.deb"),
+        &control("nested", "1.0", "amd64"),
+    );
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    build_dist(&apt, "stable", &meta).unwrap();
+    let packages =
+        std::fs::read_to_string(apt.join("dists/stable/main/binary-amd64/Packages")).unwrap();
+    assert!(packages.contains("Filename: pool/main/vendor/nested_1.0_amd64.deb"));
+}
+
+#[test]
+fn identical_identity_is_allowed_in_distinct_components() {
+    let tmp = tempfile::tempdir().unwrap();
+    let apt = tmp.path().join("apt");
+    for component in ["main", "contrib"] {
+        let pool = apt.join("pool").join(component);
+        std::fs::create_dir_all(&pool).unwrap();
+        write_deb(
+            &pool.join("shared_1.0_amd64.deb"),
+            &control("shared", "1.0", "amd64"),
+        );
+    }
+
+    let meta = ReleaseMeta::new("O", "L", "D", "stable");
+    let build = build_dist(&apt, "stable", &meta).unwrap();
+    assert_eq!(build.packages, 2);
+    for component in ["main", "contrib"] {
+        let packages = std::fs::read_to_string(
+            apt.join(format!("dists/stable/{component}/binary-amd64/Packages")),
+        )
+        .unwrap();
+        assert!(packages.contains("Package: shared"));
+    }
+}
+
+#[test]
 fn architecture_all_lands_in_each_concrete_arch() {
     let tmp = tempfile::tempdir().unwrap();
     let apt = tmp.path().join("apt");

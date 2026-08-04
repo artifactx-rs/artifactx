@@ -1181,6 +1181,13 @@ fn import_api_publish_true_imports_and_publishes_apt_metadata() {
 
     let root = tmp.path().join("repo");
     arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    let config_path = root.join("arx.toml");
+    let mut config = std::fs::read_to_string(&config_path).unwrap();
+    config = config.replace(
+        "allow_private_imports = false",
+        "allow_private_imports = true",
+    );
+    std::fs::write(config_path, config).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);

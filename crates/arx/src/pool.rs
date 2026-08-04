@@ -183,19 +183,19 @@ fn stat_mtime_size(path: &Path) -> Option<(u64, u64)> {
         .modified()
         .ok()?
         .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
+        .ok()
+        .and_then(|d| u64::try_from(d.as_nanos()).ok())?;
     Some((mtime, meta.len()))
 }
 
 fn cached_apt_entry(
     path: &Path,
+    manifest_key: &str,
     scope: &str,
     manifest: &arx_debrepo::manifest::FileManifest,
 ) -> Option<Entry> {
-    let fname = path.file_name()?.to_str()?;
     let (mtime, size) = stat_mtime_size(path)?;
-    let cached = manifest.lookup(fname, mtime, size)?;
+    let cached = manifest.lookup(manifest_key, mtime, size)?;
     if cached.package.is_empty() || cached.version.is_empty() || cached.architecture.is_empty() {
         return None;
     }
@@ -287,7 +287,13 @@ fn scan_apt_with_filter(
                     stats.files_skipped_by_hint += 1;
                     continue;
                 }
-                if let Some(entry) = cached_apt_entry(p, &scope, &manifest) {
+                let manifest_key = p
+                    .strip_prefix(comp.path())
+                    .ok()
+                    .and_then(|relative| relative.to_str())
+                    .map(|relative| relative.replace('\\', "/"))
+                    .unwrap_or_else(|| file_name.to_string());
+                if let Some(entry) = cached_apt_entry(p, &manifest_key, &scope, &manifest) {
                     stats.cache_hits += 1;
                     out.push(entry);
                     continue;

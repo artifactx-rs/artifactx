@@ -2,6 +2,7 @@
 //! the local pool — the migration path from aptly/Nexus/reprepro.
 
 use std::io::Read;
+use std::net::{IpAddr, ToSocketAddrs};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -20,6 +21,8 @@ pub struct ImportOpts<'a> {
     pub arch: &'a str,
     pub match_name: Option<&'a str>,
     pub limit: Option<usize>,
+    /// Allow private upstreams for trusted local CLI imports; the server keeps this false by default.
+    pub allow_private: bool,
 }
 
 #[derive(Debug)]
@@ -40,6 +43,96 @@ struct YumPackageEntry {
 struct Checksum {
     kind: String,
     value: String,
+}
+
+fn is_private_or_local_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+}
+
+fn validated_import_target(
+    raw: &str,
+    allow_private: bool,
+) -> Result<(reqwest::Url, Vec<std::net::SocketAddr>)> {
+    let url = reqwest::Url::parse(raw).with_context(|| "invalid import URL")?;
+    if !matches!(url.scheme(), "http" | "https") {
+        bail!("import URL must use http or https")
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        bail!("import URL must not contain credentials")
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("import URL must include a host"))?;
+    if !allow_private && (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost")) {
+        bail!("import URL must not target localhost")
+    }
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| anyhow::anyhow!("import URL has no usable port"))?;
+    let addresses = (host, port)
+        .to_socket_addrs()
+        .with_context(|| format!("resolving import URL host {host}"))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        bail!("import URL host does not resolve")
+    }
+    for address in &addresses {
+        let ip = address.ip();
+        let private = match ip {
+            IpAddr::V4(ip) => is_private_or_local_ipv4(ip),
+            IpAddr::V6(ip) => {
+                ip.is_unique_local() || ip.is_unicast_link_local() || ip.is_loopback()
+            }
+        };
+        let mapped_private = match ip {
+            IpAddr::V6(ip) => ip.to_ipv4_mapped().is_some_and(is_private_or_local_ipv4),
+            IpAddr::V4(_) => false,
+        };
+        if (!allow_private && (private || mapped_private))
+            || ip.is_unspecified()
+            || ip.is_multicast()
+        {
+            bail!("import URL resolves to a private or local address")
+        }
+    }
+    Ok((url, addresses))
+}
+
+pub(crate) fn validate_import_url(raw: &str, allow_private: bool) -> Result<()> {
+    validated_import_target(raw, allow_private).map(|_| ())
+}
+
+fn same_origin(left: &reqwest::Url, right: &reqwest::Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host() == right.host()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+fn import_client(base_url: &str, allow_private: bool) -> Result<reqwest::blocking::Client> {
+    let (origin, addresses) = validated_import_target(base_url, allow_private)?;
+    let redirect_origin = origin.clone();
+    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 10 {
+            attempt.stop()
+        } else if validate_import_url(attempt.url().as_str(), allow_private).is_ok()
+            && same_origin(&redirect_origin, attempt.url())
+        {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    });
+    let host = origin
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("import URL must include a host"))?;
+    reqwest::blocking::Client::builder()
+        .resolve_to_addrs(host, &addresses)
+        .redirect(redirect_policy)
+        .build()
+        .context("building import HTTP client")
 }
 
 fn parse_apt_package_entries(text: &str, match_name: Option<&str>) -> Vec<AptPackageEntry> {
@@ -150,8 +243,15 @@ fn parse_yum_package_entries(xml: &str) -> Vec<YumPackageEntry> {
 }
 
 fn resolve_repo_url(base: &str, location: &str) -> Result<String> {
-    if reqwest::Url::parse(location).is_ok() {
-        return Ok(location.to_string());
+    if let Ok(url) = reqwest::Url::parse(location) {
+        let base_url = reqwest::Url::parse(base).context("parsing upstream base URL")?;
+        if url.scheme() == base_url.scheme()
+            && url.host() == base_url.host()
+            && url.port_or_known_default() == base_url.port_or_known_default()
+        {
+            return Ok(location.to_string());
+        }
+        bail!("repository location must stay on the upstream origin")
     }
     let base = format!("{}/", base.trim_end_matches('/'));
     let url = reqwest::Url::parse(&base)
@@ -443,13 +543,14 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
         arch,
         match_name,
         limit,
+        allow_private,
     } = *opts;
     let dist = scope::validate_scope_name(dist, "apt dist")?;
     let component = scope::validate_scope_name(component, "apt component")?;
     let arch = scope::validate_scope_name(arch, "apt arch")?;
     let base = base_url.trim_end_matches('/');
     let prefix = format!("{base}/dists/{dist}/{component}/binary-{arch}/Packages");
-    let client = reqwest::blocking::Client::new();
+    let client = import_client(base_url, allow_private)?;
     preserve_apt_release_identity(root, cfg, base, dist, &client)?;
     let (_metadata_url, text) = fetch_first_existing(
         &client,
@@ -475,7 +576,13 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
                 break;
             }
         }
-        let url = resolve_repo_url(base, &entry.filename)?;
+        let url = match resolve_repo_url(base, &entry.filename) {
+            Ok(url) => url,
+            Err(error) => {
+                eprintln!("warning: skipping {}: {error:#}", entry.filename);
+                continue;
+            }
+        };
         let name = basename_from_location(&entry.filename);
         let dest = dir.join(&name);
         let body = client
@@ -508,10 +615,11 @@ pub fn import_yum(
     repo: &str,
     limit: Option<usize>,
     strict: bool,
+    allow_private: bool,
 ) -> Result<usize> {
     let repo = scope::validate_scope_name(repo, "yum repo")?;
     let base = base_url.trim_end_matches('/');
-    let client = reqwest::blocking::Client::new();
+    let client = import_client(base_url, allow_private)?;
     let repomd_url = format!("{base}/repodata/repomd.xml");
     let repomd = fetch_text(&client, &repomd_url)?;
     let primary_location = repomd_primary_location(&repomd)?;
@@ -532,7 +640,13 @@ pub fn import_yum(
                 break;
             }
         }
-        let url = resolve_repo_url(base, &entry.href)?;
+        let url = match resolve_repo_url(base, &entry.href) {
+            Ok(url) => url,
+            Err(error) => {
+                eprintln!("warning: skipping {}: {error:#}", entry.href);
+                continue;
+            }
+        };
         let name = basename_from_location(&entry.href);
         let result = (|| -> Result<bool> {
             let body = client
@@ -590,4 +704,39 @@ pub fn import_yum(
         );
     }
     Ok(imported)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_client;
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn import_client_stops_private_redirects() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/private\r\nContent-Length: 0\r\n\r\n",
+                        addr.port()
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+        });
+
+        let request_url = format!("http://{addr}");
+        let response = import_client("http://198.51.100.1", false)
+            .unwrap()
+            .get(&request_url)
+            .send()
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        server.join().unwrap();
+    }
 }

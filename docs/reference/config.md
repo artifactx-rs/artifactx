@@ -16,6 +16,7 @@ user_id = "ArtifactX Repository Signing <signing@artifactx.local>"
 
 [server]
 addr = "127.0.0.1:8080"
+allow_private_imports = false
 
 [apt]
 dist = "stable"
@@ -93,13 +94,14 @@ Passphrases are supplied by `--passphrase-file` or `ARX_KEY_PASSPHRASE`.
 `public_key` path remains readable so clients can import the repository key.
 
 ## `[server]`
-
 | Key | Meaning |
 | --- | --- |
 | `addr` | Default listen address for `arx serve`. |
+| `allow_private_imports` | Allow API imports to reach private/loopback upstreams. Default `false`; enable only for a trusted local mirror. |
 
 The default is `127.0.0.1:8080`. Keep that for localhost or reverse-proxy
-setups. Use `--addr` to override at runtime.
+setups. Use `--addr` to override at runtime. Private upstream access is denied
+by default, including through redirects.
 
 ## `[apt]`
 
