@@ -247,6 +247,14 @@ fn noarch_packages_are_indexed_by_every_arch_repo() {
     pack_rpm(root, &repo.join("x86_64"), "toolx", "1.0.0", "x86_64");
     pack_rpm(root, &repo.join("aarch64"), "toolx", "1.0.0", "aarch64");
     pack_rpm(root, &repo.join("noarch"), "shareddata", "1.0.0", "noarch");
+    let shared_rpm = repo.join("noarch/shareddata-1.0.0-1.noarch.rpm");
+    for arch in ["x86_64", "aarch64"] {
+        std::os::unix::fs::symlink(
+            "../noarch/shareddata-1.0.0-1.noarch.rpm",
+            repo.join(arch).join(shared_rpm.file_name().unwrap()),
+        )
+        .unwrap();
+    }
 
     assert!(
         arx(&["publish", "--root", root.to_str().unwrap(), "--yum"]),
@@ -263,12 +271,13 @@ fn noarch_packages_are_indexed_by_every_arch_repo() {
             xml.contains("packages=\"2\""),
             "{arch} index must count its own package plus the noarch one:\n{xml}"
         );
+        let legacy_link = repo.join(arch).join("shareddata-1.0.0-1.noarch.rpm");
         assert!(
-            !repo
-                .join(arch)
-                .join("shareddata-1.0.0-1.noarch.rpm")
-                .exists(),
-            "noarch payloads must not be copied into {arch}"
+            std::fs::symlink_metadata(&legacy_link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "legacy noarch workaround link must remain a link in {arch}"
         );
     }
 

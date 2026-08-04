@@ -97,6 +97,18 @@ pub fn build_repodata(
     incremental: bool,
 ) -> Result<usize> {
     let mut rpms = scan_rpms(dir)?;
+    // Older repositories may contain workaround symlinks from each concrete
+    // architecture directory to the canonical noarch payload. Do not index
+    // those links a second time when the shared RPM is already advertised.
+    let shared_names: HashSet<_> = shared.iter().filter_map(|path| path.file_name()).collect();
+    rpms.retain(|path| {
+        let is_legacy_shared_link = std::fs::symlink_metadata(path)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+            && path
+                .file_name()
+                .is_some_and(|name| shared_names.contains(name));
+        !is_legacy_shared_link
+    });
     let hrefs = shared_hrefs(shared);
     rpms.extend(shared.iter().cloned());
 
