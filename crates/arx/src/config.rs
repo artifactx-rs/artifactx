@@ -34,6 +34,9 @@ pub struct Config {
     /// Lifecycle hooks around client-visible state changes.
     #[serde(default, skip_serializing_if = "Hooks::is_empty")]
     pub hooks: Hooks,
+    /// Live cutover defaults shared by `publish`, `cutover`, and `publish-dir`.
+    #[serde(default, skip_serializing_if = "Publish::is_empty")]
+    pub publish: Publish,
 }
 
 /// OIDC configuration for keyless push authentication. (ADR-0014.)
@@ -94,6 +97,35 @@ impl Hooks {
             && self.post_export.is_empty()
             && self.pre_rollback.is_empty()
             && self.post_rollback.is_empty()
+    }
+}
+
+/// Persisted live cutover targets, so `publish` does not depend on remembering
+/// `--apt-live` / `--yum-flat-live` on every invocation. CLI flags override
+/// these; `--no-live` ignores them entirely.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Publish {
+    /// apt public layout live symlink, exported and switched after publishing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apt_live: Option<PathBuf>,
+    /// Flat yum public layout live symlink, exported and switched after publishing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yum_flat_live: Option<PathBuf>,
+    /// Directory that receives versioned cutover exports. Defaults near the
+    /// first live path when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging_dir: Option<PathBuf>,
+    /// Old unreferenced cutover export directories to keep after a live switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_cutovers: Option<usize>,
+}
+
+impl Publish {
+    pub fn is_empty(&self) -> bool {
+        self.apt_live.is_none()
+            && self.yum_flat_live.is_none()
+            && self.staging_dir.is_none()
+            && self.keep_cutovers.is_none()
     }
 }
 

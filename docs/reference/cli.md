@@ -193,10 +193,11 @@ If omitted, ArtifactX falls back to `ARX_KEY_PASSPHRASE`.
 - `--dist <DIST>`: publish apt metadata for `dists/<DIST>` instead of `[apt].dist`, without editing `arx.toml`. The published `Release` advertises `Suite: <DIST>` and `Codename: <DIST>` so clients pointed at `<DIST>` do not see a conflicting distribution; `Origin`, `Label`, and `Description` keep their configured values. Rejected together with `--yum` alone, because it only affects apt.
 - `--full`: rebuild all metadata from scratch.
 - `--strict`: fail if packages are skipped.
-- `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink.
-- `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink.
-- `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set.
-- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
+- `--apt-live <PATH>`: after publishing apt metadata, export the apt public layout and switch this live symlink. Defaults to [`[publish].apt_live`](config.md#publish).
+- `--yum-flat-live <PATH>`: after publishing yum metadata, export a flat yum layout and switch this live symlink. Defaults to [`[publish].yum_flat_live`](config.md#publish).
+- `--no-live`: ignore configured live targets for this run and only rebuild metadata under `--root`. Rejected together with `--apt-live` / `--yum-flat-live`.
+- `--staging-dir <DIR>`: parent directory for versioned cutover exports when live paths are set. Defaults to `[publish].staging_dir` only when the live targets themselves come from config; a live path named on the command line stages beside itself unless this flag is set.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `[publish].keep_cutovers`, else `2`.
 - `--repo <REPO>`: publish only `<yum-base>/<REPO>` instead of every yum repo directory, and select the repo exported by `--yum-flat-live`. Fails when the directory does not exist.
 - `--arch <ARCH>`: limit the `--yum-flat-live` export to these architectures.
 - `--dry-run`: publish, export, and validate staged live layouts without switching symlinks.
@@ -218,7 +219,24 @@ APT publishes also generate `Contents-<arch>` and `Contents-<arch>.gz` indices
 so `apt-file`-style clients can search installed file paths. These files are
 listed in `Release` and get by-hash copies like `Packages`.
 
-For production public roots that are symlinks, prefer the single-command form:
+For production public roots that are symlinks, put the paths in `arx.toml` once:
+
+```toml
+[publish]
+apt_live = "/srv/deb"
+yum_flat_live = "/srv/repo"
+```
+
+```sh
+arx publish --root /data/arx/prod
+```
+
+This uses the same preflight and atomic symlink switching as `arx cutover`, and
+prints the resolved live targets before touching anything. Naming a live path on
+the command line takes over the whole live set instead of merging with config, so
+`--apt-live` alone never also switches a configured `yum_flat_live`, and the
+export stages beside the command-line live path rather than in the configured
+`staging_dir`. Passing the paths explicitly still works and overrides config:
 
 ```sh
 arx publish --root ./repo \
@@ -226,8 +244,6 @@ arx publish --root ./repo \
   --yum-flat-live ./public/repo \
   --staging-dir ./public/.arx-cutovers
 ```
-
-This uses the same preflight and atomic symlink switching as `arx cutover`.
 
 ### `arx publish-dir`
 
@@ -244,8 +260,9 @@ state so unchanged runs can exit quickly.
 - `--force`: publish even when the source directory state is unchanged.
 - `--full`: rebuild metadata from scratch.
 - `--apt` / `--yum`: limit the publish to one format.
-- `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`.
-- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
+- `--apt-live <PATH>` / `--yum-flat-live <PATH>` / `--staging-dir <DIR>`: use the same preflighted live symlink cutover as `arx publish`. Default to the matching [`[publish]`](config.md#publish) keys.
+- `--no-live`: ignore configured live targets for this run and only ingest plus publish under `--root`.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `[publish].keep_cutovers`, else `2`.
 - `--dry-run`: validate staged output without switching live symlinks or updating `publish-dir` state.
 - `--require-signed-rpms`: fail live yum cutover if any staged RPM payload is unsigned.
 - `--sign-rpms`: sign unsigned source RPM payloads with the system `rpm --addsign` backend before ingest. ArtifactX skips already-signed RPMs and verifies each payload is signed.
@@ -322,6 +339,12 @@ For an operator recipe, see [Prune old packages with GC](../how-to/prune-and-gc.
 - `--addr <ADDR>`: listen address. Default comes from `[server].addr`, normally
   `127.0.0.1:8080`.
 
+`[publish]` does not configure these mounts. It only drives the write-side live
+cutover in `publish`, `cutover`, and `publish-dir`, because a serve mount is a
+read-only view rather than a switch target. Pass `--apt-live` /
+`--yum-flat-live` here explicitly and keep them in step with `[publish]`, or the
+repository will publish to paths the server never mounts.
+
 `arx serve` exposes static apt/yum repository files, optional legacy `/deb` and
 `/repo` live mounts, `/metrics`, `/api/v1/...` JSON APIs, `/api/openapi.yaml`,
 and `/api/docs` Swagger UI.
@@ -350,6 +373,10 @@ arx serve --root /data/arx/prod --apt-live /srv/deb --yum-flat-live /srv/repo
 - `--start`: run `systemctl restart`; implies enable behavior.
 - `--dry-run`: print files/actions without writing or calling systemd.
 
+`[publish]` is not read here either. The generated `ExecStart` contains exactly
+the `--apt-live` / `--yum-flat-live` values passed to `daemonize`, so pass the
+same paths configured in `[publish]` to avoid a unit that serves stale mounts.
+
 `arx daemonize` writes a hardened `arx serve` unit, creates a random 32-byte
 bearer token for write API access, stores it in a mode `0600` env file, verifies
 the unit with `systemd-analyze verify`, and reloads systemd.
@@ -360,10 +387,10 @@ Publishes selected metadata, exports fresh legacy-compatible layouts, validates
 them, then switches live symlink pointers. Live paths must be absent or symlinks;
 ordinary directories are refused so one-time migrations stay explicit.
 
-- `--apt-live <PATH>`: live apt path to switch to the staged `deb` export.
-- `--yum-flat-live <PATH>`: live flat yum path to switch to the staged `repo` export.
-- `--staging-dir <DIR>`: parent directory for versioned cutover exports. Defaults near the first live path.
-- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `2`.
+- `--apt-live <PATH>`: live apt path to switch to the staged `deb` export. Defaults to [`[publish].apt_live`](config.md#publish).
+- `--yum-flat-live <PATH>`: live flat yum path to switch to the staged `repo` export. Defaults to [`[publish].yum_flat_live`](config.md#publish).
+- `--staging-dir <DIR>`: parent directory for versioned cutover exports. Defaults to `[publish].staging_dir`, else near the first live path.
+- `--keep-cutovers <N>`: after a successful live switch, keep `N` old unreferenced cutover export directories. Current live and `<live>.previous` targets are always retained. Defaults to `[publish].keep_cutovers`, else `2`.
 - `--repo <REPO>`: yum repo name to export. Defaults to `[yum].repo`.
 - `--arch <ARCH>`: limit yum export to one or more architectures.
 - `--dry-run`: publish/export/preflight but do not switch live pointers.
