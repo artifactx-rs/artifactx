@@ -312,7 +312,17 @@ fn export_formats(args: &cli::ExportArgs) -> String {
 
 fn cmd_cutover(args: &cli::CutoverArgs) -> Result<()> {
     let cfg = Config::load(&args.root).context("loading config; run `arx init` first")?;
-    let needs_key = !args.no_publish || args.yum_flat_live.is_some();
+    let live = resolve_live_targets(
+        &cfg,
+        LiveOverrides {
+            no_live: false,
+            apt_live: args.apt_live.as_deref(),
+            yum_flat_live: args.yum_flat_live.as_deref(),
+            staging_dir: args.staging_dir.as_deref(),
+            keep_cutovers: args.keep_cutovers,
+        },
+    );
+    let needs_key = !args.no_publish || live.yum_flat_live.is_some();
     let key = if needs_key {
         load_key(&args.root, &cfg)?
     } else {
@@ -328,13 +338,19 @@ fn cmd_cutover(args: &cli::CutoverArgs) -> Result<()> {
     } else {
         String::new()
     };
+    if let Some(p) = &live.apt_live {
+        println!("apt live target: {}", p.display());
+    }
+    if let Some(p) = &live.yum_flat_live {
+        println!("yum live target: {}", p.display());
+    }
     let report = cutover::run(
         &cutover::CutoverOptions {
             root: args.root.clone(),
-            apt_live: args.apt_live.clone(),
-            yum_flat_live: args.yum_flat_live.clone(),
-            staging_dir: args.staging_dir.clone(),
-            keep_cutovers: args.keep_cutovers,
+            apt_live: live.apt_live,
+            yum_flat_live: live.yum_flat_live,
+            staging_dir: live.staging_dir,
+            keep_cutovers: live.keep_cutovers,
             repo: args.repo.clone(),
             arch: args.arch.clone(),
             dry_run: args.dry_run,
@@ -947,20 +963,39 @@ fn publish_dir_publish(root: &Path, cfg: &Config, args: &cli::PublishDirArgs) ->
     let key = load_key(root, cfg)?;
     let passphrase = publish_passphrase(cfg, args.passphrase_file.as_deref())?;
 
-    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
-        if args.apt && args.apt_live.is_none() {
-            bail!("--apt requires --apt-live when publish-dir cutover options are used");
+    let live = resolve_live_targets(
+        cfg,
+        LiveOverrides {
+            no_live: args.no_live,
+            apt_live: args.apt_live.as_deref(),
+            yum_flat_live: args.yum_flat_live.as_deref(),
+            staging_dir: args.staging_dir.as_deref(),
+            keep_cutovers: args.keep_cutovers,
+        },
+    );
+
+    if live.has_live() {
+        if args.apt && live.apt_live.is_none() {
+            bail!("--apt requires an apt live target (--apt-live or `[publish].apt_live`)");
         }
-        if args.yum && args.yum_flat_live.is_none() {
-            bail!("--yum requires --yum-flat-live when publish-dir cutover options are used");
+        if args.yum && live.yum_flat_live.is_none() {
+            bail!(
+                "--yum requires a yum live target (--yum-flat-live or `[publish].yum_flat_live`)"
+            );
+        }
+        if let Some(p) = &live.apt_live {
+            println!("apt live target: {}", p.display());
+        }
+        if let Some(p) = &live.yum_flat_live {
+            println!("yum live target: {}", p.display());
         }
         let report = cutover::run(
             &cutover::CutoverOptions {
                 root: root.to_path_buf(),
-                apt_live: args.apt_live.clone(),
-                yum_flat_live: args.yum_flat_live.clone(),
-                staging_dir: args.staging_dir.clone(),
-                keep_cutovers: args.keep_cutovers,
+                apt_live: live.apt_live,
+                yum_flat_live: live.yum_flat_live,
+                staging_dir: live.staging_dir,
+                keep_cutovers: live.keep_cutovers,
                 repo: args.repo.clone(),
                 arch: args.arch.clone(),
                 dry_run: args.dry_run,
@@ -1534,7 +1569,12 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         target: args.target.clone(),
         profile: args.profile.clone(),
     };
-    let manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
+    let mut manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
+    // --arch overrides whatever the manifest declares, for both Cargo.toml and
+    // standalone manifests (#131).
+    if let Some(arch) = &args.arch {
+        manifest.arch = arch.clone();
+    }
 
     // Default (no flags): build all package formats.
     let all = !args.deb && !args.rpm && !args.apk && !args.arch_pkg;
@@ -1636,6 +1676,76 @@ impl Drop for PublishLock {
     }
 }
 
+/// Cutover exports kept after a live switch when neither the CLI nor
+/// `[publish].keep_cutovers` says otherwise.
+const DEFAULT_KEEP_CUTOVERS: usize = 2;
+
+/// Per-invocation live cutover overrides taken from CLI flags.
+struct LiveOverrides<'a> {
+    /// Ignore `[publish]` live targets entirely.
+    no_live: bool,
+    apt_live: Option<&'a Path>,
+    yum_flat_live: Option<&'a Path>,
+    staging_dir: Option<&'a Path>,
+    keep_cutovers: Option<usize>,
+}
+
+/// Live cutover targets after merging CLI flags over `[publish]`.
+struct LiveTargets {
+    apt_live: Option<PathBuf>,
+    yum_flat_live: Option<PathBuf>,
+    staging_dir: Option<PathBuf>,
+    keep_cutovers: usize,
+}
+
+impl LiveTargets {
+    fn has_live(&self) -> bool {
+        self.apt_live.is_some() || self.yum_flat_live.is_some()
+    }
+}
+
+/// Merge CLI live flags over `[publish]`.
+///
+/// Naming any live path on the CLI takes over the whole live set, so
+/// `--apt-live X` never silently also switches a yum path configured in
+/// `arx.toml`.
+///
+/// A live path and its staging directory are one unit: taking over the live set
+/// also drops a configured `staging_dir`, falling back to `.arx-cutovers` beside
+/// the CLI live path. Otherwise `arx publish --apt-live /tmp/probe` would write
+/// its export into the production staging directory while the production live
+/// symlink is absent from that run's protected set, letting
+/// `prune_staging_exports` delete the directory production is still serving.
+/// `--staging-dir` remains an explicit override, and `--keep-cutovers` is a
+/// plain count that still falls back to config.
+fn resolve_live_targets(cfg: &Config, ov: LiveOverrides<'_>) -> LiveTargets {
+    let cli_live = ov.apt_live.is_some() || ov.yum_flat_live.is_some();
+    let from_cfg = !ov.no_live && !cli_live;
+    LiveTargets {
+        apt_live: match (ov.apt_live, from_cfg) {
+            (Some(p), _) => Some(p.to_path_buf()),
+            (None, true) => cfg.publish.apt_live.clone(),
+            (None, false) => None,
+        },
+        yum_flat_live: match (ov.yum_flat_live, from_cfg) {
+            (Some(p), _) => Some(p.to_path_buf()),
+            (None, true) => cfg.publish.yum_flat_live.clone(),
+            (None, false) => None,
+        },
+        staging_dir: ov.staging_dir.map(Path::to_path_buf).or_else(|| {
+            if from_cfg {
+                cfg.publish.staging_dir.clone()
+            } else {
+                None
+            }
+        }),
+        keep_cutovers: ov
+            .keep_cutovers
+            .or(cfg.publish.keep_cutovers)
+            .unwrap_or(DEFAULT_KEEP_CUTOVERS),
+    }
+}
+
 async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
     let root = args.root.clone();
     if args.dist.is_some() && args.yum && !args.apt {
@@ -1659,20 +1769,39 @@ async fn cmd_publish(args: &cli::PublishArgs) -> Result<()> {
         String::new()
     };
 
-    if args.apt_live.is_some() || args.yum_flat_live.is_some() {
-        if args.apt && args.apt_live.is_none() {
-            bail!("--apt requires --apt-live when publish cutover options are used");
+    let live = resolve_live_targets(
+        &cfg,
+        LiveOverrides {
+            no_live: args.no_live,
+            apt_live: args.apt_live.as_deref(),
+            yum_flat_live: args.yum_flat_live.as_deref(),
+            staging_dir: args.staging_dir.as_deref(),
+            keep_cutovers: args.keep_cutovers,
+        },
+    );
+
+    if live.has_live() {
+        if args.apt && live.apt_live.is_none() {
+            bail!("--apt requires an apt live target (--apt-live or `[publish].apt_live`)");
         }
-        if args.yum && args.yum_flat_live.is_none() {
-            bail!("--yum requires --yum-flat-live when publish cutover options are used");
+        if args.yum && live.yum_flat_live.is_none() {
+            bail!(
+                "--yum requires a yum live target (--yum-flat-live or `[publish].yum_flat_live`)"
+            );
+        }
+        if let Some(p) = &live.apt_live {
+            println!("apt live target: {}", p.display());
+        }
+        if let Some(p) = &live.yum_flat_live {
+            println!("yum live target: {}", p.display());
         }
         let report = cutover::run(
             &cutover::CutoverOptions {
                 root,
-                apt_live: args.apt_live.clone(),
-                yum_flat_live: args.yum_flat_live.clone(),
-                staging_dir: args.staging_dir.clone(),
-                keep_cutovers: args.keep_cutovers,
+                apt_live: live.apt_live,
+                yum_flat_live: live.yum_flat_live,
+                staging_dir: live.staging_dir,
+                keep_cutovers: live.keep_cutovers,
                 repo: args.repo.clone(),
                 arch: args.arch.clone(),
                 dry_run: args.dry_run,

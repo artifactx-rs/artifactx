@@ -43,6 +43,12 @@ enabled = false
 audience = "arx"
 allowed_repos = []
 
+[publish]
+apt_live = "/srv/deb"
+yum_flat_live = "/srv/repo"
+# staging_dir = "/srv/.arx-cutovers"
+# keep_cutovers = 2
+
 [[hooks.pre_publish]]
 command = "sh"
 args = ["-c", "test -f READY"]
@@ -158,6 +164,45 @@ GitHub Actions OIDC push authentication.
 
 If OIDC is disabled, write API calls require `ARX_SERVE_TOKEN`. If neither OIDC
 nor `ARX_SERVE_TOKEN` is configured, reads are public and writes are disabled.
+
+## `[publish]`
+
+Live cutover targets, so a bare `arx publish` performs the whole
+publish → export → preflight → atomic symlink switch without repeating path
+arguments on every invocation. Shared by `arx publish`, `arx cutover`, and
+`arx publish-dir`.
+
+| Key | Meaning |
+| --- | --- |
+| `apt_live` | apt public layout live symlink, exported and switched after publishing. |
+| `yum_flat_live` | Flat yum public layout live symlink, exported and switched after publishing. |
+| `staging_dir` | Directory receiving versioned cutover exports. Default: `.arx-cutovers` beside the first live path. |
+| `keep_cutovers` | Old unreferenced cutover exports kept after a live switch. Default: `2`. |
+
+Setting `apt_live` or `yum_flat_live` makes every plain `arx publish` change what
+clients see. That is the point, but it removes the safety margin of a bare
+publish that only rebuilds metadata under `--root`. Two escapes:
+
+- `--no-live` ignores the configured live targets for one run and only rebuilds
+  metadata under the root;
+- `--dry-run` stages and validates the export without moving any live pointer.
+
+Naming any live path on the command line takes over the whole live set, so
+`arx publish --apt-live /tmp/deb` never also switches a `yum_flat_live`
+configured here. A live path and its staging directory are one unit, so the
+takeover also drops a configured `staging_dir` and stages beside the
+command-line live path instead. That keeps an ad-hoc live target from writing
+into the staging directory of the configured one, where retention cleanup would
+not know the configured live target still needs protecting. `--staging-dir` is
+still an explicit override, and `--keep-cutovers` is a plain count that falls
+back to this section.
+
+Every run that resolves a live target prints it before touching anything:
+
+```text
+apt live target: /srv/deb
+yum live target: /srv/repo
+```
 
 ## `[hooks]`
 

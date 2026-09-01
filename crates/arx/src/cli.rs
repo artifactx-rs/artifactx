@@ -195,17 +195,24 @@ pub struct PublishArgs {
     #[arg(long)]
     pub strict: bool,
     /// Also export the apt public layout and atomically switch this live symlink.
+    /// Defaults to `[publish].apt_live` in `arx.toml`.
     #[arg(long)]
     pub apt_live: Option<PathBuf>,
     /// Also export a flat yum public layout and atomically switch this live symlink.
+    /// Defaults to `[publish].yum_flat_live` in `arx.toml`.
     #[arg(long)]
     pub yum_flat_live: Option<PathBuf>,
-    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    /// Ignore `[publish]` live targets and only rebuild metadata under `--root`.
+    #[arg(long, conflicts_with_all = ["apt_live", "yum_flat_live"])]
+    pub no_live: bool,
+    /// Directory that receives versioned cutover exports. Defaults to
+    /// `[publish].staging_dir`, else near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
-    /// Number of old unreferenced cutover export directories to keep after a live switch.
-    #[arg(long, default_value_t = 2)]
-    pub keep_cutovers: usize,
+    /// Number of old unreferenced cutover export directories to keep after a live
+    /// switch. Defaults to `[publish].keep_cutovers`, else 2.
+    #[arg(long)]
+    pub keep_cutovers: Option<usize>,
     /// Publish only this yum repo directory, and export it when
     /// `--yum-flat-live` is set. Defaults to every repo under the yum base.
     #[arg(long)]
@@ -270,6 +277,11 @@ pub struct PackArgs {
     /// yum repo for `--add` (config default if unset).
     #[arg(long)]
     pub repo: Option<String>,
+    /// Override package architecture, e.g. `amd64` or `arm64`.
+    /// Supersedes `[package.metadata.arx].arch` and compat metadata.
+    /// When omitted the arch from the manifest (or `amd64`) is used.
+    #[arg(long)]
+    pub arch: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -327,17 +339,24 @@ pub struct PublishDirArgs {
     #[arg(long)]
     pub yum: bool,
     /// Also export the apt public layout and atomically switch this live symlink.
+    /// Defaults to `[publish].apt_live` in `arx.toml`.
     #[arg(long)]
     pub apt_live: Option<PathBuf>,
     /// Also export a flat yum public layout and atomically switch this live symlink.
+    /// Defaults to `[publish].yum_flat_live` in `arx.toml`.
     #[arg(long)]
     pub yum_flat_live: Option<PathBuf>,
-    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    /// Ignore `[publish]` live targets and only ingest plus publish under `--root`.
+    #[arg(long, conflicts_with_all = ["apt_live", "yum_flat_live"])]
+    pub no_live: bool,
+    /// Directory that receives versioned cutover exports. Defaults to
+    /// `[publish].staging_dir`, else near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
-    /// Number of old unreferenced cutover export directories to keep after a live switch.
-    #[arg(long, default_value_t = 2)]
-    pub keep_cutovers: usize,
+    /// Number of old unreferenced cutover export directories to keep after a live
+    /// switch. Defaults to `[publish].keep_cutovers`, else 2.
+    #[arg(long)]
+    pub keep_cutovers: Option<usize>,
     /// Limit yum export to one or more architectures when `--yum-flat-live` is set.
     #[arg(long)]
     pub arch: Vec<String>,
@@ -669,17 +688,21 @@ pub struct CutoverArgs {
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
     /// Live apt path to switch to the staged export. Must be absent or a symlink.
+    /// Defaults to `[publish].apt_live` in `arx.toml`.
     #[arg(long)]
     pub apt_live: Option<PathBuf>,
     /// Live flat yum path to switch to the staged export. Must be absent or a symlink.
+    /// Defaults to `[publish].yum_flat_live` in `arx.toml`.
     #[arg(long)]
     pub yum_flat_live: Option<PathBuf>,
-    /// Directory that receives versioned cutover exports. Defaults near the first live path.
+    /// Directory that receives versioned cutover exports. Defaults to
+    /// `[publish].staging_dir`, else near the first live path.
     #[arg(long)]
     pub staging_dir: Option<PathBuf>,
-    /// Number of old unreferenced cutover export directories to keep after a live switch.
-    #[arg(long, default_value_t = 2)]
-    pub keep_cutovers: usize,
+    /// Number of old unreferenced cutover export directories to keep after a live
+    /// switch. Defaults to `[publish].keep_cutovers`, else 2.
+    #[arg(long)]
+    pub keep_cutovers: Option<usize>,
     /// Yum repo name to export (defaults to `[yum].repo`).
     #[arg(long)]
     pub repo: Option<String>,

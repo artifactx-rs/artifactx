@@ -1216,3 +1216,79 @@ fn read_ar_member(path: &Path, member: &str) -> Vec<u8> {
     }
     panic!("ar member {member} not found in {}", path.display());
 }
+
+#[test]
+fn native_arx_files_resolve_through_cargo_options() {
+    // #132: native [package.metadata.arx].files with source = "target/release/foo"
+    // must resolve through --target-dir / --target like compat assets, not CWD.
+    let dir = tempfile::tempdir().unwrap();
+    let target_dir = dir.path().join("custom-target");
+    let cargo = r#"
+        [package]
+        name = "hello"
+        version = "1.0.0"
+        edition = "2021"
+        description = "test"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "x <x@x.com>"
+
+        [[package.metadata.arx.files]]
+        source = "target/release/hello"
+        dest = "/usr/bin/hello"
+        mode = "0755"
+    "#;
+    let options = CargoManifestOptions {
+        target_dir: Some(target_dir.clone()),
+        target: Some("aarch64-unknown-linux-musl".to_string()),
+        profile: "release".to_string(),
+    };
+    let crate_root = dir.path();
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, crate_root, &options).unwrap();
+    assert_eq!(m.files.len(), 1);
+    // Must resolve to target-dir/target-triple/profile/hello, not CWD/target/release/hello.
+    assert_eq!(
+        m.files[0].source,
+        target_dir
+            .join("aarch64-unknown-linux-musl")
+            .join("release")
+            .join("hello")
+            .to_string_lossy()
+            .as_ref()
+    );
+}
+
+#[test]
+fn native_arx_files_relative_source_anchors_to_crate_root() {
+    // #132: a relative source that is NOT target/release/... must anchor to
+    // crate_root (where Cargo.toml lives), not CWD.
+    let dir = tempfile::tempdir().unwrap();
+    let cargo = r#"
+        [package]
+        name = "hello"
+        version = "1.0.0"
+        edition = "2021"
+        description = "test"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "x <x@x.com>"
+
+        [[package.metadata.arx.files]]
+        source = "extra/config.conf"
+        dest = "/etc/hello/config.conf"
+        mode = "0644"
+    "#;
+    let options = CargoManifestOptions::default();
+    let crate_root = dir.path();
+    let m = Manifest::from_cargo_toml_at_with_options(cargo, crate_root, &options).unwrap();
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(
+        m.files[0].source,
+        crate_root
+            .join("extra/config.conf")
+            .to_string_lossy()
+            .as_ref()
+    );
+}

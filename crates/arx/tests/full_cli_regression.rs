@@ -586,6 +586,281 @@ fn publish_can_export_and_switch_live_symlink() {
 }
 
 #[test]
+fn publish_switches_live_symlinks_from_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let apt_live = tmp.path().join("public").join("deb");
+    let staging = tmp.path().join("configured-cutovers");
+    let deb = tmp.path().join("config_live_1.0-1_amd64.deb");
+    write_deb(&deb, "config-live", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        &format!(
+            "\n[publish]\napt_live = \"{}\"\nstaging_dir = \"{}\"\n",
+            apt_live.display(),
+            staging.display()
+        ),
+    );
+
+    arx_ok(&["publish", "--root", repo.to_str().unwrap()]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "bare publish must honour [publish].apt_live"
+    );
+    assert!(apt_live.join("dists/stable/Release").exists());
+    assert!(
+        staging.is_dir(),
+        "[publish].staging_dir must receive the cutover export"
+    );
+}
+
+#[test]
+fn publish_no_live_ignores_configured_live_targets() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let apt_live = tmp.path().join("public").join("deb");
+    let deb = tmp.path().join("no_live_1.0-1_amd64.deb");
+    write_deb(&deb, "no-live", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        &format!("\n[publish]\napt_live = \"{}\"\n", apt_live.display()),
+    );
+
+    arx_ok(&["publish", "--root", repo.to_str().unwrap(), "--no-live"]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live).is_err(),
+        "--no-live must not touch the configured live path"
+    );
+    assert!(
+        repo.join("apt/dists/stable/Release").exists(),
+        "--no-live must still publish metadata under the root"
+    );
+}
+
+#[test]
+fn cli_live_flag_replaces_configured_live_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let configured_apt = tmp.path().join("public").join("deb");
+    let configured_yum = tmp.path().join("public").join("repo");
+    let cli_apt = tmp.path().join("public").join("deb-cli");
+    let deb = tmp.path().join("takeover_1.0-1_amd64.deb");
+    write_deb(&deb, "takeover", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        &format!(
+            "\n[publish]\napt_live = \"{}\"\nyum_flat_live = \"{}\"\n",
+            configured_apt.display(),
+            configured_yum.display()
+        ),
+    );
+
+    arx_ok(&[
+        "publish",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        cli_apt.to_str().unwrap(),
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&cli_apt)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "--apt-live must override [publish].apt_live"
+    );
+    assert!(
+        std::fs::symlink_metadata(&configured_apt).is_err(),
+        "the overridden config path must stay untouched"
+    );
+    assert!(
+        std::fs::symlink_metadata(&configured_yum).is_err(),
+        "naming a live path on the CLI must take over the whole live set"
+    );
+}
+
+/// A CLI live path must not write its export into the staging directory that
+/// serves another live pointer. Otherwise the other live target is absent from
+/// this run's protected set and `prune_staging_exports` can delete the
+/// directory it is still serving.
+#[test]
+fn cli_live_flag_isolates_staging_from_configured_target() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let configured_apt = tmp.path().join("prod").join("deb");
+    let configured_staging = tmp.path().join("prod").join(".arx-cutovers");
+    let cli_apt = tmp.path().join("probe").join("deb");
+    let deb = tmp.path().join("isolate_1.0-1_amd64.deb");
+    write_deb(&deb, "isolate", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    append_config(
+        &repo,
+        &format!(
+            "\n[publish]\napt_live = \"{}\"\nstaging_dir = \"{}\"\n",
+            configured_apt.display(),
+            configured_staging.display()
+        ),
+    );
+
+    // Establish the configured live target and its staging history.
+    arx_ok(&["publish", "--root", repo.to_str().unwrap()]);
+    let baseline: Vec<_> = std::fs::read_dir(&configured_staging)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        baseline.len(),
+        1,
+        "configured publish should create exactly one cutover export"
+    );
+
+    // A CLI live path takes over, so it must stage beside itself.
+    arx_ok(&[
+        "publish",
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt-live",
+        cli_apt.to_str().unwrap(),
+    ]);
+
+    let after: Vec<_> = std::fs::read_dir(&configured_staging)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        after, baseline,
+        "a CLI live path must not add or prune exports in the configured staging dir"
+    );
+    assert!(
+        tmp.path().join("probe").join(".arx-cutovers").is_dir(),
+        "the CLI live path must stage beside itself"
+    );
+    assert!(
+        std::fs::symlink_metadata(&configured_apt)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the configured live symlink must survive untouched"
+    );
+    assert!(
+        configured_apt.join("dists/stable/Release").exists(),
+        "the configured live target must still resolve to a real export"
+    );
+}
+
+#[test]
+fn publish_dir_switches_live_symlink_from_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let apt_live = tmp.path().join("public").join("deb");
+    let deb = drop.join("pdir_cfg_1.0-1_amd64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-cfg", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    append_config(
+        &repo,
+        &format!("\n[publish]\napt_live = \"{}\"\n", apt_live.display()),
+    );
+
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "publish-dir must honour [publish].apt_live"
+    );
+    let packages =
+        std::fs::read_to_string(apt_live.join("dists/stable/main/binary-amd64/Packages"))
+            .expect("published Packages index");
+    assert!(packages.contains("Package: pdir-cfg"), "{packages}");
+}
+
+#[test]
+fn cutover_uses_live_targets_from_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let apt_live = tmp.path().join("public").join("deb");
+    let deb = tmp.path().join("cutover_cfg_1.0-1_amd64.deb");
+    write_deb(&deb, "cutover-cfg", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        deb.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+    ]);
+    // Publish metadata first so `--no-publish` has something to cut over to.
+    arx_ok(&["publish", "--root", repo.to_str().unwrap()]);
+    append_config(
+        &repo,
+        &format!("\n[publish]\napt_live = \"{}\"\n", apt_live.display()),
+    );
+
+    let output = arx_output(&["cutover", "--root", repo.to_str().unwrap(), "--no-publish"]);
+    assert!(
+        output.status.success(),
+        "cutover should resolve live targets from config\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("apt live target:"),
+        "cutover must print the resolved live target\n{stdout}"
+    );
+    assert!(
+        std::fs::symlink_metadata(&apt_live)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "cutover must honour [publish].apt_live"
+    );
+    assert!(apt_live.join("dists/stable/Release").exists());
+}
+
+#[test]
 fn publish_dir_ingests_cutovers_and_skips_unchanged_sources() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
@@ -2583,6 +2858,96 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
         .join("yum/myrepo/x86_64/packed-1.0.0-1.x86_64.rpm")
         .exists());
     assert!(add_out.join("packed-1.0.0-1-x86_64.pkg.tar.zst").exists());
+}
+
+#[test]
+fn pack_arch_flag_overrides_standalone_manifest_arch() {
+    // #131: --arch must override the arch declared in a standalone TOML manifest.
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("dist");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("pkg.toml");
+    std::fs::write(&payload, b"#!/bin/sh\necho hello\n").unwrap();
+    // write_pack_manifest writes arch = "x86_64" by default.
+    write_pack_manifest(&manifest, &payload, "mypkg", "2.0.0");
+
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+        "--arch",
+        "arm64",
+    ]);
+    // arm64 overrides the x86_64 in the manifest; deb uses arm64 spelling.
+    assert!(
+        out.join("mypkg_2.0.0_arm64.deb").exists(),
+        "expected arm64 deb; dist contains: {:?}",
+        std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !out.join("mypkg_2.0.0_amd64.deb").exists(),
+        "amd64 deb must not appear when --arch arm64 is set"
+    );
+}
+
+#[test]
+fn pack_arch_flag_overrides_cargo_toml_arch() {
+    // #131: --arch must also override arch declared in [package.metadata.arx].arch
+    // when packing from a Cargo.toml.
+    let tmp = tempfile::tempdir().unwrap();
+    let crate_root = tmp.path().join("crate");
+    let target_dir = tmp.path().join("tgt");
+    let bin = target_dir
+        .join("aarch64-unknown-linux-musl")
+        .join("release")
+        .join("mypkg");
+    let out = tmp.path().join("dist");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, b"#!/bin/sh\necho mypkg\n").unwrap();
+    std::fs::create_dir_all(&crate_root).unwrap();
+    std::fs::write(
+        crate_root.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "mypkg"
+        version = "2.0.0"
+        edition = "2021"
+        description = "arch override test"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "T <t@localhost>"
+        arch = "amd64"
+        "#,
+    )
+    .unwrap();
+
+    arx_ok(&[
+        "pack",
+        crate_root.join("Cargo.toml").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+        "--target-dir",
+        target_dir.to_str().unwrap(),
+        "--target",
+        "aarch64-unknown-linux-musl",
+        "--arch",
+        "arm64",
+    ]);
+    assert!(
+        out.join("mypkg_2.0.0_arm64.deb").exists(),
+        "expected arm64 deb; dist contains: {:?}",
+        std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

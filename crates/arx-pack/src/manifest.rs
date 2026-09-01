@@ -266,7 +266,18 @@ impl Manifest {
         } = arx;
 
         let files = if !arx_files.is_empty() {
+            // #132: normalize native arx.files sources exactly like compat assets
+            // so that `target/release/foo` respects --target/--profile/--target-dir
+            // and relative paths anchor to crate_root rather than CWD.
             arx_files
+                .into_iter()
+                .map(|mut f| {
+                    f.source = compat_source_path(&f.source, crate_root, &cargo_base)
+                        .to_string_lossy()
+                        .into_owned();
+                    f
+                })
+                .collect()
         } else if !compat.files.is_empty() {
             compat.files.clone()
         } else {

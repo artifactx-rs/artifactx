@@ -89,7 +89,6 @@ inside ArtifactX; `cargo-deb`, `cargo-generate-rpm`, `cargo-rpm`, `rpmbuild`, an
 
 `arx pack` does not run `cargo build`. Build first, then pass the same output
 selectors to `pack` if the binary is not in Cargo's default release directory:
-
 ```sh
 cargo build --profile dev --target x86_64-unknown-linux-gnu --target-dir build/target
 arx pack Cargo.toml \
@@ -98,6 +97,21 @@ arx pack Cargo.toml \
   --target-dir build/target \
   --out dist
 ```
+
+To build packages for a different architecture than what the manifest declares,
+pass `--arch`. This overrides `[package.metadata.arx].arch`, compat metadata,
+and the `amd64` default, so a single `Cargo.toml` can produce both `amd64` and
+`arm64` packages without editing the source tree:
+
+```sh
+arx pack Cargo.toml --target aarch64-unknown-linux-musl --arch arm64 --deb --rpm --out dist/arm64
+arx pack Cargo.toml --target x86_64-unknown-linux-musl  --arch amd64 --deb --rpm --out dist/amd64
+```
+
+Native `[package.metadata.arx].files` sources that begin with `target/release/`
+are resolved through the same `--target-dir`, `--target`, and `--profile`
+selection as compat assets, so a `source = "target/release/foo"` entry picks up
+the correct cross-compiled binary rather than a CWD-relative path.
 
 Cargo lookup defaults to profile `release`, the selected crate or workspace
 `target/` directory, and the package name unless a single `[[bin]].name` is
@@ -182,6 +196,8 @@ These limits are intentional until a follow-up design changes them:
 
 ## Related design records and issues
 
+- [#131: Cargo.toml pack mode cannot override package arch per target build](https://github.com/artifactx-rs/artifactx/issues/131)
+- [#132: Native arx.files sources ignore --target while compat assets rewrite target/release](https://github.com/artifactx-rs/artifactx/issues/132)
 - [ADR-0005: pack manifest native](../adr/0005-pack-manifest-native.md)
 - [ADR-0010: Cargo.toml-driven packaging](../adr/0010-cargo-toml-driven-packaging.md)
 - [ADR-0012: pack product-readiness](../adr/0012-pack-product-readiness.md)
