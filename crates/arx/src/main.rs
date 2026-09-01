@@ -1534,7 +1534,12 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         target: args.target.clone(),
         profile: args.profile.clone(),
     };
-    let manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
+    let mut manifest = load_pack_manifest(args.manifest.as_deref(), &cargo_options)?;
+    // --arch overrides whatever the manifest declares, for both Cargo.toml and
+    // standalone manifests (#131).
+    if let Some(arch) = &args.arch {
+        manifest.arch = arch.clone();
+    }
 
     // Default (no flags): build all package formats.
     let all = !args.deb && !args.rpm && !args.apk && !args.arch_pkg;

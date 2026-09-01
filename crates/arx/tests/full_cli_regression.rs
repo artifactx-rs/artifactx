@@ -2586,6 +2586,96 @@ fn pack_cli_flags_and_add_place_expected_artifacts() {
 }
 
 #[test]
+fn pack_arch_flag_overrides_standalone_manifest_arch() {
+    // #131: --arch must override the arch declared in a standalone TOML manifest.
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("dist");
+    let payload = tmp.path().join("payload.sh");
+    let manifest = tmp.path().join("pkg.toml");
+    std::fs::write(&payload, b"#!/bin/sh\necho hello\n").unwrap();
+    // write_pack_manifest writes arch = "x86_64" by default.
+    write_pack_manifest(&manifest, &payload, "mypkg", "2.0.0");
+
+    arx_ok(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+        "--arch",
+        "arm64",
+    ]);
+    // arm64 overrides the x86_64 in the manifest; deb uses arm64 spelling.
+    assert!(
+        out.join("mypkg_2.0.0_arm64.deb").exists(),
+        "expected arm64 deb; dist contains: {:?}",
+        std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !out.join("mypkg_2.0.0_amd64.deb").exists(),
+        "amd64 deb must not appear when --arch arm64 is set"
+    );
+}
+
+#[test]
+fn pack_arch_flag_overrides_cargo_toml_arch() {
+    // #131: --arch must also override arch declared in [package.metadata.arx].arch
+    // when packing from a Cargo.toml.
+    let tmp = tempfile::tempdir().unwrap();
+    let crate_root = tmp.path().join("crate");
+    let target_dir = tmp.path().join("tgt");
+    let bin = target_dir
+        .join("aarch64-unknown-linux-musl")
+        .join("release")
+        .join("mypkg");
+    let out = tmp.path().join("dist");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, b"#!/bin/sh\necho mypkg\n").unwrap();
+    std::fs::create_dir_all(&crate_root).unwrap();
+    std::fs::write(
+        crate_root.join("Cargo.toml"),
+        r#"
+        [package]
+        name = "mypkg"
+        version = "2.0.0"
+        edition = "2021"
+        description = "arch override test"
+        license = "MIT"
+
+        [package.metadata.arx]
+        maintainer = "T <t@localhost>"
+        arch = "amd64"
+        "#,
+    )
+    .unwrap();
+
+    arx_ok(&[
+        "pack",
+        crate_root.join("Cargo.toml").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--deb",
+        "--target-dir",
+        target_dir.to_str().unwrap(),
+        "--target",
+        "aarch64-unknown-linux-musl",
+        "--arch",
+        "arm64",
+    ]);
+    assert!(
+        out.join("mypkg_2.0.0_arm64.deb").exists(),
+        "expected arm64 deb; dist contains: {:?}",
+        std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn pack_cargo_manifest_uses_explicit_target_profile_and_target_dir() {
     let tmp = tempfile::tempdir().unwrap();
     let crate_root = tmp.path().join("crate");

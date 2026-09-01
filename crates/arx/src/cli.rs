@@ -270,6 +270,11 @@ pub struct PackArgs {
     /// yum repo for `--add` (config default if unset).
     #[arg(long)]
     pub repo: Option<String>,
+    /// Override package architecture, e.g. `amd64` or `arm64`.
+    /// Supersedes `[package.metadata.arx].arch` and compat metadata.
+    /// When omitted the arch from the manifest (or `amd64`) is used.
+    #[arg(long)]
+    pub arch: Option<String>,
 }
 
 #[derive(Debug, Args)]

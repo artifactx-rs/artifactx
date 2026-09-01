@@ -108,7 +108,9 @@ Cargo binary lookup defaults to the selected crate or workspace `target/`
 directory, profile `release`, and the package name unless a single
 `[[bin]].name` is present. Multiple binaries require explicit
 `[package.metadata.arx]` `files`. Use `--profile <NAME>` for custom profiles;
-`--profile dev` maps to Cargo's `target/debug` output directory.
+`--profile dev` maps to Cargo's `target/debug` output directory. Use `--arch`
+to override the package architecture for that invocation; this supersedes any
+`arch` field in the manifest and covers both Cargo.toml and standalone inputs.
 
 Compat metadata is read directly by ArtifactX. No external `cargo-deb`,
 `cargo-generate-rpm`, `cargo-rpm`, `rpmbuild`, or `dpkg-deb` invocation is
