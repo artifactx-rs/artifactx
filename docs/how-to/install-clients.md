@@ -59,9 +59,11 @@ Install a package:
 sudo dnf install myapp
 ```
 
-`repo_gpgcheck=1` verifies signed repository metadata. ArtifactX does not
-re-sign individual RPM payloads, so `gpgcheck=0` is expected unless your package
-build pipeline signs RPMs separately.
+`repo_gpgcheck=1` verifies signed repository metadata. By default, imported RPM
+payloads keep their upstream signatures, so `gpgcheck=0` is expected unless the
+build pipeline signs packages or you use `arx import --yum --resign-rpms`.
+When enabling `gpgcheck=1`, configure the public key matching the RPM signer;
+`keys/public.asc` matches only when the system RPM signer uses the same key.
 
 ## GitHub Pages dogfood repo
 

@@ -707,15 +707,16 @@ async fn import_handler(State(st): State<AppState>, Query(q): Query<ApiImportQue
                 Some(repo) => client_scope_name(repo, "yum repo")?,
                 None => &cfg.yum.repo,
             };
-            imported += crate::import::import_yum(
-                &root,
-                &cfg,
-                &q.url,
+            imported += crate::import::import_yum(&crate::import::YumImportOpts {
+                root: &root,
+                cfg: &cfg,
+                base_url: &q.url,
                 repo,
-                q.limit,
-                false,
-                cfg.server.allow_private_imports,
-            )?;
+                limit: q.limit,
+                strict: false,
+                allow_private: cfg.server.allow_private_imports,
+                resign_rpms: false,
+            })?;
         }
         let published = if q.publish {
             let _lock = crate::PublishLock::acquire(&root)?;

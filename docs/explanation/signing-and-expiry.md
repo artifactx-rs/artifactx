@@ -1,7 +1,7 @@
 # Signing and expiry
 
-ArtifactX keeps repository trust simple: it signs repository metadata and leaves
-package payload signing to your package build pipeline.
+ArtifactX signs repository metadata. Package payload signing remains separate and
+opt-in for imported RPMs.
 
 ## Repository metadata signing
 
@@ -17,12 +17,12 @@ key from `arx key export`.
 
 ## Package payload signatures
 
-ArtifactX does not re-sign individual `.deb` or `.rpm` files.
-
-That matters for yum/dnf: a repo can have signed metadata while individual RPM
-payload signature checks are handled separately. If your organization requires
-RPM package signatures, sign packages before they enter ArtifactX and configure
-clients accordingly.
+By default, import preserves individual `.deb` and `.rpm` bytes and signatures.
+For yum imports, `arx import --yum --resign-rpms` opts into `rpmsign --resign` after
+the upstream size/checksum checks. This replaces existing RPM signatures and
+uses the system-configured RPM signing identity, not `keys/private.asc`, which
+signs repository metadata. Configure the corresponding RPM public key on clients
+that require `gpgcheck=1`.
 
 ## Generated keys
 

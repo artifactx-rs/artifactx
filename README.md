@@ -61,7 +61,7 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 - **Import first** — pull packages from an existing apt or yum/dnf repository into your own signed repo.
 - **One binary** — pack, add, import, publish, publish-dir, serve, push, promote, search, GC, rollback.
 - **Native package output** — build `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` from an ArtifactX manifest or Rust `Cargo.toml`.
-- **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. ArtifactX does not re-sign individual packages.
+- **Metadata-signed repos** — apt `InRelease` / `Release.gpg`, yum `repomd.xml.asc`. RPM payload signatures are preserved by default; yum imports can opt in to system-signer re-signing.
 - **Atomic publish** — build metadata in staging, then flip the live state. `publish-dir` turns a package drop directory into add + publish + optional live cutover with fast no-op detection, first-class optional RPM payload signing, and optional external sync.
 - **Incremental publish** — unchanged apt/yum packages are reused from a file manifest; production dogfood reduced small-add `publish` from ~18s to ~1s after the one-time yum fragment backfill.
 - **Rollbackable** — keep published states and flip back when a bad release escapes.
@@ -72,11 +72,13 @@ ArtifactX keeps the package repository as a directory you can inspect, back up, 
 
 Use `import` when you already have packages somewhere and want a cleaner repo in front of them. Start with a bounded slice, verify clients, then cut over when the repo is boring.
 
-`arx import` copies package payloads into the local pool. The new repository
-becomes client-consumable after `arx publish`, which regenerates and signs fresh
-apt/yum metadata for the ArtifactX repo. Existing upstream package files are not
-rewritten or re-signed; upstream repository metadata signatures cannot be reused
-because paths, checksums, expiry, and trust root now belong to the new repo.
+`arx import` copies package payloads into the local pool and, by default, preserves
+upstream bytes and signatures. `arx publish` regenerates and signs fresh apt/yum
+metadata because paths, checksums, expiry, and trust root now belong to the new
+repo. For yum, `--resign-rpms` opts into package re-signing after upstream
+size/checksum checks, using the system `rpmsign --resign` identity rather than
+`keys/private.asc`. Existing RPM paths are never replaced; use a new yum
+component or repository.
 
 ### Import from apt
 
@@ -203,7 +205,7 @@ ArtifactX import is a migration path, not a magic mirror.
   `Release.gpg`, and `repomd.xml.asc` must be created for the new repository
   metadata, ideally with your existing organization repo key.
 - **It is not a bit-for-bit mirror** of the upstream repository metadata. Use mirroring when you need continuous upstream sync.
-- **It does not re-sign individual packages.** Keep package signing in your build pipeline if your clients enforce package-level signatures.
+- **By default, imports preserve individual payload signatures.** Yum imports can opt into `--resign-rpms`; package signing remains separate from repository metadata signing.
 
 ## Current focus: keep the shipped paths boring
 
@@ -401,7 +403,7 @@ sudo apt-get install myapp
 
 ### dnf/yum
 
-ArtifactX signs yum repository metadata (`repomd.xml.asc`). It does not re-sign individual `.rpm` packages; keep package signing in your build pipeline if you require `gpgcheck=1`.
+ArtifactX signs yum repository metadata (`repomd.xml.asc`) and preserves RPM payload signatures by default. For `gpgcheck=1`, sign packages in your build pipeline or import with `--resign-rpms` and configure clients with the corresponding RPM signing public key.
 
 ```ini
 # /etc/yum.repos.d/arx.repo
