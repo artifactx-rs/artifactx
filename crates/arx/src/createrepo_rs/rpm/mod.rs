@@ -332,25 +332,16 @@ impl RpmReader {
         compute_sha256(&self.path)
     }
 
-    /// Check whether this RPM is cryptographically signed.
+    /// Check whether this RPM is signed.
     ///
-    /// Returns true if the signature header contains a PGP, RSA, or DSA
-    /// signature entry.
+    /// Returns true when the signature header contains a legacy or native
+    /// OpenPGP signature entry.
     #[must_use]
     pub fn is_signed(&self) -> bool {
         let Ok(metadata) = rpm_crate::PackageMetadata::open(&self.path) else {
             return false;
         };
-        use rpm_crate::IndexSignatureTag;
-        metadata
-            .signature
-            .entry_is_present(IndexSignatureTag::RPMSIGTAG_PGP)
-            || metadata
-                .signature
-                .entry_is_present(IndexSignatureTag::RPMSIGTAG_RSA)
-            || metadata
-                .signature
-                .entry_is_present(IndexSignatureTag::RPMSIGTAG_DSA)
+        signature_header_has_signed_tag(|tag| metadata.signature.entry_is_present(tag))
     }
 
     /// Read only manifest fields (name, version, arch, signed).
@@ -374,16 +365,8 @@ impl RpmReader {
             .map_err(|e| RpmError::Metadata(e.to_string()))?
             .to_string();
 
-        use rpm_crate::IndexSignatureTag;
-        let signed = metadata
-            .signature
-            .entry_is_present(IndexSignatureTag::RPMSIGTAG_PGP)
-            || metadata
-                .signature
-                .entry_is_present(IndexSignatureTag::RPMSIGTAG_RSA)
-            || metadata
-                .signature
-                .entry_is_present(IndexSignatureTag::RPMSIGTAG_DSA);
+        let signed =
+            signature_header_has_signed_tag(|tag| metadata.signature.entry_is_present(tag));
 
         Ok(ManifestEntry {
             name,
@@ -414,9 +397,32 @@ fn compute_sha256(path: &Path) -> Result<String, RpmError> {
     Ok(format!("{result:x}"))
 }
 
+fn signature_header_has_signed_tag(
+    is_present: impl FnMut(rpm_crate::IndexSignatureTag) -> bool,
+) -> bool {
+    use rpm_crate::IndexSignatureTag as Tag;
+    [
+        Tag::RPMSIGTAG_PGP,
+        Tag::RPMSIGTAG_RSA,
+        Tag::RPMSIGTAG_DSA,
+        Tag::RPMSIGTAG_OPENPGP,
+    ]
+    .into_iter()
+    .any(is_present)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_openpgp_signature_tag_counts_as_signed() {
+        use rpm_crate::IndexSignatureTag;
+
+        assert!(signature_header_has_signed_tag(|tag| {
+            matches!(tag, IndexSignatureTag::RPMSIGTAG_OPENPGP)
+        }));
+    }
 
     #[test]
     fn test_parse_dep_version_empty() {

@@ -101,6 +101,22 @@ If upstream metadata contains damaged historical entries (for example a size or
 checksum that does not match the downloaded RPM), ArtifactX warns and skips the
 bad entry while continuing to import the rest.
 
+By default, imported RPM bytes and signatures are preserved. To re-sign selected
+packages, use `--resign-rpms`; `rpmsign` must have the intended signing identity
+configured on the host. For cutover, add `--strict` so signer failures make the
+command fail. If the destination RPM path exists, use a new yum component or
+repository; re-signing refuses to replace any existing path to avoid invalidating
+active or rollback metadata.
+
+```sh
+arx import https://packages.example.com \
+  --yum \
+  --component myrepo \
+  --resign-rpms \
+  --strict \
+  --root ./repo
+```
+
 Then configure a dnf/yum client. See [Install clients](../how-to/install-clients.md).
 
 ## Expand after the canary
@@ -130,7 +146,7 @@ arx publish --root ./repo
 ## What import does not do
 
 - It does not take ownership of your upstream repo.
-- It does not re-sign individual package payloads.
+- By default, imported package files preserve bytes and signatures. Use `--resign-rpms` to opt in to yum package re-signing.
 - It does not reuse upstream repository metadata signatures; `publish` signs the
   new ArtifactX metadata. It can preserve apt identity fields, but the signature
   is still newly generated for the ArtifactX repository.

@@ -1438,15 +1438,16 @@ fn cmd_import_blocking(args: &cli::ImportArgs) -> Result<()> {
     if do_yum {
         let repo = args.component.as_deref().unwrap_or(&cfg.yum.repo);
         scope::validate_scope_name(repo, "yum repo")?;
-        let n = import::import_yum(
-            &args.root,
-            &cfg,
-            &args.url,
+        let n = import::import_yum(&import::YumImportOpts {
+            root: &args.root,
+            cfg: &cfg,
+            base_url: &args.url,
             repo,
-            args.limit,
-            args.strict,
-            true,
-        )?;
+            limit: args.limit,
+            strict: args.strict,
+            allow_private: true,
+            resign_rpms: args.resign_rpms,
+        })?;
         total += n;
     }
 

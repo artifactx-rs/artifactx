@@ -97,9 +97,9 @@ ArtifactX signs repository metadata:
 - apt: `InRelease` and `Release.gpg`
 - yum/dnf: `repomd.xml.asc`
 
-It does not re-sign individual package payloads. If your organization requires
-package-level signatures, keep that policy in your package build pipeline and use
-ArtifactX for repository metadata.
+By default, imports preserve individual package payload bytes and signatures. Yum
+imports can opt into `--resign-rpms`, which invokes the system RPM signer after
+upstream size/checksum checks; `keys/private.asc` continues to sign metadata only.
 
 ## Documentation rules for contributors
 

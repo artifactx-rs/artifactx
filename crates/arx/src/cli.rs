@@ -448,6 +448,9 @@ pub struct ImportArgs {
     /// Import from a yum repo.
     #[arg(long)]
     pub yum: bool,
+    /// Re-sign imported RPM payloads with the system-configured RPM signer.
+    #[arg(long, requires = "yum")]
+    pub resign_rpms: bool,
     /// Fail if any upstream metadata entry is invalid or cannot be downloaded.
     #[arg(long)]
     pub strict: bool,

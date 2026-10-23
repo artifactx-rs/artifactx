@@ -1708,6 +1708,105 @@ fn yum_import_accepts_noncanonical_rpm_filenames_and_xz_metadata() {
         root.join("yum/staging/x86_64/repodata/repomd.xml").exists(),
         "imported rpm should publish as a normal yum repository"
     );
+    let imported_rpm = root.join("yum/staging/x86_64").join(rpm_name);
+    let imported_sha = sha256_hex(&imported_rpm);
+    let duplicate = arx_output(&[
+        "import",
+        &server.base_url,
+        "--yum",
+        "--root",
+        root.to_str().unwrap(),
+        "--component",
+        "staging",
+    ]);
+    assert!(
+        duplicate.status.success(),
+        "default repeated import failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&duplicate.stdout),
+        String::from_utf8_lossy(&duplicate.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&duplicate.stdout).contains("Imported 0 package(s)."),
+        "default repeated import should skip identical upstream bytes:\n{}",
+        String::from_utf8_lossy(&duplicate.stdout)
+    );
+    assert_eq!(
+        sha256_hex(&imported_rpm),
+        imported_sha,
+        "default import must preserve the existing RPM bytes"
+    );
+
+    let existing_target = common::arx_command()
+        .args([
+            "import",
+            &server.base_url,
+            "--yum",
+            "--strict",
+            "--resign-rpms",
+            "--root",
+            root.to_str().unwrap(),
+            "--component",
+            "staging",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !existing_target.status.success(),
+        "strict re-sign must refuse to replace an existing RPM"
+    );
+    let existing_stderr = String::from_utf8_lossy(&existing_target.stderr);
+    assert!(
+        existing_stderr.contains("refusing to replace an RPM"),
+        "existing-target failure should explain the safe path:\n{existing_stderr}"
+    );
+    assert_eq!(
+        sha256_hex(&imported_rpm),
+        imported_sha,
+        "re-signing must not mutate a package already in the repository"
+    );
+
+    let empty_path = tmp.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let resign = common::arx_command()
+        .args([
+            "import",
+            &server.base_url,
+            "--yum",
+            "--strict",
+            "--resign-rpms",
+            "--root",
+            root.to_str().unwrap(),
+            "--component",
+            "resigned",
+        ])
+        .env("PATH", &empty_path)
+        .output()
+        .unwrap();
+    assert!(
+        !resign.status.success(),
+        "strict import must fail when rpmsign is unavailable"
+    );
+    let resign_stderr = String::from_utf8_lossy(&resign.stderr);
+    assert!(
+        resign_stderr.contains("rpmsign --resign"),
+        "signer failure should identify rpmsign --resign:\n{resign_stderr}"
+    );
+    assert!(
+        !root
+            .join("yum/resigned")
+            .join(format!(".incoming-{rpm_name}"))
+            .exists(),
+        "failed signer must clean its temporary RPM"
+    );
+    assert!(
+        !root.join("yum/resigned/x86_64").join(rpm_name).exists(),
+        "a failed re-sign must not publish an unmodified RPM"
+    );
+    assert_eq!(
+        sha256_hex(&imported_rpm),
+        imported_sha,
+        "a failed re-sign must leave the existing RPM unchanged"
+    );
 }
 
 #[test]

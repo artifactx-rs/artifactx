@@ -296,7 +296,17 @@ Use `--sync-cmd` only for site-specific fan-out such as rsync, CDN upload, or
 - `--arch <ARCH>`: apt architecture filter. Default: `amd64`.
 - `--limit <N>`: import only the first N packages.
 - `--match-name <PREFIX>`: import packages whose names match the prefix.
-- `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, or fails size/checksum validation. Use this for production cutover gates; omit it for best-effort migrations.
+- `--strict`: fail a yum import if any upstream metadata entry is missing, corrupt, cannot be downloaded, or fails RPM signing. Use this for production cutover gates; omit it for best-effort migrations.
+- `--resign-rpms`: with `--yum`, run `rpmsign --resign` on each imported RPM after upstream size/checksum checks.
+
+This option uses the system-configured RPM signing identity, not `keys/private.asc`,
+which signs repository metadata. `rpmsign --resign` replaces signatures inside
+the downloaded RPM. Existing destination paths are refused to protect active
+and rollback metadata; use a new yum component or repository. Without `--strict`,
+signer or destination conflicts are warned and skipped.
+
+Yum import decompresses primary metadata in gzip (`.gz`), xz (`.xz`), bzip2
+(`.bz2`), and zstd (`.zst`) formats.
 
 For apt imports, ArtifactX reads upstream `dists/<dist>/Release` when available and preserves `Origin`, `Label`, `Suite`, and `Codename` in `arx.toml`; subsequent `publish` keeps those identity fields unless you deliberately edit `[apt.release]`.
 

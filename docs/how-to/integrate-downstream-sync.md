@@ -166,8 +166,9 @@ arx publish \
 
 Add `--dry-run` to publish, export, and validate without switching live pointers.
 Add `--require-signed-rpms` when yum clients enforce RPM payload signatures with
-`gpgcheck=1`. ArtifactX signs repository metadata, but it does not re-sign RPM
-payloads during import.
+`gpgcheck=1`. Packages can be signed in the build pipeline or during yum import
+with `--resign-rpms`; the latter uses the system RPM signing identity, separate
+from ArtifactX's repository metadata signer unless configured with the same key.
 
 `arx cutover` remains available for the less-common case where you want to
 switch previously published metadata with `--no-publish`.

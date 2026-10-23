@@ -4,6 +4,7 @@
 use std::io::Read;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
@@ -23,6 +24,19 @@ pub struct ImportOpts<'a> {
     pub limit: Option<usize>,
     /// Allow private upstreams for trusted local CLI imports; the server keeps this false by default.
     pub allow_private: bool,
+}
+
+/// Import parameters for upstream yum/dnf repositories.
+pub struct YumImportOpts<'a> {
+    pub root: &'a Path,
+    pub cfg: &'a Config,
+    pub base_url: &'a str,
+    pub repo: &'a str,
+    pub limit: Option<usize>,
+    pub strict: bool,
+    pub allow_private: bool,
+    /// Re-sign imported RPMs with the system `rpmsign` configuration.
+    pub resign_rpms: bool,
 }
 
 #[derive(Debug)]
@@ -291,6 +305,8 @@ fn decompress_by_location(location: &str, body: &[u8]) -> Result<String> {
             .read_to_end(&mut out)
             .context("decompressing bzip2 metadata")?;
         out
+    } else if location.ends_with(".zst") {
+        zstd::stream::decode_all(body).context("decompressing zstd metadata")?
     } else if location.ends_with(".zck") {
         bail!("zchunk metadata is not supported yet: {location}")
     } else {
@@ -495,6 +511,28 @@ fn rpm_arch_from_file(path: &Path) -> Result<String> {
     Ok(scope::validate_scope_name(&package.arch, "yum arch")?.to_string())
 }
 
+fn rpm_is_signed_from_file(path: &Path) -> Result<bool> {
+    let reader = crate::createrepo_rs::rpm::RpmReader::open(path)
+        .with_context(|| format!("opening rpm {}", path.display()))?;
+    Ok(reader.is_signed())
+}
+
+fn run_rpmsign_resign(path: &Path) -> Result<()> {
+    let status = Command::new("rpmsign")
+        .arg("--resign")
+        .arg(path)
+        .stdin(Stdio::null())
+        .status()
+        .with_context(|| format!("running rpmsign --resign for {}", path.display()))?;
+    if !status.success() {
+        bail!(
+            "rpmsign --resign failed with status {status} for {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 fn write_verified_rpm_to_arch_dir(
     repo_dir: &Path,
     name: &str,
@@ -502,6 +540,7 @@ fn write_verified_rpm_to_arch_dir(
     body: &[u8],
     size: Option<u64>,
     checksum: Option<&Checksum>,
+    resign_rpms: bool,
 ) -> Result<bool> {
     verify_size(location, size, body.len())?;
     verify_checksum(location, checksum, body)?;
@@ -515,12 +554,29 @@ fn write_verified_rpm_to_arch_dir(
     let result = (|| {
         let arch = rpm_arch_from_file(&tmp)?;
         let arch_dir = repo_dir.join(arch);
-        std::fs::create_dir_all(&arch_dir)
-            .with_context(|| format!("creating {}", arch_dir.display()))?;
         let dest = arch_dir.join(name);
-        if check_existing_package(&dest, location, body, size, checksum, None)? {
+        if resign_rpms && dest.exists() {
+            bail!(
+                "{} already exists; refusing to replace an RPM during re-signing; use a new yum component or repository",
+                dest.display()
+            );
+        }
+        if !resign_rpms && check_existing_package(&dest, location, body, size, checksum, None)? {
+            std::fs::remove_file(&tmp)
+                .with_context(|| format!("removing duplicate {}", tmp.display()))?;
             return Ok(false);
         }
+        if resign_rpms {
+            run_rpmsign_resign(&tmp)?;
+            if !rpm_is_signed_from_file(&tmp)? {
+                bail!(
+                    "rpmsign --resign completed but {} is still unsigned",
+                    tmp.display()
+                );
+            }
+        }
+        std::fs::create_dir_all(&arch_dir)
+            .with_context(|| format!("creating {}", arch_dir.display()))?;
         std::fs::rename(&tmp, &dest)
             .with_context(|| format!("moving {} to {}", tmp.display(), dest.display()))?;
         Ok(true)
@@ -608,15 +664,17 @@ pub fn import_apt(opts: &ImportOpts) -> Result<usize> {
 }
 
 /// Import packages from an upstream yum/dnf repository.
-pub fn import_yum(
-    root: &Path,
-    cfg: &Config,
-    base_url: &str,
-    repo: &str,
-    limit: Option<usize>,
-    strict: bool,
-    allow_private: bool,
-) -> Result<usize> {
+pub fn import_yum(opts: &YumImportOpts<'_>) -> Result<usize> {
+    let YumImportOpts {
+        root,
+        cfg,
+        base_url,
+        repo,
+        limit,
+        strict,
+        allow_private,
+        resign_rpms,
+    } = *opts;
     let repo = scope::validate_scope_name(repo, "yum repo")?;
     let base = base_url.trim_end_matches('/');
     let client = import_client(base_url, allow_private)?;
@@ -663,6 +721,7 @@ pub fn import_yum(
                 &body,
                 entry.size,
                 entry.checksum.as_ref(),
+                resign_rpms,
             )
         })();
 
@@ -708,10 +767,20 @@ pub fn import_yum(
 
 #[cfg(test)]
 mod tests {
-    use super::import_client;
+    use super::{decompress_by_location, import_client};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn decompresses_zstd_metadata() {
+        let source = b"<metadata/>";
+        let compressed = zstd::stream::encode_all(&source[..], 0).unwrap();
+        assert_eq!(
+            decompress_by_location("repodata/primary.xml.zst", &compressed).unwrap(),
+            "<metadata/>"
+        );
+    }
 
     #[test]
     fn import_client_stops_private_redirects() {
