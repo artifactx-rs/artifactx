@@ -121,8 +121,24 @@ pub fn contains_control_chars(text: &str) -> bool {
 /// Read and parse the control file from a `.deb` at `path`.
 pub fn read_control(path: &std::path::Path) -> Result<Control> {
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut archive = ar::Archive::new(file);
+    read_control_from(ar::Archive::new(file), &path.display().to_string())
+}
 
+/// Read and parse the control file from in-memory `.deb` bytes.
+///
+/// For callers that receive a package over the wire: validating the bytes keeps
+/// an unindexable artifact from being written anywhere first.
+pub fn read_control_bytes(bytes: &[u8]) -> Result<Control> {
+    read_control_from(
+        ar::Archive::new(std::io::Cursor::new(bytes)),
+        "uploaded package",
+    )
+}
+
+fn read_control_from<R: std::io::Read + std::io::Seek>(
+    mut archive: ar::Archive<R>,
+    label: &str,
+) -> Result<Control> {
     while let Some(entry) = archive.next_entry() {
         let mut entry = entry.context("reading ar entry")?;
         let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
@@ -135,10 +151,10 @@ pub fn read_control(path: &std::path::Path) -> Result<Control> {
             let tar_bytes = decompress(ext, &compressed)
                 .with_context(|| format!("decompressing control.tar{ext}"))?;
             return control_from_tar(&tar_bytes)
-                .with_context(|| format!("extracting control from {}", path.display()));
+                .with_context(|| format!("extracting control from {label}"));
         }
     }
-    bail!("{}: no control.tar member found", path.display())
+    bail!("{label}: no control.tar member found")
 }
 
 /// Decompress a control tarball based on the member's suffix after `control.tar`.

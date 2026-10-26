@@ -979,10 +979,22 @@ fn ingest(
         "deb" => {
             let comp = component.unwrap_or_else(|| st.cfg.apt.component.clone());
             let comp = client_scope_name(&comp, "apt component")?;
+            // Validate the uploaded bytes before touching the pool. Writing
+            // first and validating later destroys any same-named valid package
+            // and only surfaces the problem at publish time (skipped in lenient
+            // mode, or a failed publish under `--strict` while the old index
+            // still points at the overwritten file).
+            arx_debrepo::deb::read_control_bytes(&body).map_err(|err| {
+                bad_request(err.context(format!("validating uploaded {filename}")))
+            })?;
             let dir = st.cfg.checked_apt_pool_root(&st.root)?.join(comp);
             let dest = dir.join(filename);
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-            std::fs::write(&dest, &body).context("writing uploaded .deb")?;
+            // Replace the pool file atomically: a partially written upload must
+            // not leave a truncated package where a valid one used to be.
+            let tmp = dir.join(format!(".incoming-{filename}"));
+            std::fs::write(&tmp, &body).context("writing uploaded .deb")?;
+            std::fs::rename(&tmp, &dest).context("moving uploaded .deb")?;
             crate::hooks::run(
                 &st.root,
                 &st.cfg,

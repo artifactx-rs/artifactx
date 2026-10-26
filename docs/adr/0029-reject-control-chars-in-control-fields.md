@@ -38,10 +38,18 @@ Validate control fields while parsing, in `arx-debrepo::parse_control`:
 - fail with the field name and the offending byte offset, so the operator can
   find the package instead of guessing which of a thousand artifacts is broken.
 
-Rejection happens at read time, which means it covers `arx add`, `arx publish`
-(including pool rescans), and every other path that reads a `.deb` control
-file. A repository that already contains such a package stops advertising it on
-the next publish, which is the intended behaviour: an index that no client can
+Rejection happens at read time. Every ingest path reads the control file before
+the artifact becomes visible:
+
+- `arx add` validates before copying, so the pool never receives it;
+- `arx push` and `POST /api/v1/packages` validate the uploaded bytes before
+  writing anything, so a rejected upload cannot overwrite a same-named valid
+  package;
+- `arx publish` (including pool rescans) skips or rejects it instead of
+  advertising a stanza no client can parse.
+
+A repository that already contains such a package stops advertising it on the
+next publish, which is the intended behaviour: an index that no client can
 parse is worse than a skipped package.
 
 ### Pre-rendered caches are re-validated

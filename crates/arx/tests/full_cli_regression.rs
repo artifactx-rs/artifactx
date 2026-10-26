@@ -2339,6 +2339,88 @@ fn api_workflow_covers_documented_publish_history_rollback_and_promote() {
 }
 
 #[test]
+fn serve_rejects_uploaded_deb_with_control_character_without_touching_the_pool() {
+    let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    let good = tmp.path().join("cr-api_1.0-1_amd64.deb");
+    let bad = tmp.path().join("cr-api-bad-upload.deb");
+    write_deb(&good, "cr-api", "1.0-1", "amd64");
+    write_deb(&bad, "cr-api", "1.0\r-1", "amd64");
+
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    arx_ok(&[
+        "add",
+        good.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    arx_ok(&["publish", "--root", root.to_str().unwrap(), "--no-live"]);
+
+    let pool = root.join("apt/pool/main/cr-api_1.0-1_amd64.deb");
+    let pool_before = std::fs::read(&pool).unwrap();
+    let packages = root.join("apt/dists/stable/main/binary-amd64/Packages");
+    let index_before = std::fs::read_to_string(&packages).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let _child = ChildGuard(
+        common::arx_command()
+            .args([
+                "serve",
+                "--root",
+                root.to_str().unwrap(),
+                "--addr",
+                &addr.to_string(),
+            ])
+            .env("ARX_SERVE_TOKEN", "test-token")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let base = format!("http://{addr}");
+    wait_for("serve health", Duration::from_secs(10), || {
+        reqwest::blocking::get(format!("{base}/api/v1/health"))
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    });
+
+    // `arx push` / POST /api/v1/packages is a second ingest path: a same-name
+    // upload must not overwrite the valid package before validation runs.
+    let response = reqwest::blocking::Client::new()
+        .post(format!("{base}/api/v1/packages"))
+        .bearer_auth("test-token")
+        .header("X-Arx-Filename", "cr-api_1.0-1_amd64.deb")
+        .header("X-Arx-Component", "main")
+        .body(std::fs::read(&bad).unwrap())
+        .send()
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "a control character in the uploaded control file is a client error"
+    );
+    let body = response.text().unwrap();
+    assert!(
+        body.contains("U+000D"),
+        "error should name the offending byte: {body}"
+    );
+
+    assert_eq!(
+        std::fs::read(&pool).unwrap(),
+        pool_before,
+        "an existing valid package must not be overwritten by a rejected upload"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&packages).unwrap(),
+        index_before,
+        "the published index must not change after a rejected upload"
+    );
+}
+
+#[test]
 fn serve_rejects_unauthenticated_write_when_token_is_configured() {
     let _serve_guard = SERVE_TEST_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
