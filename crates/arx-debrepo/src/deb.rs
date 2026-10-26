@@ -77,7 +77,45 @@ pub fn parse_control(text: &str) -> Result<Control> {
     if fields.is_empty() {
         bail!("empty control file");
     }
+
+    // Reject control characters instead of indexing them verbatim.
+    for (name, value) in &fields {
+        reject_control_chars("field name", name)?;
+        reject_control_chars(name, value)?;
+    }
+
     Ok(Control { fields })
+}
+
+/// Reject ASCII control characters that cannot appear in a control field.
+///
+/// `str::lines` strips one trailing `\r`, so CRLF-authored control files parse
+/// fine. A *bare* CR inside a value survives — and a package whose
+/// `Version: 1.2.3\r-1` is indexed verbatim produces a `Packages` stanza that
+/// `dpkg`/`apt` refuse to parse, while every consumer that derives a version
+/// from the index inherits the stray byte. Newlines and tabs stay allowed:
+/// folded values legitimately contain them.
+fn reject_control_chars(field: &str, value: &str) -> Result<()> {
+    if let Some((offset, ch)) = value.char_indices().find(|(_, ch)| is_control(*ch)) {
+        bail!(
+            "control {field} contains control character U+{:04X} at byte {offset}",
+            ch as u32
+        );
+    }
+    Ok(())
+}
+
+fn is_control(ch: char) -> bool {
+    matches!(ch, '\u{0}'..='\u{8}' | '\u{b}' | '\u{c}' | '\r' | '\u{e}'..='\u{1f}' | '\u{7f}')
+}
+
+/// True when `text` contains an ASCII control character that cannot appear in a
+/// control field. Tabs and newlines are allowed: folded values use them.
+///
+/// Used to re-check pre-rendered `Packages` stanzas taken from the incremental
+/// publish cache, which never re-parse the original `.deb`.
+pub fn contains_control_chars(text: &str) -> bool {
+    text.chars().any(is_control)
 }
 
 /// Read and parse the control file from a `.deb` at `path`.
@@ -217,5 +255,33 @@ mod tests {
         assert_eq!(c.package().unwrap(), "foo");
         // The second paragraph must not leak in.
         assert_eq!(c.fields().len(), 3);
+    }
+
+    #[test]
+    fn rejects_stray_carriage_return_in_version() {
+        // A bare CR inside a value is what a Windows-authored control file
+        // leaks; `lines()` only strips a trailing CR, never an interior one.
+        let err = parse_control("Package: foo\nVersion: 1.2.3\r-1\nArchitecture: all\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Version"), "unexpected error: {err}");
+        assert!(err.contains("U+000D"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn rejects_nul_in_field_value() {
+        let err = parse_control("Package: foo\nVersion: 1\u{0}2\nArchitecture: all\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("U+0000"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn accepts_crlf_control_file() {
+        // CRLF line endings are normal and must keep parsing: only interior
+        // control characters are rejected.
+        let c = parse_control("Package: foo\r\nVersion: 1.0-1\r\nArchitecture: all\r\n").unwrap();
+        assert_eq!(c.version().unwrap(), "1.0-1");
+        assert_eq!(c.architecture().unwrap(), "all");
     }
 }

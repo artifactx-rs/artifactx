@@ -199,6 +199,17 @@ fn cached_apt_entry(
     if cached.package.is_empty() || cached.version.is_empty() || cached.architecture.is_empty() {
         return None;
     }
+    // A manifest written before control characters were validated can hold a
+    // stanza with a stray CR. Reusing it would make `search` (and everything
+    // built on it) report an identity no client can parse, so treat it as a
+    // cache miss and let the caller re-read the file.
+    if arx_debrepo::deb::contains_control_chars(&cached.stanza)
+        || arx_debrepo::deb::contains_control_chars(&cached.package)
+        || arx_debrepo::deb::contains_control_chars(&cached.version)
+        || arx_debrepo::deb::contains_control_chars(&cached.architecture)
+    {
+        return None;
+    }
     Some(Entry {
         name: cached.package.clone(),
         version: cached.version.clone(),
@@ -299,8 +310,21 @@ fn scan_apt_with_filter(
                     continue;
                 }
                 stats.cache_misses += 1;
-                let control = arx_debrepo::deb::read_control(p)
-                    .with_context(|| format!("reading {}", p.display()))?;
+                let control = match arx_debrepo::deb::read_control(p) {
+                    Ok(control) => control,
+                    Err(err) => {
+                        // Skip instead of aborting the scan: one package the
+                        // control parser refuses (for example a legacy artifact
+                        // with a stray CR in `Version`) must not make `search`,
+                        // `rm`, or `gc` unusable for the rest of the pool.
+                        tracing::warn!(
+                            path = %p.display(),
+                            error = %format!("{err:#}"),
+                            "skipping unreadable package"
+                        );
+                        continue;
+                    }
+                };
                 stats.packages_parsed += 1;
                 out.push(Entry {
                     name: control.package()?.to_string(),

@@ -3328,6 +3328,217 @@ fn add_directory_without_packages_fails_loudly() {
 }
 
 #[test]
+fn add_rejects_deb_with_control_character_in_control_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    // A packaging tool that leaks a stray CR into Version produces a control
+    // file `dpkg` refuses. Ingest must refuse it too, instead of advertising a
+    // stanza nobody can parse.
+    let bad = tmp.path().join("cr-version_1.0-1_amd64.deb");
+    write_deb(&bad, "cr-version", "1.0\r-1", "amd64");
+
+    let output = arx_output(&[
+        "add",
+        bad.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        !output.status.success(),
+        "add must reject a control field with a stray CR\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("U+000D") && stderr.contains("Version"),
+        "error should name the field and the offending byte:\n{stderr}"
+    );
+    assert!(
+        !root
+            .join("apt/pool/main/cr-version_1.0-1_amd64.deb")
+            .exists(),
+        "a rejected package must not be copied into the pool"
+    );
+
+    // Control: a well-formed package still lands in the pool.
+    let good = tmp.path().join("clean-version_1.0-1_amd64.deb");
+    write_deb(&good, "clean-version", "1.0-1", "amd64");
+    arx_ok(&[
+        "add",
+        good.to_str().unwrap(),
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(root
+        .join("apt/pool/main/clean-version_1.0-1_amd64.deb")
+        .exists());
+}
+
+#[test]
+fn stale_manifest_cache_with_control_character_is_not_republished() {
+    // The incremental publish cache stores a pre-rendered stanza keyed by
+    // (mtime, size). A manifest written before control characters were
+    // validated can therefore hold a CR-versioned stanza for a file nobody
+    // modified, and reusing it would republish exactly the byte the parser now
+    // rejects.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let pool_dir = root.join("apt/pool/main");
+    std::fs::create_dir_all(&pool_dir).unwrap();
+    let deb = pool_dir.join("cr-cache_1.0-1_amd64.deb");
+    write_deb(&deb, "cr-cache", "1.0\r-1", "amd64");
+
+    let meta = std::fs::metadata(&deb).unwrap();
+    let mtime = meta
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let size = meta.len();
+    let stanza = format!(
+        "Package: cr-cache\\nVersion: 1.0\\r-1\\nArchitecture: amd64\\nFilename: pool/main/cr-cache_1.0-1_amd64.deb\\nSize: {size}\\n"
+    );
+    std::fs::write(
+        pool_dir.join(".arx-manifest.toml"),
+        format!(
+            "[\"cr-cache_1.0-1_amd64.deb\"]\n\
+             mtime = {mtime}\n\
+             size = {size}\n\
+             sha256 = \"{}\"\n\
+             stanza = \"{stanza}\"\n\
+             package = \"cr-cache\"\n\
+             version = \"1.0\\r-1\"\n\
+             architecture = \"amd64\"\n",
+            "0".repeat(64)
+        ),
+    )
+    .unwrap();
+
+    // `search` reads the same cache, and this runs before any publish rewrites
+    // the manifest: it must not report the CR identity either.
+    let search = arx_output(&["search", "cr-cache", "--root", root.to_str().unwrap()]);
+    assert!(
+        search.status.success(),
+        "search must not abort on an unreadable pool file\nstderr:\n{}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&search.stdout).contains("cr-cache"),
+        "search must not report a package the parser rejects:\n{}",
+        String::from_utf8_lossy(&search.stdout)
+    );
+
+    // A strict publish must fail rather than advertise the cached stanza.
+    let strict = arx_output(&[
+        "publish",
+        "--root",
+        root.to_str().unwrap(),
+        "--no-live",
+        "--strict",
+    ]);
+    assert!(
+        !strict.status.success(),
+        "strict publish must fail on the cached CR stanza\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&strict.stdout),
+        String::from_utf8_lossy(&strict.stderr)
+    );
+
+    // The default publish skips it; the rendered index must stay free of CR.
+    let relaxed = arx_output(&["publish", "--root", root.to_str().unwrap(), "--no-live"]);
+    assert!(
+        relaxed.status.success(),
+        "publish should skip, not abort\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&relaxed.stdout),
+        String::from_utf8_lossy(&relaxed.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&relaxed.stdout).contains("skipped"),
+        "publish should report the skipped package:\n{}",
+        String::from_utf8_lossy(&relaxed.stdout)
+    );
+    let packages = root.join("apt/dists/stable/main/binary-amd64/Packages");
+    if let Ok(text) = std::fs::read_to_string(&packages) {
+        assert!(
+            !text.contains('\r'),
+            "rendered Packages must not carry a carriage return:\n{text}"
+        );
+        assert!(
+            !text.contains("cr-cache"),
+            "rejected package must not be indexed:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn poisoned_stanza_cache_is_rebuilt_for_a_parseable_deb() {
+    // Different shape from the test above: the .deb itself is fine, only the
+    // cached stanza is poisoned. Filtering the cached *identity* is not enough
+    // here, because the slow path also reuses `cached.stanza` once the file
+    // parses; the whole entry has to be discarded.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+
+    let pool_dir = root.join("apt/pool/main");
+    std::fs::create_dir_all(&pool_dir).unwrap();
+    let deb = pool_dir.join("ok-cache_1.0-1_amd64.deb");
+    write_deb(&deb, "ok-cache", "1.0-1", "amd64");
+
+    let meta = std::fs::metadata(&deb).unwrap();
+    let mtime = meta
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let size = meta.len();
+    // Identity fields are clean; only the rendered stanza carries the CR.
+    let stanza = format!(
+        "Package: ok-cache\\nVersion: 1.0-1\\r-1\\nArchitecture: amd64\\nFilename: pool/main/ok-cache_1.0-1_amd64.deb\\nSize: {size}\\n"
+    );
+    std::fs::write(
+        pool_dir.join(".arx-manifest.toml"),
+        format!(
+            "[\"ok-cache_1.0-1_amd64.deb\"]\n\
+             mtime = {mtime}\n\
+             size = {size}\n\
+             sha256 = \"{}\"\n\
+             stanza = \"{stanza}\"\n\
+             package = \"ok-cache\"\n\
+             version = \"1.0-1\"\n\
+             architecture = \"amd64\"\n",
+            "0".repeat(64)
+        ),
+    )
+    .unwrap();
+
+    let publish = arx_output(&["publish", "--root", root.to_str().unwrap(), "--no-live"]);
+    assert!(
+        publish.status.success(),
+        "publish should rebuild the stanza, not fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&publish.stdout),
+        String::from_utf8_lossy(&publish.stderr)
+    );
+
+    let text = std::fs::read_to_string(root.join("apt/dists/stable/main/binary-amd64/Packages"))
+        .expect("Packages index should exist");
+    assert!(
+        !text.contains('\r'),
+        "rendered Packages must not carry the cached carriage return:\n{text}"
+    );
+    assert!(
+        text.contains("Package: ok-cache") && text.contains("Version: 1.0-1\n"),
+        "the freshly parsed identity should be indexed:\n{text}"
+    );
+}
+
+#[test]
 fn search_cli_filters_pool_entries_and_emits_json() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
