@@ -6,6 +6,7 @@
   <title>ArtifactX — publish apt/yum repos from one static binary</title>
   <meta name="description" content="ArtifactX imports or builds Linux packages, signs apt and yum repository metadata, then publishes static files you can host on GitHub Pages, S3, nginx, or arx serve.">
   <meta name="robots" content="index,follow">
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
   <link rel="canonical" href="__REPO_URL__/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="__REPO_URL__/">
@@ -93,9 +94,12 @@
       height: 62px;
     }
     .wordmark {
+      display: inline-flex; align-items: center; gap: 9px;
       font-weight: 800; font-size: 19px; letter-spacing: -.02em;
     }
-    .wordmark span { color: var(--cyan); }
+    .wordmark img { display: block; width: 30px; height: 30px; }
+    .wordmark .wm-text span { color: var(--cyan); }
+    .wordmark .wm-text span { color: var(--cyan); }
     .nav-links { display: flex; gap: 22px; margin-left: auto; align-items: center; }
     .nav-links a { color: var(--muted); font-size: 14.5px; font-weight: 550; }
     .nav-links a:hover { color: var(--text); }
@@ -318,7 +322,7 @@
 <body>
   <nav class="nav">
     <div class="wrap nav-inner">
-      <a class="wordmark" href="__REPO_URL__/">Artifact<span>X</span></a>
+      <a class="wordmark" href="__REPO_URL__/"><img src="assets/mark.svg" alt="" width="30" height="30"><span class="wm-text">Artifact<span>X</span></span></a>
       <div class="nav-links">
         <a href="#install">Install</a>
         <a class="hide-sm" href="#paths">Paths</a>

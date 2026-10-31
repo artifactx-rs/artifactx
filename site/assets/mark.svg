@@ -1,0 +1,31 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ArtifactX mark</title>
+  <desc id="desc">A signed package: an isometric cube with a verification seal at its lower right.</desc>
+  <defs>
+    <linearGradient id="k-top" x1="56" y1="42" x2="192" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E0F2FE"/>
+      <stop offset="1" stop-color="#BAE6FD"/>
+    </linearGradient>
+    <linearGradient id="k-left" x1="56" y1="82" x2="124" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <linearGradient id="k-right" x1="192" y1="82" x2="124" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#0369A1"/>
+    </linearGradient>
+    <linearGradient id="k-seal" x1="152" y1="150" x2="224" y2="222" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BEF264"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="#0C4A6E" stroke-width="5" stroke-linejoin="round">
+    <path d="M124 42 L192 82 L124 122 L56 82 Z" fill="url(#k-top)"/>
+    <path d="M56 82 L124 122 L124 200 L56 160 Z" fill="url(#k-left)"/>
+    <path d="M192 82 L124 122 L124 200 L192 160 Z" fill="url(#k-right)"/>
+  </g>
+  <path d="M124 122 L124 200" stroke="#0C4A6E" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="186" cy="186" r="37" fill="url(#k-seal)" stroke="#052E16" stroke-width="5"/>
+  <path d="M168 186 L180 198 L205 171" stroke="#052E16" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

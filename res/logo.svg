@@ -1,44 +1,42 @@
-<svg width="1200" height="360" viewBox="0 0 1200 360" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">ArtifactX logo</title>
-  <desc id="desc">ArtifactX wordmark with a geometric package, signed seal, and converging repository lanes.</desc>
+<svg width="900" height="280" viewBox="0 0 900 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ArtifactX</title>
+  <desc id="desc">ArtifactX wordmark: a signed package mark followed by the ArtifactX name.</desc>
   <defs>
-    <linearGradient id="ax-cyan" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22D3EE"/>
-      <stop offset="1" stop-color="#2563EB"/>
+    <linearGradient id="l-top" x1="56" y1="46" x2="192" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#38BDF8"/>
     </linearGradient>
-    <linearGradient id="ax-lime" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="l-left" x1="56" y1="82" x2="124" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="l-right" x1="192" y1="82" x2="124" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0369A1"/>
+      <stop offset="1" stop-color="#075985"/>
+    </linearGradient>
+    <linearGradient id="l-seal" x1="152" y1="150" x2="224" y2="222" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#A3E635"/>
       <stop offset="1" stop-color="#22C55E"/>
     </linearGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0F172A" flood-opacity="0.10"/>
-    </filter>
+    <linearGradient id="l-word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
   </defs>
 
-  <rect width="1200" height="360" rx="40" fill="#FFFFFF"/>
-
-  <g transform="translate(118 72)" filter="url(#soft)">
-    <!-- Repository lanes forming an X -->
-    <path d="M126 18 L166 18 L86 190 L46 190 Z" fill="#0F172A"/>
-    <path d="M208 18 L248 18 L328 190 L288 190 Z" fill="url(#ax-cyan)"/>
-    <path d="M46 18 L86 18 L166 190 L126 190 Z" fill="#111827" opacity="0.92"/>
-    <path d="M288 18 L328 18 L248 190 L208 190 Z" fill="url(#ax-cyan)"/>
-
-    <!-- Artifact/package cube -->
-    <g transform="translate(128 62)">
-      <path d="M68 0 L136 34 L68 68 L0 34 Z" fill="#E0F2FE" stroke="#0891B2" stroke-width="6"/>
-      <path d="M0 34 L68 68 L68 146 L0 112 Z" fill="#CFFAFE" stroke="#0891B2" stroke-width="6"/>
-      <path d="M136 34 L68 68 L68 146 L136 112 Z" fill="#BAE6FD" stroke="#0891B2" stroke-width="6"/>
-      <path d="M68 68 L68 146" stroke="#0891B2" stroke-width="6"/>
+  <!-- mark -->
+  <g transform="translate(16 30) scale(0.86)">
+    <g stroke="#0C4A6E" stroke-width="5" stroke-linejoin="round">
+      <path d="M124 42 L192 82 L124 122 L56 82 Z" fill="url(#l-top)"/>
+      <path d="M56 82 L124 122 L124 200 L56 160 Z" fill="url(#l-left)"/>
+      <path d="M192 82 L124 122 L124 200 L192 160 Z" fill="url(#l-right)"/>
     </g>
-
-    <!-- Signed metadata seal -->
-    <circle cx="268" cy="166" r="38" fill="url(#ax-lime)" stroke="#166534" stroke-width="6"/>
-    <path d="M249 166 L263 180 L291 148" stroke="#052E16" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M124 122 L124 200" stroke="#0C4A6E" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="186" cy="186" r="37" fill="url(#l-seal)" stroke="#14532D" stroke-width="5"/>
+    <path d="M168 186 L180 198 L205 171" stroke="#14532D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <g transform="translate(500 96)">
-    <text x="0" y="92" fill="#0F172A" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="98" font-weight="800" letter-spacing="-4">Artifact<tspan fill="#2563EB">X</tspan></text>
-    <text x="6" y="146" fill="#64748B" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="25" font-weight="700" letter-spacing="8">IMPORT • SIGN • PUBLISH • STATIC</text>
-  </g>
+  <!-- wordmark -->
+  <text x="248" y="168" fill="#0F172A" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="92" font-weight="800" letter-spacing="-3.5">Artifact<tspan fill="url(#l-word)">X</tspan></text>
+  <text x="252" y="222" fill="#64748B" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="19" font-weight="700" letter-spacing="5">IMPORT · SIGN · PUBLISH · STATIC</text>
 </svg>
