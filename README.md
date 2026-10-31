@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="res/logo.svg" alt="ArtifactX logo" width="680">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="res/logo-dark.svg">
+    <img src="res/logo.svg" alt="ArtifactX logo" width="680">
+  </picture>
 </p>
 
 <p align="center">
