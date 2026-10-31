@@ -387,6 +387,7 @@ arx serve --root ./repo</pre>
         <div class="term">
           <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="label">client side</span></div>
           <pre><span class="c"># apt</span>
+sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL __REPO_URL__/public.asc \
   | sudo tee /etc/apt/keyrings/arx.asc >/dev/null
 
