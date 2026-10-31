@@ -435,7 +435,8 @@ arx publish --root ./repo</pre>
           <span class="tag">Pack</span>
           <h3>Build the packages too</h3>
           <p>One manifest or a Rust <code>Cargo.toml</code> emits <code>.deb</code>, <code>.rpm</code>, <code>.apk</code>, and Arch <code>.pkg.tar.zst</code>. Payload signatures stay in your build pipeline.</p>
-          <pre>arx pack ./Cargo.toml --out dist
+          <pre>cargo build --release
+arx pack ./Cargo.toml --out dist
 arx add dist --root ./repo</pre>
         </article>
       </div>
