@@ -34,7 +34,7 @@
 
     <rect x="44" y="306" width="268" height="76" rx="16" fill="#0F172A" stroke="#25324A"/>
     <text x="68" y="337" class="l">Your build output</text>
-    <text x="68" y="362" class="s">.deb .rpm .apk .pkg.tar.zst</text>
+    <text x="68" y="362" class="s">.deb · .rpm</text>
   </g>
 
   <path d="M312 164 C348 164 356 224 390 224" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
@@ -46,7 +46,7 @@
     <rect x="390" y="126" width="330" height="256" rx="22" fill="#0B1322" stroke="#0891B2" stroke-width="1.5"/>
   </g>
   <text x="418" y="164" class="k">ARX</text>
-  <text x="418" y="196" class="l">import · pack · add</text>
+  <text x="418" y="196" class="l">import · add · pack</text>
   <path d="M418 216 H692" stroke="#1E293B" stroke-width="1"/>
   <text x="418" y="248" class="l">publish</text>
   <text x="418" y="274" class="s">build metadata in staging, sign it,</text>

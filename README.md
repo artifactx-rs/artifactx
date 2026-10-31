@@ -86,7 +86,8 @@ Three things enter, one thing leaves:
   matching package payloads into the local pool.
 - **Add** takes `.deb` / `.rpm` files or directories containing them.
 - **Pack** builds `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` from an ArtifactX
-  manifest or a Rust `Cargo.toml`.
+  manifest or a Rust `Cargo.toml`. Only `.deb` and `.rpm` feed the apt/yum index;
+  the other two are artifacts for downstream channels.
 
 `publish` then regenerates apt and yum metadata, signs it, and flips the live state
 atomically. Clients verify the signature, not the host — so the same output works from
