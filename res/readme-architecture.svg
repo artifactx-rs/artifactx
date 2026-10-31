@@ -1,87 +1,81 @@
-<svg width="1280" height="560" viewBox="0 0 1280 560" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">ArtifactX repository publishing flow</title>
-  <desc id="desc">Existing package repositories or local packages flow into ArtifactX, which imports, packages, signs metadata, publishes static repository files, and serves apt and yum clients.</desc>
+<svg width="1080" height="500" viewBox="0 0 1080 500" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">ArtifactX pipeline</title>
+  <desc id="desc">Existing apt or yum repositories, local .deb and .rpm files, or a Cargo.toml feed one arx binary that imports, packs, signs, and publishes static repository files or serves them directly to apt and dnf clients.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#07131F"/><stop offset="1" stop-color="#0B1020"/></linearGradient>
-    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#2563EB"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0A1220"/><stop offset="1" stop-color="#070B12"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#2563EB"/></linearGradient>
     <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#A3E635"/><stop offset="1" stop-color="#22C55E"/></linearGradient>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2 2 L10 6 L2 10" fill="none" stroke="#67E8F9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#22D3EE" flood-opacity="0.20"/></filter>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M1 1 L8 5 L1 9" fill="none" stroke="#22D3EE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="0" stdDeviation="20" flood-color="#22D3EE" flood-opacity="0.16"/></filter>
     <style>
-      .title{font:800 30px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#F8FAFC}
-      .label{font:700 18px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#E2E8F0}
-      .small{font:600 14px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#94A3B8}
-      .tiny{font:700 12px Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#CBD5E1;letter-spacing:.08em}
+      .h{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;font-size:26px;font-weight:800;fill:#F1F5F9;letter-spacing:-0.5px}
+      .l{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;font-size:19px;font-weight:650;fill:#E2E8F0}
+      .s{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;font-weight:500;fill:#8FA1B8}
+      .k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:700;fill:#22D3EE;letter-spacing:1.9px}
+      .c{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:600;fill:#CBD5E1}
     </style>
   </defs>
 
-  <rect width="1280" height="560" rx="34" fill="url(#bg)"/>
-  <circle cx="1100" cy="90" r="180" fill="#164E63" opacity="0.20"/>
-  <circle cx="160" cy="500" r="220" fill="#1D4ED8" opacity="0.14"/>
+  <rect width="1080" height="500" rx="26" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="1079" height="499" rx="26" stroke="#1E293B"/>
 
-  <text x="64" y="72" class="title">ArtifactX turns package repos into a static-site workflow</text>
-  <text x="64" y="104" class="small">Import existing apt/yum packages or add local artifacts, sign repository metadata, then host anywhere dumb HTTP works.</text>
+  <text x="44" y="60" class="h">One binary between your packages and your clients</text>
+  <text x="44" y="92" class="s">Import what you already publish, pack what you build, sign the metadata, then host static files or serve them.</text>
 
-  <!-- Inputs -->
-  <g transform="translate(64 164)">
-    <rect width="238" height="112" rx="22" fill="#0F172A" stroke="#334155"/>
-    <text x="24" y="42" class="label">Existing repos</text>
-    <text x="24" y="72" class="small">apt Packages • yum repodata</text>
-    <text x="24" y="94" class="tiny">IMPORT / MIRROR</text>
-  </g>
-  <g transform="translate(64 318)">
-    <rect width="238" height="112" rx="22" fill="#0F172A" stroke="#334155"/>
-    <text x="24" y="42" class="label">Local artifacts</text>
-    <text x="24" y="72" class="small">.deb • .rpm • Cargo.toml</text>
-    <text x="24" y="94" class="tiny">ADD / PACK</text>
-  </g>
+  <!-- inputs -->
+  <g>
+    <rect x="44" y="126" width="268" height="76" rx="16" fill="#0F172A" stroke="#25324A"/>
+    <text x="68" y="157" class="l">Existing apt repo</text>
+    <text x="68" y="182" class="s">Packages.gz</text>
 
-  <!-- arrows to core -->
-  <path d="M318 220 C382 220 402 262 458 262" stroke="#67E8F9" stroke-width="4" marker-end="url(#arrow)"/>
-  <path d="M318 374 C382 374 402 300 458 300" stroke="#67E8F9" stroke-width="4" marker-end="url(#arrow)"/>
+    <rect x="44" y="216" width="268" height="76" rx="16" fill="#0F172A" stroke="#25324A"/>
+    <text x="68" y="247" class="l">Existing yum repo</text>
+    <text x="68" y="272" class="s">repodata/repomd.xml</text>
 
-  <!-- Core -->
-  <g transform="translate(458 164)" filter="url(#glow)">
-    <rect width="360" height="266" rx="30" fill="#0B1220" stroke="#0891B2" stroke-width="2"/>
-    <text x="32" y="50" class="title">arx</text>
-    <text x="32" y="82" class="small">one static binary</text>
-    <text x="32" y="108" class="small">signs apt/yum repo metadata</text>
-    <g transform="translate(32 128)">
-      <rect width="132" height="42" rx="12" fill="#111827" stroke="#334155"/><text x="18" y="27" class="small">import</text>
-      <rect x="156" width="132" height="42" rx="12" fill="#111827" stroke="#334155"/><text x="174" y="27" class="small">package</text>
-      <rect y="58" width="132" height="42" rx="12" fill="#111827" stroke="#334155"/><text x="18" y="85" class="small">publish</text>
-      <rect x="156" y="58" width="132" height="42" rx="12" fill="#111827" stroke="#334155"/><text x="174" y="85" class="small">rollback</text>
-    </g>
-    <g transform="translate(238 28)">
-      <circle cx="52" cy="42" r="34" fill="url(#lime)" stroke="#166534" stroke-width="5"/>
-      <path d="M35 43 L48 56 L72 28" stroke="#052E16" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-    </g>
+    <rect x="44" y="306" width="268" height="76" rx="16" fill="#0F172A" stroke="#25324A"/>
+    <text x="68" y="337" class="l">Your build output</text>
+    <text x="68" y="362" class="s">.deb .rpm .apk .pkg.tar.zst</text>
   </g>
 
-  <!-- Outputs -->
-  <path d="M834 236 C884 236 908 196 960 196" stroke="#67E8F9" stroke-width="4" marker-end="url(#arrow)"/>
-  <path d="M834 294 C884 294 908 280 960 280" stroke="#67E8F9" stroke-width="4" marker-end="url(#arrow)"/>
-  <path d="M834 352 C884 352 908 366 960 366" stroke="#67E8F9" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M312 164 C348 164 356 224 390 224" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
+  <path d="M312 254 H390" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
+  <path d="M312 344 C348 344 356 284 390 284" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
 
-  <g transform="translate(960 144)">
-    <rect width="256" height="84" rx="20" fill="#0F172A" stroke="#334155"/>
-    <text x="24" y="36" class="label">Static repository</text>
-    <text x="24" y="62" class="small">GitHub Pages • S3 • nginx</text>
+  <!-- core -->
+  <g filter="url(#glow)">
+    <rect x="390" y="126" width="330" height="256" rx="22" fill="#0B1322" stroke="#0891B2" stroke-width="1.5"/>
   </g>
-  <g transform="translate(960 250)">
-    <rect width="256" height="84" rx="20" fill="#0F172A" stroke="#334155"/>
-    <text x="24" y="36" class="label">Built-in API</text>
-    <text x="24" y="62" class="small">serve • push • health • metrics</text>
-  </g>
-  <g transform="translate(960 356)">
-    <rect width="256" height="84" rx="20" fill="#0F172A" stroke="#334155"/>
-    <text x="24" y="36" class="label">Linux clients</text>
-    <text x="24" y="62" class="small">apt install • dnf install</text>
+  <text x="418" y="164" class="k">ARX</text>
+  <text x="418" y="196" class="l">import · pack · add</text>
+  <path d="M418 216 H692" stroke="#1E293B" stroke-width="1"/>
+  <text x="418" y="248" class="l">publish</text>
+  <text x="418" y="274" class="s">build metadata in staging, sign it,</text>
+  <text x="418" y="296" class="s">then flip the live state atomically</text>
+  <path d="M418 318 H692" stroke="#1E293B" stroke-width="1"/>
+  <text x="418" y="346" class="c">apt InRelease · Release.gpg</text>
+  <text x="418" y="368" class="c">yum repomd.xml.asc</text>
+
+  <g transform="translate(646 148)">
+    <circle cx="26" cy="26" r="26" fill="url(#lime)"/>
+    <path d="M14 27 L22 35 L39 15" stroke="#052E16" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <g transform="translate(64 482)">
-    <rect width="1152" height="42" rx="14" fill="#020617" stroke="#1E293B"/>
-    <text x="24" y="27" class="tiny">TRUST MODEL</text>
-    <text x="150" y="27" class="small">ArtifactX signs repo metadata: apt InRelease / Release.gpg, yum repomd.xml.asc. Package payload signing stays in your build pipeline.</text>
-  </g>
+  <path d="M720 214 C752 214 758 200 790 200" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
+  <path d="M720 294 C752 294 758 308 790 308" stroke="#22D3EE" stroke-width="2.5" marker-end="url(#ar)" opacity=".8"/>
+
+  <!-- outputs -->
+  <rect x="790" y="152" width="246" height="96" rx="16" fill="#0F172A" stroke="#25324A"/>
+  <text x="812" y="184" class="l">Static files</text>
+  <text x="812" y="209" class="s">Pages · S3 · nginx</text>
+  <text x="812" y="231" class="s">no daemon, no database</text>
+
+  <rect x="790" y="262" width="246" height="96" rx="16" fill="#0F172A" stroke="#25324A"/>
+  <text x="812" y="294" class="l">arx serve</text>
+  <text x="812" y="319" class="s">static + REST API + metrics</text>
+  <text x="812" y="341" class="s">token or GitHub OIDC for writes</text>
+
+  <!-- trust bar -->
+  <rect x="44" y="406" width="992" height="56" rx="14" fill="#050912" stroke="#1A2436"/>
+  <text x="68" y="440" class="k">TRUST</text>
+  <text x="152" y="440" class="s">Clients verify signed repository metadata, not the host. Package payload signatures stay in your build pipeline.</text>
 </svg>

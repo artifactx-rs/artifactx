@@ -79,3 +79,5 @@ for source, target in files.items():
     Path(target).write_text(rendered)
 PY
 chmod +x public/install.sh
+mkdir -p public/assets
+cp site/assets/* public/assets/
