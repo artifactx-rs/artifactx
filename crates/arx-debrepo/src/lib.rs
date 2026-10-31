@@ -328,6 +328,17 @@ pub fn stage_dist(
             } else {
                 None
             };
+            // A manifest written before control characters were validated can
+            // hold a stanza with a stray CR. Drop the whole entry, not just its
+            // identity: the slow path below also reuses `cached.stanza` when the
+            // file parses cleanly, so a merely-filtered identity would still
+            // publish the poisoned bytes.
+            let cached = cached.filter(|c| {
+                !deb::contains_control_chars(&c.stanza)
+                    && !deb::contains_control_chars(&c.package)
+                    && !deb::contains_control_chars(&c.version)
+                    && !deb::contains_control_chars(&c.architecture)
+            });
             let cached_identity = cached.as_ref().filter(|c| {
                 !c.package.is_empty() && !c.version.is_empty() && !c.architecture.is_empty()
             });

@@ -606,7 +606,15 @@ fn add_to_pool(
     let repo = scope::validate_scope_name(repo, "yum repo")?;
     let ext = pkg.extension().and_then(|e| e.to_str()).unwrap_or("");
     let dest_dir = match ext {
-        "deb" => cfg.checked_apt_pool_root(root)?.join(component),
+        "deb" => {
+            // Refuse deb packages that cannot be indexed. A control field with a
+            // stray control character is rejected by the parser; catching it here
+            // keeps unindexable bytes out of the pool instead of letting every
+            // later publish warn (or fail under --strict) about them.
+            arx_debrepo::deb::read_control(pkg)
+                .with_context(|| format!("reading {}", pkg.display()))?;
+            cfg.checked_apt_pool_root(root)?.join(component)
+        }
         "rpm" => {
             let mut reader = crate::createrepo_rs::rpm::RpmReader::open(pkg)
                 .with_context(|| format!("opening {}", pkg.display()))?;

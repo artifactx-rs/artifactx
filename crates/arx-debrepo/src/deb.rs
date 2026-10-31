@@ -77,14 +77,68 @@ pub fn parse_control(text: &str) -> Result<Control> {
     if fields.is_empty() {
         bail!("empty control file");
     }
+
+    // Reject control characters instead of indexing them verbatim.
+    for (name, value) in &fields {
+        reject_control_chars("field name", name)?;
+        reject_control_chars(name, value)?;
+    }
+
     Ok(Control { fields })
+}
+
+/// Reject ASCII control characters that cannot appear in a control field.
+///
+/// `str::lines` strips one trailing `\r`, so CRLF-authored control files parse
+/// fine. A *bare* CR inside a value survives — and a package whose
+/// `Version: 1.2.3\r-1` is indexed verbatim produces a `Packages` stanza that
+/// `dpkg`/`apt` refuse to parse, while every consumer that derives a version
+/// from the index inherits the stray byte. Newlines and tabs stay allowed:
+/// folded values legitimately contain them.
+fn reject_control_chars(field: &str, value: &str) -> Result<()> {
+    if let Some((offset, ch)) = value.char_indices().find(|(_, ch)| is_control(*ch)) {
+        bail!(
+            "control {field} contains control character U+{:04X} at byte {offset}",
+            ch as u32
+        );
+    }
+    Ok(())
+}
+
+fn is_control(ch: char) -> bool {
+    matches!(ch, '\u{0}'..='\u{8}' | '\u{b}' | '\u{c}' | '\r' | '\u{e}'..='\u{1f}' | '\u{7f}')
+}
+
+/// True when `text` contains an ASCII control character that cannot appear in a
+/// control field. Tabs and newlines are allowed: folded values use them.
+///
+/// Used to re-check pre-rendered `Packages` stanzas taken from the incremental
+/// publish cache, which never re-parse the original `.deb`.
+pub fn contains_control_chars(text: &str) -> bool {
+    text.chars().any(is_control)
 }
 
 /// Read and parse the control file from a `.deb` at `path`.
 pub fn read_control(path: &std::path::Path) -> Result<Control> {
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut archive = ar::Archive::new(file);
+    read_control_from(ar::Archive::new(file), &path.display().to_string())
+}
 
+/// Read and parse the control file from in-memory `.deb` bytes.
+///
+/// For callers that receive a package over the wire: validating the bytes keeps
+/// an unindexable artifact from being written anywhere first.
+pub fn read_control_bytes(bytes: &[u8]) -> Result<Control> {
+    read_control_from(
+        ar::Archive::new(std::io::Cursor::new(bytes)),
+        "uploaded package",
+    )
+}
+
+fn read_control_from<R: std::io::Read + std::io::Seek>(
+    mut archive: ar::Archive<R>,
+    label: &str,
+) -> Result<Control> {
     while let Some(entry) = archive.next_entry() {
         let mut entry = entry.context("reading ar entry")?;
         let name = String::from_utf8_lossy(entry.header().identifier()).to_string();
@@ -97,10 +151,10 @@ pub fn read_control(path: &std::path::Path) -> Result<Control> {
             let tar_bytes = decompress(ext, &compressed)
                 .with_context(|| format!("decompressing control.tar{ext}"))?;
             return control_from_tar(&tar_bytes)
-                .with_context(|| format!("extracting control from {}", path.display()));
+                .with_context(|| format!("extracting control from {label}"));
         }
     }
-    bail!("{}: no control.tar member found", path.display())
+    bail!("{label}: no control.tar member found")
 }
 
 /// Decompress a control tarball based on the member's suffix after `control.tar`.
@@ -217,5 +271,33 @@ mod tests {
         assert_eq!(c.package().unwrap(), "foo");
         // The second paragraph must not leak in.
         assert_eq!(c.fields().len(), 3);
+    }
+
+    #[test]
+    fn rejects_stray_carriage_return_in_version() {
+        // A bare CR inside a value is what a Windows-authored control file
+        // leaks; `lines()` only strips a trailing CR, never an interior one.
+        let err = parse_control("Package: foo\nVersion: 1.2.3\r-1\nArchitecture: all\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Version"), "unexpected error: {err}");
+        assert!(err.contains("U+000D"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn rejects_nul_in_field_value() {
+        let err = parse_control("Package: foo\nVersion: 1\u{0}2\nArchitecture: all\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("U+0000"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn accepts_crlf_control_file() {
+        // CRLF line endings are normal and must keep parsing: only interior
+        // control characters are rejected.
+        let c = parse_control("Package: foo\r\nVersion: 1.0-1\r\nArchitecture: all\r\n").unwrap();
+        assert_eq!(c.version().unwrap(), "1.0-1");
+        assert_eq!(c.architecture().unwrap(), "all");
     }
 }
