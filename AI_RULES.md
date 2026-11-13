@@ -27,6 +27,22 @@ surface unless the user explicitly asks and the change has a design note or ADR.
 - Do not print secrets in logs, final reports, PR bodies, or issue comments.
 - If a workflow touches GitHub Pages artifacts, verify `keys/private.asc` is absent from uploaded output.
 
+## Compatibility gate
+
+Compatibility is a hard release condition; see
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+
+- Adding a field to a public struct that downstream crates construct is
+  source-breaking even with `#[serde(default)]`; verify with a throwaway
+  downstream crate, not by reasoning.
+- A breaking change needs an ADR, a version that communicates it (never a patch
+  release), and a `Breaking` release-note section.
+- Before tagging, run the full gate: fmt, clippy, workspace tests, downstream
+  compile probe, client e2e (apt/dnf), public API diff, registry state.
+- A missing GitHub tag or Release does not mean a crate was never published: the
+  weekly `crates.yml` schedule publishes the current Cargo version without a
+  tag. Check the crates.io sparse index.
+
 ## Validation expectations
 
 Run the smallest checks that prove the claim. For normal code changes:

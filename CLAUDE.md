@@ -53,6 +53,10 @@ shipping software became effortless.
     generic platform.
 13. **Every release answers one question:** *does this make software distribution
     easier?* If not, don't build it.
+14. **Compatibility is non-negotiable.** ArtifactX is an upstream dependency
+    (`arx-pack`, `arx-debrepo`) and a production CLI. Breaking a public API,
+    CLI flag, config key, repository layout, or state format is a release
+    blocker, not a tradeoff. See [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
 ## Process: documentation-first
 
@@ -68,6 +72,8 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
 - Can it be explained in one paragraph and shown in one code block?
 - *Why not Aptly / Nexus / nfpm?* — is the advantage obvious?
 - For a non-trivial change: is there a reviewed ADR? (No → write it first.)
+- Does it change a public crate API, CLI flag, config key, repository layout, or
+  state format? (Yes → run the compatibility gate and document migration.)
 
 ## Applying this to current work
 
@@ -80,6 +86,8 @@ See [`docs/adr/README.md`](docs/adr/README.md) and [`docs/DESIGN.md`](docs/DESIG
 - Workspace: `crates/arx` (CLI, GPL) · `crates/arx-debrepo` (apt lib, MIT/Apache) ·
   `crates/arx-pack` (packaging lib, MIT/Apache).
 - `cargo test --workspace` and `cargo clippy --workspace` must stay green.
+- Compatibility gate: [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) — public
+  API diff, downstream compile probe, client e2e, registry state.
 - git/GitHub identity: `jamesarch` / `han.shan@live.cn`.
 
 ## Project code-intelligence routing
