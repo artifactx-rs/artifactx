@@ -61,10 +61,10 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
             .with_context(|| format!("adding file {} -> {}", entry.source, dest))?;
     }
 
-    // Dependencies are passed through verbatim; `Dependency::any` is an
-    // unversioned requirement, matching the PoC manifest's plain string deps.
+    // Dependencies accept the rpm/dnf spelling `name >= version`; unversioned
+    // entries keep the previous unversioned-requirement behaviour.
     for dep in &manifest.depends {
-        builder.requires(Dependency::any(dep.clone()));
+        builder.requires(rpm_dependency(dep));
     }
 
     for c in &manifest.conflicts {
@@ -103,6 +103,33 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
         .write_file(&out_path)
         .with_context(|| format!("writing {}", out_path.display()))?;
     Ok(out_path)
+}
+
+/// Map one manifest dependency string to an rpm `Requires` entry.
+///
+/// Accepts the dnf spelling `name >= version`, so a package can declare a
+/// minor-version floor. Entries without `>=` stay unversioned requirements,
+/// matching the previous behaviour.
+fn rpm_dependency(spec: &str) -> Dependency {
+    let spec = spec.trim();
+    // RPM rich dependencies are parenthesized boolean expressions; an inner
+    // `>=` is not a version constraint we can split without changing meaning.
+    if !spec.starts_with('(') {
+        if let Some((name, version)) = spec.split_once(">=") {
+            let name = name.trim();
+            let version = version.trim();
+            if !name.is_empty()
+                && !version.is_empty()
+                && !name.contains(char::is_whitespace)
+                && !version.contains(char::is_whitespace)
+                && !name.contains('(')
+                && !version.contains('(')
+            {
+                return Dependency::greater_eq(name, version);
+            }
+        }
+    }
+    Dependency::any(spec)
 }
 
 /// Read a maintainer script file into a string for embedding as a scriptlet.

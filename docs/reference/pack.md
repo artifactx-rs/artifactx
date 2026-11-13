@@ -33,6 +33,13 @@ and `.pkg.tar.zst` files in the output directory for downstream handling.
 A standalone manifest describes package identity, relationships, installed files,
 recursive directory payloads, config-file intent, and maintainer scripts.
 
+`depends` entries may carry an rpm version constraint in dnf spelling, for
+example `depends = ["postgresql-18 >= 18.7"]`; the rpm builder emits
+`Requires: postgresql-18 >= 18.7`. Entries without a comparison stay unversioned
+requirements. The deb builder writes the same strings verbatim into `Depends:`,
+so a manifest that targets both formats must use entries that are valid for
+each (`libc6` is unversioned in both; `libc6 (>= 2.31)` is deb-only).
+
 ```toml
 name = "hello"
 version = "1.2.3"

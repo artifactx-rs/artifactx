@@ -608,6 +608,90 @@ fn builds_and_reparses_rpm() {
 }
 
 #[test]
+fn rpm_preserves_rich_dependencies() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("rich");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+
+    let manifest = Manifest::from_toml_str(&format!(
+        r#"
+        name = "rich"
+        version = "1.0.0"
+        arch = "x86_64"
+        maintainer = "Dev <dev@example.com>"
+        description = "rich dependency"
+        license = "MIT"
+        depends = ["(pkgBB >= 2.0 or pkgCC >= 3.0)"]
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/rich"
+        mode = "0755"
+        "#,
+        payload.display(),
+    ))
+    .unwrap();
+
+    let rpm_path = arx_pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
+    let pkg = rpm::Package::open(&rpm_path).expect("rpm re-opens");
+    let requires = pkg.metadata.get_requires().expect("requires readable");
+
+    let rich = requires
+        .iter()
+        .find(|dep| dep.name == "(pkgBB >= 2.0 or pkgCC >= 3.0)")
+        .expect("rich dependency kept verbatim");
+    assert_eq!(rich.flags, rpm::DependencyFlags::ANY, "{rich:?}");
+    assert!(rich.version.is_empty(), "{rich:?}");
+}
+
+#[test]
+fn rpm_encodes_versioned_requires() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("versioned");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+
+    let manifest = Manifest::from_toml_str(&format!(
+        r#"
+        name = "versioned"
+        version = "1.0.0"
+        arch = "x86_64"
+        maintainer = "Dev <dev@example.com>"
+        description = "versioned dependencies"
+        license = "MIT"
+        depends = ["postgresql-18 >= 18.7", "libc"]
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/versioned"
+        mode = "0755"
+        "#,
+        payload.display(),
+    ))
+    .unwrap();
+
+    let rpm_path = arx_pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
+    let pkg = rpm::Package::open(&rpm_path).expect("rpm re-opens");
+    let requires = pkg.metadata.get_requires().expect("requires readable");
+
+    let pg = requires
+        .iter()
+        .find(|dep| dep.name == "postgresql-18")
+        .expect("versioned requires entry present");
+    assert_eq!(pg.version, "18.7", "{pg:?}");
+    assert_eq!(
+        pg.flags,
+        rpm::DependencyFlags::GREATER | rpm::DependencyFlags::EQUAL,
+        "{pg:?}"
+    );
+
+    let libc = requires
+        .iter()
+        .find(|dep| dep.name == "libc")
+        .expect("unversioned requires entry present");
+    assert_eq!(libc.flags, rpm::DependencyFlags::ANY, "{libc:?}");
+}
+
+#[test]
 fn builds_apk() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());
