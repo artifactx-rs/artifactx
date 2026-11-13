@@ -249,10 +249,8 @@ in flight is adoption polish, not new ecosystems.
 
 - **cargo-pgrx** ([pgcentralfoundation/pgrx](https://github.com/pgcentralfoundation/pgrx))
   uses `arx-pack` to build `.deb` and `.rpm` packages for PostgreSQL extensions.
-- **ParadeDB** ([paradedb/paradedb](https://github.com/paradedb/paradedb)) packages
-  `pg_search` with `cargo pgrx package`, which uses the same path.
 
-Using ArtifactX in your project? A short PR to add it here is welcome.
+Using ArtifactX directly in your project? A short PR to add it here is welcome.
 
 ## Project links
 
