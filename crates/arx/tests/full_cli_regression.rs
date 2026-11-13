@@ -974,6 +974,49 @@ fn publish_dir_release_identity_change_is_not_a_no_op() {
 }
 
 #[test]
+fn publish_dir_arm64_drop_is_a_no_op_on_second_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let deb = drop.join("pdir_arm64_1.0-1_arm64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-arm64", "1.0-1", "arm64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+    assert!(
+        repo.join("apt/dists/stable/main/binary-arm64/Packages.gz")
+            .is_file(),
+        "stage_dist should publish an arm64 index"
+    );
+
+    let second = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+    assert!(
+        second.status.success(),
+        "second publish-dir failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&second.stdout).contains("fast no-op"),
+        "unchanged arm64 drop should be a fast no-op: {}",
+        String::from_utf8_lossy(&second.stdout)
+    );
+}
+
+#[test]
 fn publish_dir_rejects_configured_dist_path_traversal() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

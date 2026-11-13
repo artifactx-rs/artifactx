@@ -1306,17 +1306,24 @@ fn publish_dir_outputs_ok(
 }
 
 fn apt_layout_ok(root: &Path, cfg: &Config) -> bool {
-    root.join("dists")
-        .join(&cfg.apt.dist)
-        .join("Release")
-        .is_file()
-        && root
-            .join("dists")
-            .join(&cfg.apt.dist)
-            .join(&cfg.apt.component)
-            .join("binary-amd64")
-            .join("Packages.gz")
-            .is_file()
+    let dist_dir = root.join("dists").join(&cfg.apt.dist);
+    if !dist_dir.join("Release").is_file() {
+        return false;
+    }
+    // `stage_dist` only indexes architectures present in the pool, so the
+    // published layout may be arm64-only (or multi-arch). Any indexed
+    // `binary-*/Packages.gz` proves the release was published.
+    std::fs::read_dir(dist_dir.join(&cfg.apt.component))
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("binary-"))
+                    && path.join("Packages.gz").is_file()
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn yum_flat_layout_ok(root: &Path) -> bool {
