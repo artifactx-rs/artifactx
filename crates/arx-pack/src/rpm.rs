@@ -112,11 +112,21 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
 /// matching the previous behaviour.
 fn rpm_dependency(spec: &str) -> Dependency {
     let spec = spec.trim();
-    if let Some((name, version)) = spec.split_once(">=") {
-        let name = name.trim();
-        let version = version.trim();
-        if !name.is_empty() && !version.is_empty() {
-            return Dependency::greater_eq(name, version);
+    // RPM rich dependencies are parenthesized boolean expressions; an inner
+    // `>=` is not a version constraint we can split without changing meaning.
+    if !spec.starts_with('(') {
+        if let Some((name, version)) = spec.split_once(">=") {
+            let name = name.trim();
+            let version = version.trim();
+            if !name.is_empty()
+                && !version.is_empty()
+                && !name.contains(char::is_whitespace)
+                && !version.contains(char::is_whitespace)
+                && !name.contains('(')
+                && !version.contains('(')
+            {
+                return Dependency::greater_eq(name, version);
+            }
         }
     }
     Dependency::any(spec)

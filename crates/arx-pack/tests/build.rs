@@ -608,6 +608,43 @@ fn builds_and_reparses_rpm() {
 }
 
 #[test]
+fn rpm_preserves_rich_dependencies() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("rich");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+
+    let manifest = Manifest::from_toml_str(&format!(
+        r#"
+        name = "rich"
+        version = "1.0.0"
+        arch = "x86_64"
+        maintainer = "Dev <dev@example.com>"
+        description = "rich dependency"
+        license = "MIT"
+        depends = ["(pkgBB >= 2.0 or pkgCC >= 3.0)"]
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/rich"
+        mode = "0755"
+        "#,
+        payload.display(),
+    ))
+    .unwrap();
+
+    let rpm_path = arx_pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
+    let pkg = rpm::Package::open(&rpm_path).expect("rpm re-opens");
+    let requires = pkg.metadata.get_requires().expect("requires readable");
+
+    let rich = requires
+        .iter()
+        .find(|dep| dep.name == "(pkgBB >= 2.0 or pkgCC >= 3.0)")
+        .expect("rich dependency kept verbatim");
+    assert_eq!(rich.flags, rpm::DependencyFlags::ANY, "{rich:?}");
+    assert!(rich.version.is_empty(), "{rich:?}");
+}
+
+#[test]
 fn rpm_encodes_versioned_requires() {
     let dir = tempfile::tempdir().unwrap();
     let payload = dir.path().join("versioned");
