@@ -608,6 +608,49 @@ fn builds_and_reparses_rpm() {
 }
 
 #[test]
+fn rpm_includes_posttrans_script() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("hello");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+    let posttrans = dir.path().join("posttrans.sh");
+    std::fs::write(&posttrans, b"#!/bin/sh\necho posttrans\n").unwrap();
+
+    let manifest = Manifest::from_toml_str(&format!(
+        r#"
+        name = "scripted"
+        version = "1.0.0"
+        arch = "x86_64"
+        maintainer = "Dev <dev@example.com>"
+        description = "scripted"
+        license = "MIT"
+
+        [[files]]
+        source = "{}"
+        dest = "/usr/bin/scripted"
+        mode = "0755"
+
+        [scripts]
+        posttrans = "{}"
+        "#,
+        payload.display(),
+        posttrans.display(),
+    ))
+    .unwrap();
+
+    let rpm_path = arx_pack::build_rpm(&manifest, dir.path()).expect("rpm builds");
+    let pkg = rpm::Package::open(&rpm_path).expect("rpm re-opens");
+    let scriptlet = pkg
+        .metadata
+        .get_post_trans_script()
+        .expect("%posttrans scriptlet present");
+    assert!(
+        scriptlet.script.contains("echo posttrans"),
+        "unexpected %posttrans body: {:?}",
+        scriptlet.script
+    );
+}
+
+#[test]
 fn builds_apk() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = sample_manifest(dir.path());

@@ -90,6 +90,9 @@ pub fn build_rpm(manifest: &Manifest, out_dir: &Path) -> Result<PathBuf> {
     if let Some(path) = &manifest.scripts.postrm {
         builder.post_uninstall_script(read_script(path)?);
     }
+    if let Some(path) = &manifest.scripts.posttrans {
+        builder.post_trans_script(read_script(path)?);
+    }
 
     let package = builder.build().context("building rpm package")?;
 
