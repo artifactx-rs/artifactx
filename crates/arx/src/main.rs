@@ -1307,13 +1307,38 @@ fn publish_dir_outputs_ok(
 
 fn apt_layout_ok(root: &Path, cfg: &Config) -> bool {
     let dist_dir = root.join("dists").join(&cfg.apt.dist);
-    if !dist_dir.join("Release").is_file() {
+    let release = dist_dir.join("Release");
+    if !release.is_file() {
         return false;
     }
+    let component = dist_dir.join(&cfg.apt.component);
+    let Ok(text) = std::fs::read_to_string(&release) else {
+        return false;
+    };
+    let architectures: Vec<&str> = text
+        .lines()
+        .find_map(|line| line.strip_prefix("Architectures:"))
+        .map(|value| value.split_whitespace().collect())
+        .unwrap_or_default();
+    if architectures.is_empty() {
+        // Releases written by older versions or by hand may omit the field;
+        // fall back to the architecture-agnostic check.
+        return any_binary_index(&component);
+    }
     // `stage_dist` only indexes architectures present in the pool, so the
-    // published layout may be arm64-only (or multi-arch). Any indexed
-    // `binary-*/Packages.gz` proves the release was published.
-    std::fs::read_dir(dist_dir.join(&cfg.apt.component))
+    // published layout may be arm64-only (or multi-arch). Every architecture
+    // declared in `Release` must have its index, or a partial publish would
+    // be accepted as complete.
+    architectures.iter().all(|arch| {
+        component
+            .join(format!("binary-{arch}"))
+            .join("Packages.gz")
+            .is_file()
+    })
+}
+
+fn any_binary_index(component: &Path) -> bool {
+    std::fs::read_dir(component)
         .map(|entries| {
             entries.flatten().any(|entry| {
                 let path = entry.path();

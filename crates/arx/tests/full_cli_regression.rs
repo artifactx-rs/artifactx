@@ -1017,6 +1017,66 @@ fn publish_dir_arm64_drop_is_a_no_op_on_second_run() {
 }
 
 #[test]
+fn publish_dir_repairs_a_missing_arch_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(
+        &drop.join("multi_1.0-1_amd64.deb"),
+        "multi",
+        "1.0-1",
+        "amd64",
+    );
+    write_deb(
+        &drop.join("multi_1.0-1_arm64.deb"),
+        "multi",
+        "1.0-1",
+        "arm64",
+    );
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+
+    let amd64 = repo.join("apt/dists/stable/main/binary-amd64/Packages.gz");
+    let arm64 = repo.join("apt/dists/stable/main/binary-arm64/Packages.gz");
+    assert!(amd64.is_file(), "amd64 index missing after publish");
+    assert!(arm64.is_file(), "arm64 index missing after publish");
+
+    // A partially deleted multi-arch layout must not be accepted as complete.
+    std::fs::remove_file(&amd64).unwrap();
+
+    let second = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+    assert!(
+        second.status.success(),
+        "second publish-dir failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&second.stdout).contains("no-op"),
+        "a missing architecture index must force a republish: {}",
+        String::from_utf8_lossy(&second.stdout)
+    );
+    assert!(
+        amd64.is_file(),
+        "publish-dir must restore the missing amd64 index"
+    );
+}
+
+#[test]
 fn publish_dir_rejects_configured_dist_path_traversal() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");
