@@ -818,6 +818,246 @@ fn publish_dir_switches_live_symlink_from_config() {
 }
 
 #[test]
+fn publish_dir_dist_flag_scopes_suite_and_no_op_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let deb = drop.join("pdir_dist_1.0-1_amd64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-dist", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    let run = |dist: &str| {
+        arx_output(&[
+            "publish-dir",
+            drop.to_str().unwrap(),
+            "--root",
+            repo.to_str().unwrap(),
+            "--apt",
+            "--dist",
+            dist,
+        ])
+    };
+
+    let nightly = run("nightly");
+    assert!(
+        nightly.status.success(),
+        "publish-dir --dist nightly failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&nightly.stdout),
+        String::from_utf8_lossy(&nightly.stderr)
+    );
+    let release =
+        std::fs::read_to_string(repo.join("apt/dists/nightly/Release")).expect("nightly Release");
+    assert!(release.contains("Suite: nightly"), "{release}");
+    assert!(release.contains("Codename: nightly"), "{release}");
+    assert!(
+        !repo.join("apt/dists/stable/Release").exists(),
+        "--dist must not publish the configured default dist"
+    );
+
+    // The same drop directory published to another dist must not be skipped by
+    // the nightly run's no-op state.
+    let stable = run("stable");
+    assert!(
+        stable.status.success(),
+        "publish-dir --dist stable failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&stable.stdout),
+        String::from_utf8_lossy(&stable.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&stable.stdout).contains("no-op"),
+        "switching dists must republish: {}",
+        String::from_utf8_lossy(&stable.stdout)
+    );
+    let release =
+        std::fs::read_to_string(repo.join("apt/dists/stable/Release")).expect("stable Release");
+    assert!(release.contains("Suite: stable"), "{release}");
+
+    // The stable run must leave the nightly no-op state intact.
+    let nightly_again = run("nightly");
+    assert!(
+        nightly_again.status.success(),
+        "second publish-dir --dist nightly failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&nightly_again.stdout),
+        String::from_utf8_lossy(&nightly_again.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&nightly_again.stdout).contains("fast no-op"),
+        "unchanged nightly inputs should still be a fast no-op: {}",
+        String::from_utf8_lossy(&nightly_again.stdout)
+    );
+}
+
+#[test]
+fn publish_dir_release_identity_change_is_not_a_no_op() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let deb = drop.join("pdir_identity_1.0-1_amd64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-identity", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    // A repository that keeps its configured Suite/Codename separate from the
+    // dist directory name.
+    let config_path = repo.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace(
+            "[apt.release]\n",
+            "[apt.release]\nsuite = \"oldstable\"\ncodename = \"bullseye\"\n",
+        ),
+    )
+    .unwrap();
+
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            "publish-dir",
+            drop.to_str().unwrap(),
+            "--root",
+            repo.to_str().unwrap(),
+            "--apt",
+        ];
+        args.extend_from_slice(extra);
+        arx_output(&args)
+    };
+
+    let configured = run(&[]);
+    assert!(
+        configured.status.success(),
+        "publish-dir with configured identity failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&configured.stdout),
+        String::from_utf8_lossy(&configured.stderr)
+    );
+    let release =
+        std::fs::read_to_string(repo.join("apt/dists/stable/Release")).expect("stable Release");
+    assert!(release.contains("Suite: oldstable"), "{release}");
+    assert!(release.contains("Codename: bullseye"), "{release}");
+
+    // Same dist name, different Release identity: it must republish, not be
+    // skipped as a fast no-op.
+    let overridden = run(&["--dist", "stable"]);
+    assert!(
+        overridden.status.success(),
+        "publish-dir --dist stable failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&overridden.stdout),
+        String::from_utf8_lossy(&overridden.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&overridden.stdout).contains("no-op"),
+        "--dist must update Release identity even when the dist name is unchanged: {}",
+        String::from_utf8_lossy(&overridden.stdout)
+    );
+    let release =
+        std::fs::read_to_string(repo.join("apt/dists/stable/Release")).expect("stable Release");
+    assert!(release.contains("Suite: stable"), "{release}");
+    assert!(release.contains("Codename: stable"), "{release}");
+
+    // Dropping --dist must restore the configured identity.
+    let restored = run(&[]);
+    assert!(
+        restored.status.success(),
+        "publish-dir without --dist failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&restored.stdout),
+        String::from_utf8_lossy(&restored.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&restored.stdout).contains("no-op"),
+        "removing --dist must restore the configured Suite/Codename: {}",
+        String::from_utf8_lossy(&restored.stdout)
+    );
+    let release =
+        std::fs::read_to_string(repo.join("apt/dists/stable/Release")).expect("stable Release");
+    assert!(release.contains("Suite: oldstable"), "{release}");
+    assert!(release.contains("Codename: bullseye"), "{release}");
+}
+
+#[test]
+fn publish_dir_arm64_drop_is_a_no_op_on_second_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let deb = drop.join("pdir_arm64_1.0-1_arm64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-arm64", "1.0-1", "arm64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    arx_ok(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+    assert!(
+        repo.join("apt/dists/stable/main/binary-arm64/Packages.gz")
+            .is_file(),
+        "stage_dist should publish an arm64 index"
+    );
+
+    let second = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--apt",
+    ]);
+    assert!(
+        second.status.success(),
+        "second publish-dir failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&second.stdout).contains("fast no-op"),
+        "unchanged arm64 drop should be a fast no-op: {}",
+        String::from_utf8_lossy(&second.stdout)
+    );
+}
+
+#[test]
+fn publish_dir_rejects_configured_dist_path_traversal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let drop = tmp.path().join("drop");
+    let deb = drop.join("pdir_escape_1.0-1_amd64.deb");
+    std::fs::create_dir_all(&drop).unwrap();
+    write_deb(&deb, "pdir-escape", "1.0-1", "amd64");
+    arx_ok(&["init", repo.to_str().unwrap(), "--no-key"]);
+
+    let config_path = repo.join("arx.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("dist = \"stable\"", "dist = \"../../../../escaped\""),
+    )
+    .unwrap();
+
+    // `--yum` never reaches the apt publish path, so a configured dist used to
+    // flow into the state path unchecked and escape the cache directory.
+    let output = arx_output(&[
+        "publish-dir",
+        drop.to_str().unwrap(),
+        "--root",
+        repo.to_str().unwrap(),
+        "--yum",
+    ]);
+    assert!(
+        !output.status.success(),
+        "an unsafe configured dist must be rejected\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("apt dist"), "{stderr}");
+    assert!(
+        !tmp.path().join("escaped").exists(),
+        "state must never be read or written outside the cache directory"
+    );
+}
+
+#[test]
 fn cutover_uses_live_targets_from_config() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

@@ -127,6 +127,14 @@ arx publish-dir ./dist --root ./repo \
   --yum-flat-live ./public/repo
 ```
 
+Publish the same drop directory to more than one apt suite with `--dist`. Each
+suite gets its own `dists/<DIST>` index and its own no-op state:
+
+```sh
+arx publish-dir ./dist --root ./repo --apt --dist stable
+arx publish-dir ./dist --root ./repo --apt --dist nightly
+```
+
 This is repository ingestion for already-built packages. It is different from
 the `[[dirs]]` pack manifest feature above, which installs a directory tree
 inside a package payload.

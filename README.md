@@ -105,7 +105,7 @@ GitHub Pages, S3, nginx, or `arx serve`.
 | A yum/dnf repo | `arx import --yum` | Same, for `repodata` |
 | `.deb` / `.rpm` files on disk | `arx add` | Index what your build already produced |
 | A Cargo crate or package manifest | `arx pack` | Produce all four package formats |
-| A CI drop directory | `arx publish-dir` | Discovery, no-op detection, publish, cutover |
+| A CI drop directory | `arx publish-dir` | Discovery, per-dist no-op detection, publish, cutover |
 
 Imports are bounded on purpose: `--match-name`, `--arch`, and `--limit` keep the first
 migration small enough to verify before it matters.
@@ -199,7 +199,7 @@ listener inside the container.
 | `arx gc` | Prune old versions with version-aware retention |
 | `arx rollback` | Restore a previous published state |
 | `arx history` | Inspect retained published states |
-| `arx publish-dir` | Ingest a drop directory, publish, cut over, optionally sync downstream |
+| `arx publish-dir` | Ingest a drop directory per apt suite, publish, cut over, optionally sync downstream |
 | `arx watch` | Watch a directory and auto-add + publish new packages |
 | `arx key` | Generate, import, rotate, revoke, or export signing keys |
 

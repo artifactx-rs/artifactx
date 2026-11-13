@@ -314,6 +314,10 @@ pub struct PublishDirArgs {
     /// Repository root.
     #[arg(long, default_value = ".")]
     pub root: PathBuf,
+    /// apt distribution for `.deb` packages and the published `Release`
+    /// `Suite`/`Codename` (config default if unset). apt-only.
+    #[arg(long)]
+    pub dist: Option<String>,
     /// apt component for `.deb` packages (config default if unset).
     #[arg(long)]
     pub component: Option<String>,

@@ -255,8 +255,14 @@ state so unchanged runs can exit quickly.
 - `<DIR>`: package drop directory. Direct children are scanned by default.
 - `--recursive`: discover packages recursively below `<DIR>`.
 - `--root <DIR>`: ArtifactX repository root.
+- `--dist <DIST>`: apt distribution for `.deb` packages and the published
+  `Release` `Suite`/`Codename`. Defaults to `[apt].dist`; apt-only. It applies
+  the same Release identity as `arx publish --dist`, so clients pointed at
+  `dists/<DIST>` do not see a conflicting distribution. No-op state is tracked
+  per distribution, so one drop directory can feed several suites.
 - `--component <COMPONENT>` / `--repo <REPO>`: destination apt component or yum repo.
-- `--state-file <FILE>`: override the no-op state file. Defaults under `.arx-cache/`.
+- `--state-file <FILE>`: override the no-op state file. Defaults to
+  `.arx-cache/v2/publish-dir/<DIST>/state.json` in the repository root.
 - `--force`: publish even when the source directory state is unchanged.
 - `--full`: rebuild metadata from scratch.
 - `--apt` / `--yum`: limit the publish to one format.

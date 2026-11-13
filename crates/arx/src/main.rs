@@ -732,6 +732,12 @@ fn cmd_add(args: &cli::AddArgs) -> Result<()> {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct PublishDirState {
     version: u32,
+    /// Effective apt identity this state describes: dist plus the `Release`
+    /// `Suite`/`Codename`. `--dist` and `[apt.release]` can disagree, so a
+    /// matching dist alone must not skip a publish. Absent in state files
+    /// written before `--dist` existed, which must never match a later run.
+    #[serde(default)]
+    apt_identity: String,
     source_dir: String,
     recursive: bool,
     packages: Vec<PublishDirEntry>,
@@ -754,10 +760,20 @@ struct PublishDirSource {
 
 fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
     let root = args.root.clone();
-    let cfg = Config::load(&root).context("loading config; run `arx init` first")?;
+    if args.dist.is_some() && args.yum && !args.apt {
+        bail!("--dist selects the apt distribution to publish and has no effect with --yum");
+    }
+    let cfg = with_apt_dist_override(
+        Config::load(&root).context("loading config; run `arx init` first")?,
+        args.dist.as_deref(),
+    )?;
+    // `[apt].dist` is user configuration, not a validated CLI value. The state
+    // path joins it, and `--yum` never reaches `publish_apt`'s own check.
+    let apt_dist = scope::validate_scope_name(&cfg.apt.dist, "apt dist")?;
     let component = args.component.as_deref().unwrap_or(&cfg.apt.component);
     let repo = args.repo.as_deref().unwrap_or(&cfg.yum.repo);
-    let state_file = publish_dir_state_file(args);
+    let state_file = publish_dir_state_file(args, apt_dist);
+    let apt_identity = publish_dir_apt_identity(&cfg);
     let mut sources = collect_publish_dir_sources(&args.dir, args.recursive, false)?;
 
     if sources.is_empty() {
@@ -773,7 +789,13 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
 
     let previous = load_publish_dir_state(&state_file)?;
     if !args.force
-        && publish_dir_fingerprints_match(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_fingerprints_match(
+            previous.as_ref(),
+            &sources,
+            &apt_identity,
+            &args.dir,
+            args.recursive,
+        )
         && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
     {
         println!(
@@ -785,10 +807,22 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
 
     let sources = collect_publish_dir_sources(&args.dir, args.recursive, true)?;
     if !args.force
-        && publish_dir_state_matches(previous.as_ref(), &sources, &args.dir, args.recursive)
+        && publish_dir_state_matches(
+            previous.as_ref(),
+            &sources,
+            &apt_identity,
+            &args.dir,
+            args.recursive,
+        )
         && publish_dir_outputs_ok(&root, &cfg, args, &sources)?
     {
-        save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+        save_publish_dir_state(
+            &state_file,
+            &apt_identity,
+            &args.dir,
+            args.recursive,
+            &sources,
+        )?;
         println!(
             "publish-dir: verified no-op: {} source package(s) unchanged",
             sources.len()
@@ -825,7 +859,13 @@ fn cmd_publish_dir(args: &cli::PublishDirArgs) -> Result<()> {
         println!("publish-dir: dry-run: source-directory state was not updated");
         return Ok(());
     }
-    save_publish_dir_state(&state_file, &args.dir, args.recursive, &sources)?;
+    save_publish_dir_state(
+        &state_file,
+        &apt_identity,
+        &args.dir,
+        args.recursive,
+        &sources,
+    )?;
     println!(
         "publish-dir: ok: {} source package(s); state={}",
         sources.len(),
@@ -1127,12 +1167,26 @@ fn collect_publish_dir_sources(
     Ok(sources)
 }
 
-fn publish_dir_state_file(args: &cli::PublishDirArgs) -> PathBuf {
+fn publish_dir_state_file(args: &cli::PublishDirArgs, dist: &str) -> PathBuf {
     args.state_file.clone().unwrap_or_else(|| {
         cache::cache_dir(&args.root)
             .join("publish-dir")
+            .join(dist)
             .join("state.json")
     })
+}
+
+/// Effective apt identity for one publish run: the distribution directory plus
+/// the `Suite`/`Codename` written into its `Release` file. Both must match for
+/// an unchanged drop directory to be a no-op.
+fn publish_dir_apt_identity(cfg: &Config) -> String {
+    let dist = cfg.apt.dist.as_str();
+    let release = cfg.apt_release();
+    format!(
+        "{dist}\n{}\n{}",
+        release.suite.as_deref().unwrap_or(dist),
+        release.codename.as_deref().unwrap_or(dist)
+    )
 }
 
 fn load_publish_dir_state(path: &Path) -> Result<Option<PublishDirState>> {
@@ -1147,12 +1201,14 @@ fn load_publish_dir_state(path: &Path) -> Result<Option<PublishDirState>> {
 
 fn save_publish_dir_state(
     path: &Path,
+    apt_identity: &str,
     dir: &Path,
     recursive: bool,
     sources: &[PublishDirSource],
 ) -> Result<()> {
     let state = PublishDirState {
         version: 1,
+        apt_identity: apt_identity.to_string(),
         source_dir: dir.to_string_lossy().to_string(),
         recursive,
         packages: sources.iter().map(|source| source.entry.clone()).collect(),
@@ -1170,6 +1226,7 @@ fn save_publish_dir_state(
 fn publish_dir_fingerprints_match(
     previous: Option<&PublishDirState>,
     sources: &[PublishDirSource],
+    apt_identity: &str,
     dir: &Path,
     recursive: bool,
 ) -> bool {
@@ -1177,6 +1234,7 @@ fn publish_dir_fingerprints_match(
         return false;
     };
     previous.version == 1
+        && previous.apt_identity == apt_identity
         && previous.source_dir == dir.to_string_lossy()
         && previous.recursive == recursive
         && previous.packages.len() == sources.len()
@@ -1191,6 +1249,7 @@ fn publish_dir_fingerprints_match(
 fn publish_dir_state_matches(
     previous: Option<&PublishDirState>,
     sources: &[PublishDirSource],
+    apt_identity: &str,
     dir: &Path,
     recursive: bool,
 ) -> bool {
@@ -1198,6 +1257,7 @@ fn publish_dir_state_matches(
         return false;
     };
     previous.version == 1
+        && previous.apt_identity == apt_identity
         && previous.source_dir == dir.to_string_lossy()
         && previous.recursive == recursive
         && previous
@@ -1246,17 +1306,24 @@ fn publish_dir_outputs_ok(
 }
 
 fn apt_layout_ok(root: &Path, cfg: &Config) -> bool {
-    root.join("dists")
-        .join(&cfg.apt.dist)
-        .join("Release")
-        .is_file()
-        && root
-            .join("dists")
-            .join(&cfg.apt.dist)
-            .join(&cfg.apt.component)
-            .join("binary-amd64")
-            .join("Packages.gz")
-            .is_file()
+    let dist_dir = root.join("dists").join(&cfg.apt.dist);
+    if !dist_dir.join("Release").is_file() {
+        return false;
+    }
+    // `stage_dist` only indexes architectures present in the pool, so the
+    // published layout may be arm64-only (or multi-arch). Any indexed
+    // `binary-*/Packages.gz` proves the release was published.
+    std::fs::read_dir(dist_dir.join(&cfg.apt.component))
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("binary-"))
+                    && path.join("Packages.gz").is_file()
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn yum_flat_layout_ok(root: &Path) -> bool {

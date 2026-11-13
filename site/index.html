@@ -431,9 +431,10 @@ EOF</pre>
         <article class="card">
           <span class="tag">Add</span>
           <h3>Index what you already built</h3>
-          <p>Point <code>arx add</code> at a directory of <code>.deb</code> and <code>.rpm</code> files. For repeated CI drops, <code>publish-dir</code> adds no-op detection, live cutover, and optional downstream sync.</p>
+          <p>Point <code>arx add</code> at a directory of <code>.deb</code> and <code>.rpm</code> files. For repeated CI drops, <code>publish-dir</code> adds per-suite no-op detection, live cutover, and optional downstream sync.</p>
           <pre>arx add dist --root ./repo
-arx publish --root ./repo</pre>
+arx publish --root ./repo
+arx publish-dir dist --root ./repo --apt --dist stable</pre>
         </article>
         <article class="card">
           <span class="tag">Pack</span>
