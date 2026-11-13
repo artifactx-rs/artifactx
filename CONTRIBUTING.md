@@ -40,6 +40,10 @@ actionlint .github/workflows/*.yml
 
 - Keep the diff small and reversible.
 - Include tests for behavior changes.
+- Run the compatibility gate for any public API, CLI, config, repository
+  layout, or state-format change; see [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+- A breaking change requires an ADR, a non-patch version, and a `Breaking`
+  release-note section.
 - Update docs when commands, outputs, or trust boundaries change.
 - Do not commit signing keys, package repository private keys, tokens, or generated release artifacts.
 
