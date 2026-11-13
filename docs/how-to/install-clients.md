@@ -30,6 +30,24 @@ echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/arx.asc] https://repo.example.
   | sudo tee /etc/apt/sources.list.d/arx.list >/dev/null
 ```
 
+One repository can serve several distributions. Add one entry per suite, using
+the directory name under `dists/` as the apt distribution:
+
+```sh
+echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/arx.asc] https://repo.example.com/apt stable main' \
+  | sudo tee /etc/apt/sources.list.d/arx-stable.list >/dev/null
+echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/arx.asc] https://repo.example.com/apt nightly main' \
+  | sudo tee /etc/apt/sources.list.d/arx-nightly.list >/dev/null
+```
+
+The apt distribution you write here must match the `Suite`/`Codename` in that
+directory's `Release`. `arx publish-dir --dist <DIST>` keeps them aligned
+automatically. A custom `[apt.release]` `suite`/`codename` that differs from the
+`dists/` directory name makes apt report
+`Conflicting distribution: ... (expected <dir> but got <value>)` on every update;
+packages stay installable, but the warning is the signal that the two names
+disagree.
+
 Install a package:
 
 ```sh

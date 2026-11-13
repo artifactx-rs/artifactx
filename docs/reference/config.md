@@ -72,6 +72,13 @@ selection is `[yum].repo`.
 | `suite` | Optional apt `Suite` override. Defaults to `[apt].dist` when omitted. |
 | `codename` | Optional apt `Codename` override. Defaults to `[apt].dist` when omitted. |
 
+`suite` and `codename` are the values apt compares against the distribution name
+in `sources.list`. Keep them equal to the `dists/` directory (normally
+`[apt].dist`) unless you are deliberately serving a renamed suite: a mismatch
+produces `Conflicting distribution: ... (expected <dir> but got <value>)` on
+every `apt-get update`. `arx publish --dist` and `arx publish-dir --dist` set both
+fields to the flag value for that run, so multi-suite publishing stays aligned.
+
 Change these before publishing a production apt repo if clients should see your
 company or project identity instead of the ArtifactX default. During
 `arx import --apt`, ArtifactX reads upstream apt `Release` identity fields

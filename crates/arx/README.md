@@ -46,7 +46,7 @@ and run `docker compose up`.
 | `arx add <pkg-or-dir…>` | Add `.deb`/`.rpm` files, or discover them recursively from directories, into the pool |
 | `arx pack [manifest-or-Cargo.toml]` | Build `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` packages |
 | `arx publish [--apt] [--yum] [--strict]` | Generate and sign repository metadata; optionally export and cut over live public paths |
-| `arx publish-dir <dir>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks |
+| `arx publish-dir <dir> [--dist <DIST>]` | Ingest a package drop directory, no-op unchanged inputs per apt suite, publish, and optionally switch live symlinks |
 | `arx rollback [dist] [--to <id>]` | Flip an apt dist back to a previous published state |
 | `arx history [dist]` | List retained published states for an apt dist |
 | `arx push <pkg…> --url <server>` | Upload to a running `arx serve` (stores + publishes remotely) |

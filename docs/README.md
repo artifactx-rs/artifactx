@@ -79,6 +79,14 @@ arx publish-dir ./dist --root ./repo \
   --yum-flat-live ./public/repo
 ```
 
+To publish several apt suites from the same drop directory, run it once per
+suite with `--dist`; each suite keeps its own no-op state:
+
+```sh
+arx publish-dir ./dist --root ./repo --apt --dist stable
+arx publish-dir ./dist --root ./repo --apt --dist nightly
+```
+
 ### API-first operation
 
 `arx serve` exposes static repo files and an authenticated write API. Reads are
