@@ -49,6 +49,7 @@ when the product direction changes.
 | `.apk` builder | ✅ Shipped | Alpine package output via tar.gz + `.PKGINFO`. |
 | Cargo.toml-driven pack | ✅ Shipped | Zero-config default for simple Rust CLIs. |
 | Docker backend | ✅ Shipped | Containerized fallback path for build isolation. |
+| Nix / Guix outputs | 🔵 Planned ([#156](https://github.com/artifactx-rs/artifactx/issues/156)) | ADR required; render in-tree from the manifest, no nix/guix toolchain dependency. |
 
 ### Verification baseline
 
