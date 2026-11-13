@@ -165,10 +165,6 @@ pub struct Scripts {
     pub prerm: Option<String>,
     #[serde(default)]
     pub postrm: Option<String>,
-    /// RPM-only `%posttrans`: runs at the end of the transaction, after the
-    /// old package's `%preun`/`%postun`. Debian has no equivalent hook.
-    #[serde(default)]
-    pub posttrans: Option<String>,
 }
 
 impl Manifest {

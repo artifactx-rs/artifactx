@@ -141,7 +141,6 @@ preinst = "scripts/preinst.sh"
 postinst = "scripts/postinst.sh"
 prerm = "scripts/prerm.sh"
 postrm = "scripts/postrm.sh"
-posttrans = "scripts/posttrans.sh"
 ```
 
 Per-format mapping:
@@ -152,11 +151,6 @@ Per-format mapping:
 | `postinst` | `postinst` | post-install script | post-install script | `.INSTALL` `post_install()` |
 | `prerm` | `prerm` | pre-uninstall script | pre-deinstall script | `.INSTALL` `pre_remove()` |
 | `postrm` | `postrm` | post-uninstall script | post-deinstall script | `.INSTALL` `post_remove()` |
-| `posttrans` | — | `%posttrans` | — | — |
-
-`posttrans` is RPM-only: it runs at the end of the transaction, after the old
-package's `%preun`/`%postun`. Debian has no equivalent hook, so `arx pack`
-ignores it for `.deb`.
 
 Keep scripts portable. `arx pack` embeds them; it does not run package-manager
 integration tests for every target distribution during a normal build.
