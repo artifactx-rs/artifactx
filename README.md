@@ -245,6 +245,15 @@ in flight is adoption polish, not new ecosystems.
 - Package output is deterministic with `SOURCE_DATE_EPOCH` support.
 - The legacy apt/yum flow lives in `scripts/e2e-legacy-export.sh`; it is not part of the default gate.
 
+## Downstream
+
+- **cargo-pgrx** ([pgcentralfoundation/pgrx](https://github.com/pgcentralfoundation/pgrx))
+  uses `arx-pack` to build `.deb` and `.rpm` packages for PostgreSQL extensions.
+- **ParadeDB** ([paradedb/paradedb](https://github.com/paradedb/paradedb)) packages
+  `pg_search` with `cargo pgrx package`, which uses the same path.
+
+Using ArtifactX in your project? A short PR to add it here is welcome.
+
 ## Project links
 
 [Documentation](docs/README.md) · [CLI reference](docs/reference/cli.md) · [HTTP API](docs/reference/http-api.md) · [Configuration](docs/reference/config.md) · [Roadmap](ROADMAP.md) · [Competitive analysis](COMPETITORS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [AI contributor rules](AI_RULES.md) · [Governance](GOVERNANCE.md) · [ADR index](docs/adr/README.md)
