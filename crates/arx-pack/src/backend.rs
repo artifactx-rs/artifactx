@@ -37,7 +37,11 @@ use anyhow::{bail, Context, Result};
 use crate::manifest::Manifest;
 use crate::{build_apk, build_arch_pkg, build_deb, build_rpm};
 
-/// Which output format to produce.
+/// Which archive format to produce.
+///
+/// Declarative definitions are rendered by [`crate::build_nix`] and
+/// [`crate::build_guix`] directly: adding variants to this public enum would be
+/// source-breaking for downstream exhaustive matches (ADR-0030).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Deb,

@@ -1093,6 +1093,11 @@ fn backend_native_builds_all_formats() {
     let apk = backend.build(&manifest, Format::Apk, dir.path()).unwrap();
     let arch = backend.build(&manifest, Format::Arch, dir.path()).unwrap();
     assert!(deb.exists() && rpm.exists() && apk.exists() && arch.exists());
+    // Definitions are rendered directly; `Format` stays archive-only so the
+    // public enum does not grow (source compatibility, ADR-0030).
+    let nix = arx_pack::build_nix(&manifest, dir.path()).unwrap();
+    let guix = arx_pack::build_guix(&manifest, dir.path()).unwrap();
+    assert!(nix.exists() && guix.exists());
 }
 
 #[test]
@@ -1374,5 +1379,452 @@ fn native_arx_files_relative_source_anchors_to_crate_root() {
             .join("extra/config.conf")
             .to_string_lossy()
             .as_ref()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Nix and Guix definitions (ADR-0030)
+// ---------------------------------------------------------------------------
+
+fn decode_base64(input: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for byte in input.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            other => panic!("unexpected base64 byte {other}"),
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    out
+}
+
+/// Payload heredocs in a Nix expression (real newlines, column 0).
+fn nix_payloads(text: &str) -> Vec<Vec<u8>> {
+    let mut payloads = Vec::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if !line.ends_with("<<'ARX_PAYLOAD_EOF'") {
+            continue;
+        }
+        let mut body = String::new();
+        for line in lines.by_ref() {
+            if line.trim_end() == "ARX_PAYLOAD_EOF" {
+                break;
+            }
+            body.push_str(line);
+            body.push('\n');
+        }
+        payloads.push(decode_base64(&body));
+    }
+    payloads
+}
+
+/// Payload heredocs inside the Guix definition's escaped shell string.
+fn guix_payloads(text: &str) -> Vec<Vec<u8>> {
+    const OPEN: &str = "<<'ARX_PAYLOAD_EOF'\\n";
+    const CLOSE: &str = "\\nARX_PAYLOAD_EOF";
+    let mut payloads = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find(OPEN) {
+        let after_open = &rest[open + OPEN.len()..];
+        let close = after_open
+            .find(CLOSE)
+            .unwrap_or_else(|| panic!("unterminated payload in:\n{text}"));
+        payloads.push(decode_base64(&after_open[..close].replace("\\n", "\n")));
+        rest = &after_open[close + CLOSE.len()..];
+    }
+    payloads
+}
+
+#[test]
+fn nix_definition_renders_manifest_and_payload() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = sample_manifest(dir.path());
+    let path = arx_pack::build_nix(&manifest, dir.path()).unwrap();
+    assert_eq!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("hello-1.2.3-x86_64-linux.nix")
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+    for expected in [
+        "{ lib, stdenv }:\n",
+        "stdenv.mkDerivation {",
+        "pname = \"hello\";",
+        "version = \"1.2.3\";",
+        "dontUnpack = true;",
+        "dontFixup = true;",
+        "installPhase = ''",
+        "mkdir -p \"$out/bin\"",
+        "chmod 0755 \"$out/bin\"",
+        "chmod 0755 \"$out/bin/hello\"",
+        "description = \"A friendly greeter\";",
+        "license = lib.licenses.mit;",
+        "platforms = [ \"x86_64-linux\" ];",
+        "#   maintainer: Jane Dev <jane@example.com>",
+        "#   depends: libc6",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+    }
+    assert_eq!(
+        nix_payloads(&text),
+        vec![b"#!/bin/sh\necho hello\n".to_vec()]
+    );
+}
+
+#[test]
+fn guix_definition_renders_manifest_and_payload() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = sample_manifest(dir.path());
+    let path = arx_pack::build_guix(&manifest, dir.path()).unwrap();
+    assert_eq!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("hello-1.2.3-x86_64-linux.scm")
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+    for expected in [
+        "(use-modules (gnu packages base)",
+        "(guix build-system trivial)",
+        "(guix licenses)",
+        "(plain-file \"arx-install.sh\"",
+        "(name \"hello\")",
+        "(version \"1.2.3\")",
+        "(source #f)",
+        "(build-system trivial-build-system)",
+        "(setenv \"PATH\"",
+        "(synopsis \"A friendly greeter\")",
+        "(description \"A friendly greeter\")",
+        "(home-page #f)",
+        "(license expat)",
+        "(supported-systems '(\"x86_64-linux\"))",
+        ";;;   depends: libc6",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+    }
+    assert_eq!(
+        guix_payloads(&text),
+        vec![b"#!/bin/sh\necho hello\n".to_vec()]
+    );
+}
+
+#[test]
+fn definitions_are_deterministic() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = sample_manifest(dir.path());
+    let first = dir.path().join("first");
+    let second = dir.path().join("second");
+    for build in [arx_pack::build_nix, arx_pack::build_guix] {
+        let a = build(&manifest, &first).unwrap();
+        let b = build(&manifest, &second).unwrap();
+        assert_eq!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
+    }
+}
+
+#[test]
+fn definitions_map_licenses_and_any_arch() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("hello");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = 'hello'\nversion = '1.0'\narch = 'all'\n\
+         maintainer = 'T <t@localhost>'\ndescription = 'd'\n\
+         license = 'MIT OR Apache-2.0'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/bin/hello'\nmode = '0755'\n",
+        payload.display()
+    ))
+    .unwrap();
+
+    let nix = arx_pack::build_nix(&manifest, dir.path()).unwrap();
+    assert!(nix.to_string_lossy().ends_with("-any.nix"));
+    let text = std::fs::read_to_string(&nix).unwrap();
+    assert!(
+        text.contains("license = [ lib.licenses.mit lib.licenses.asl20 ];"),
+        "{text}"
+    );
+    assert!(text.contains("platforms = lib.platforms.all;"), "{text}");
+
+    let guix = arx_pack::build_guix(&manifest, dir.path()).unwrap();
+    assert!(guix.to_string_lossy().ends_with("-any.scm"));
+    let text = std::fs::read_to_string(&guix).unwrap();
+    assert!(text.contains("(license (list expat asl2.0))"), "{text}");
+    assert!(!text.contains("supported-systems"), "{text}");
+}
+
+#[test]
+fn definitions_keep_unmapped_licenses_visible() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("hello");
+    std::fs::write(&payload, b"#!/bin/sh\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = 'hello'\nversion = '1.0'\narch = 'amd64'\n\
+         maintainer = 'T <t@localhost>'\ndescription = 'd'\n\
+         license = 'MIT OR LicenseRef-Custom'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/bin/hello'\nmode = '0755'\n",
+        payload.display()
+    ))
+    .unwrap();
+
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(!text.contains("license = lib.licenses"), "{text}");
+    assert!(
+        text.contains("# license \"MIT OR LicenseRef-Custom\" has no lib.licenses mapping"),
+        "{text}"
+    );
+
+    let text =
+        std::fs::read_to_string(arx_pack::build_guix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("(license #f)"), "{text}");
+    assert!(
+        text.contains(
+            ";; license \"MIT OR LicenseRef-Custom\" has no Guix license variable mapping"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn nix_definition_escapes_indented_string_metacharacters() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("quoted");
+    std::fs::write(&payload, b"quoted\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"quoted\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/share/it''s/${{x}}\"\nmode = \"0644\"\n",
+        payload.display()
+    ))
+    .unwrap();
+
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("share/it'''s/"), "{text}");
+    assert!(text.contains("\\''${x}"), "{text}");
+}
+
+#[test]
+fn comments_keep_manifest_values_on_one_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("hello");
+    std::fs::write(&payload, b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"hello\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"A <a@b>\\nB <b@b>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/bin/hello\"\nmode = \"0755\"\n",
+        payload.display()
+    ))
+    .unwrap();
+
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("#   maintainer: A <a@b> B <b@b>"), "{text}");
+    let text =
+        std::fs::read_to_string(arx_pack::build_guix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains(";;;   maintainer: A <a@b> B <b@b>"), "{text}");
+}
+
+#[test]
+fn definitions_reject_destinations_that_collide_after_mapping() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"collide\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/bin/tool\"\nmode = \"0755\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/bin/tool\"\nmode = \"0755\"\n",
+        payload.display(),
+        payload.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_nix(&manifest, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("collapse onto the same path"),
+        "{err}"
+    );
+
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(assets.join("app")).unwrap();
+    std::fs::write(assets.join("app/data"), b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"collide\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/share/app\"\nmode = \"0644\"\n\
+         [[dirs]]\nsource = \"{}\"\ndest = \"/usr/share\"\n",
+        payload.display(),
+        assets.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_nix(&manifest, dir.path()).unwrap_err();
+    assert!(
+        err.to_string().contains("also a directory under $out"),
+        "{err}"
+    );
+}
+
+#[test]
+fn definitions_reject_conflicting_directory_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first");
+    let second = dir.path().join("second");
+    std::fs::create_dir(&first).unwrap();
+    std::fs::create_dir(&second).unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"modes\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[dirs]]\nsource = \"{}\"\ndest = \"/usr/bin\"\ndir_mode = \"0700\"\n\
+         [[dirs]]\nsource = \"{}\"\ndest = \"/bin\"\ndir_mode = \"0777\"\n",
+        first.display(),
+        second.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_nix(&manifest, dir.path()).unwrap_err();
+    assert!(err.to_string().contains("different modes"), "{err}");
+}
+
+#[test]
+fn definitions_reject_a_file_at_the_usr_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"prefix\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr\"\nmode = \"0644\"\n",
+        payload.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_nix(&manifest, dir.path()).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("resolves to the output prefix itself"),
+        "{err}"
+    );
+}
+
+#[test]
+fn definitions_handle_empty_and_zero_byte_payloads() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let empty = Manifest::from_toml_str(
+        "name = \"empty\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n",
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(arx_pack::build_nix(&empty, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("mkdir -p \"$out\""), "{text}");
+    assert!(!text.contains("ARX_PAYLOAD_EOF"), "{text}");
+
+    let zero = dir.path().join("zero");
+    std::fs::write(&zero, b"").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"zero\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/share/empty\"\nmode = \"0644\"\n",
+        zero.display()
+    ))
+    .unwrap();
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    assert_eq!(nix_payloads(&text), vec![Vec::<u8>::new()]);
+}
+
+#[test]
+fn guix_definition_escapes_control_characters() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"control\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"bell \\u001B char\"\n\
+         license = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/bin/control\"\nmode = \"0755\"\n",
+        payload.display()
+    ))
+    .unwrap();
+    let text =
+        std::fs::read_to_string(arx_pack::build_guix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("bell \\x1b; char"), "{text}");
+}
+
+#[test]
+fn guix_definition_uses_guix_system_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload");
+    std::fs::write(&payload, b"x").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"arms\"\nversion = \"1\"\narch = \"armhf\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/bin/arms\"\nmode = \"0755\"\n",
+        payload.display()
+    ))
+    .unwrap();
+    let path = arx_pack::build_guix(&manifest, dir.path()).unwrap();
+    assert!(
+        path.to_string_lossy().ends_with("-armhf-linux.scm"),
+        "{path:?}"
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("(supported-systems '(\"armhf-linux\"))"),
+        "{text}"
+    );
+    // Nix keeps its own spelling for the same manifest.
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    assert!(text.contains("platforms = [ \"armv7l-linux\" ];"), "{text}");
+
+    let s390x = Manifest::from_toml_str(&format!(
+        "name = \"big\"\nversion = \"1\"\narch = \"s390x\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[files]]\nsource = \"{}\"\ndest = \"/usr/bin/big\"\nmode = \"0755\"\n",
+        payload.display()
+    ))
+    .unwrap();
+    let err = arx_pack::build_guix(&s390x, dir.path()).unwrap_err();
+    assert!(err.to_string().contains("no s390x"), "{err}");
+    assert!(arx_pack::build_nix(&s390x, dir.path()).is_ok());
+}
+
+#[test]
+fn readonly_directory_modes_are_applied_after_the_payload() {
+    let dir = tempfile::tempdir().unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir(&assets).unwrap();
+    std::fs::write(assets.join("tool"), b"#!/bin/sh\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = \"ro\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"d\"\nlicense = \"MIT\"\n\
+         [[dirs]]\nsource = \"{}\"\ndest = \"/usr/libexec\"\n\
+         file_mode = \"0755\"\ndir_mode = \"0555\"\n",
+        assets.display()
+    ))
+    .unwrap();
+
+    let text =
+        std::fs::read_to_string(arx_pack::build_nix(&manifest, dir.path()).unwrap()).unwrap();
+    let mkdir_at = text.find("mkdir -p \"$out/libexec\"").expect("mkdir line");
+    let file_at = text
+        .find("base64 --decode > \"$out/libexec/tool\"")
+        .expect("payload line");
+    let chmod_at = text
+        .find("chmod 0555 \"$out/libexec\"")
+        .expect("directory chmod");
+    assert!(mkdir_at < file_at, "{text}");
+    assert!(
+        file_at < chmod_at,
+        "a read-only directory mode must be applied after the payload is written:\n{text}"
     );
 }

@@ -1,7 +1,8 @@
 //! `arx-pack` — a pure-Rust packager that builds `.deb`, `.rpm`, `.apk`, and
-//! Arch `.pkg.tar.zst` artifacts from a single TOML manifest, with **no native
+//! Arch `.pkg.tar.zst` artifacts from a single TOML manifest, plus self-contained
+//! Nix and Guix package definitions for the same payload, with **no native
 //! toolchain required** for the common case (no `dpkg-deb`, no `rpmbuild`, no
-//! container runtime).
+//! `nix`, no `guix`, no container runtime).
 //!
 //! # Why
 //!
@@ -38,20 +39,27 @@
 //! let rpm = arx_pack::build_rpm(&manifest, Path::new("dist")).unwrap();
 //! let apk = arx_pack::build_apk(&manifest, Path::new("dist")).unwrap();
 //! let arch = arx_pack::build_arch_pkg(&manifest, Path::new("dist")).unwrap();
+//! let nix = arx_pack::build_nix(&manifest, Path::new("dist")).unwrap();
+//! let guix = arx_pack::build_guix(&manifest, Path::new("dist")).unwrap();
 //! ```
 
 mod apk;
 mod arch;
 mod backend;
 mod deb;
+mod declarative;
+mod guix;
 mod manifest;
+mod nix;
 mod rpm;
 
 pub use apk::build_apk;
 pub use arch::build_arch_pkg;
 pub use backend::{Backend, Format};
 pub use deb::build_deb;
+pub use guix::build_guix;
 pub use manifest::{CargoManifestOptions, DirEntry, FileEntry, Manifest, Scripts};
+pub use nix::build_nix;
 pub use rpm::build_rpm;
 
 /// Resolve the reproducibility epoch for deterministic builds.

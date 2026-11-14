@@ -83,3 +83,4 @@ How we'd make this better later, and what would trigger that.
 | [0027](0027-ci-and-verification-boundaries.md) | CI and verification boundaries | Accepted |
 | [0028](0028-release-tag-publication-boundary.md) | Release tags publish only the newest version | Accepted |
 | [0029](0029-reject-control-chars-in-control-fields.md) | Reject control characters in Debian control fields | Accepted |
+| [0030](0030-nix-guix-packaging-outputs.md) | Nix and Guix packaging outputs from `arx pack` | Accepted |

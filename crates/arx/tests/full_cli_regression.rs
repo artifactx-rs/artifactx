@@ -101,12 +101,22 @@ fn write_deb(path: &Path, name: &str, version: &str, arch: &str) {
 }
 
 fn write_pack_manifest(path: &Path, payload: &Path, name: &str, version: &str) {
+    write_pack_manifest_for_arch(path, payload, name, version, "x86_64");
+}
+
+fn write_pack_manifest_for_arch(
+    path: &Path,
+    payload: &Path,
+    name: &str,
+    version: &str,
+    arch: &str,
+) {
     std::fs::write(
         path,
         format!(
             "name = \"{name}\"\n\
              version = \"{version}\"\n\
-             arch = \"x86_64\"\n\
+             arch = \"{arch}\"\n\
              maintainer = \"T <t@localhost>\"\n\
              description = \"test package\"\n\
              license = \"MIT\"\n\
@@ -4292,4 +4302,173 @@ fn yum_rm_and_gc_respect_configured_base_dir() {
     assert!(root
         .join("rpmrepos/custom/x86_64/customyum-3.0.0-1.x86_64.rpm")
         .exists());
+}
+
+#[test]
+fn pack_default_on_s390x_still_builds_the_archive_formats() {
+    let tmp = tempfile::tempdir().unwrap();
+    let payload = tmp.path().join("payload");
+    std::fs::write(&payload, b"#!/bin/sh\necho s390x\n").unwrap();
+    let manifest = tmp.path().join("m.toml");
+    write_pack_manifest_for_arch(&manifest, &payload, "big", "1.0.0", "s390x");
+    let out = tmp.path().join("dist");
+
+    let output = arx_output(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "default pack on s390x must keep working:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let files: Vec<String> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    for suffix in [".deb", ".rpm", ".apk", ".pkg.tar.zst"] {
+        assert!(
+            files.iter().any(|name| name.ends_with(suffix)),
+            "missing {suffix}: {files:?}"
+        );
+    }
+    assert!(
+        !files
+            .iter()
+            .any(|name| name.ends_with(".nix") || name.ends_with(".scm")),
+        "definitions are opt-in: {files:?}"
+    );
+
+    let output = arx_output(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--guix",
+    ]);
+    assert!(
+        !output.status.success(),
+        "an explicit --guix must fail on s390x"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no s390x"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn pack_add_on_s390x_still_adds_the_archives() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    arx_ok(&["init", root.to_str().unwrap(), "--no-key"]);
+    let payload = tmp.path().join("payload");
+    std::fs::write(&payload, b"#!/bin/sh\necho s390x\n").unwrap();
+    let manifest = tmp.path().join("m.toml");
+    write_pack_manifest_for_arch(&manifest, &payload, "big", "1.0.0", "s390x");
+    let out = tmp.path().join("dist");
+
+    let output = arx_output(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--add",
+        "--root",
+        root.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "--add on s390x must keep working:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        root.join("apt/pool/main/big_1.0.0_s390x.deb").exists(),
+        "apt pool should receive the .deb"
+    );
+    assert!(
+        root.join("yum/myrepo/s390x/big-1.0.0-1.s390x.rpm").exists(),
+        "yum pool should receive the .rpm"
+    );
+    assert!(
+        !root
+            .join("apt/pool/main")
+            .read_dir()
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".scm")),
+        "no Guix definition should be added to a repository"
+    );
+}
+
+#[test]
+fn pack_default_accepts_destinations_that_only_collide_after_out_mapping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let payload = tmp.path().join("payload");
+    std::fs::write(&payload, b"#!/bin/sh\necho collide\n").unwrap();
+    let manifest = tmp.path().join("m.toml");
+    std::fs::write(
+        &manifest,
+        format!(
+            "name = \"collide\"\n\
+             version = \"1.0.0\"\n\
+             arch = \"amd64\"\n\
+             maintainer = \"T <t@localhost>\"\n\
+             description = \"collide\"\n\
+             license = \"MIT\"\n\
+             [[files]]\n\
+             source = \"{}\"\n\
+             dest = \"/usr/bin/tool\"\n\
+             mode = \"0755\"\n\
+             [[files]]\n\
+             source = \"{}\"\n\
+             dest = \"/bin/tool\"\n\
+             mode = \"0755\"\n",
+            payload.display(),
+            payload.display()
+        ),
+    )
+    .unwrap();
+    let out = tmp.path().join("dist");
+
+    let output = arx_output(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "the archives accept both paths:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let files: Vec<String> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    for suffix in [".deb", ".rpm"] {
+        assert!(files.iter().any(|name| name.ends_with(suffix)), "{files:?}");
+    }
+
+    let output = arx_output(&[
+        "pack",
+        manifest.to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--nix",
+    ]);
+    assert!(
+        !output.status.success(),
+        "the $out mapping collapses both destinations"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("collapse onto the same path"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

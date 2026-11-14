@@ -22,7 +22,7 @@ for the authoritative option list in your installed version.
 | `arx publish-dir <DIR>` | Ingest a package drop directory, no-op unchanged inputs, publish, and optionally switch live symlinks. |
 | `arx rollback [TARGET]` | Roll a target back to a retained published state. |
 | `arx history [TARGET]` | List retained published states. |
-| `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, `.apk`, or Arch `.pkg.tar.zst` packages from a manifest. |
+| `arx pack [MANIFEST]` | Build `.deb`, `.rpm`, `.apk`, or Arch `.pkg.tar.zst` packages, or Nix/Guix package definitions, from a manifest. |
 | `arx push --url <URL> <PACKAGES>...` | Upload packages to a running `arx serve` and publish remotely. |
 | `arx rm <NAME>` | Remove packages from the pool, then publish. |
 | `arx search [QUERY]` | Search local apt/yum pool entries before GC, remove, promote, or cutover. |
@@ -86,8 +86,9 @@ builds accept the marker but keep the file as ordinary payload until
 Alpine-specific backup semantics are added; Arch builds write `backup` entries
 in `.PKGINFO`.
 
-By default `arx pack` emits every supported package format. Use `--deb`,
-`--rpm`, `--apk`, or `--arch-pkg` to restrict the output set.
+By default `arx pack` emits the four archive formats. Use `--deb`, `--rpm`,
+`--apk`, or `--arch-pkg` to restrict that set; `--nix` and `--guix` are opt-in
+additions that render package definitions.
 
 For the complete package-build behavior and limits, see [Pack reference](pack.md).
 
