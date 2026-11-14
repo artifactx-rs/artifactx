@@ -1361,6 +1361,14 @@ echo yumapi
     }
 
     #[test]
+    fn promote_files_rejects_path_like_scopes_before_walking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = promote_files(tmp.path(), "../escape", "stable", "hello", None, "deb")
+            .expect_err("unsafe source scope should fail");
+        assert_eq!(err_response(&err).status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
     fn redirect_scope_is_limited_to_blobs_and_read_methods() {
         let layout = crate::storage::BlobLayout::new("apt", "pool", "yum");
         assert!(redirect_key(&layout, &Method::GET, "/apt/pool/main/a.deb").is_some());
