@@ -68,7 +68,7 @@ How we'd make this better later, and what would trigger that.
 | [0012](0012-pack-product-readiness.md) | `pack` product-readiness — reproducibility, fail-loud, workspaces | Accepted |
 | [0013](0013-incremental-publish.md) | Incremental publish — O(changes), not O(repo) | Accepted + implemented |
 | [0014](0014-oidc-keyless-push.md) | OIDC keyless push — ditch the long-lived token | Accepted |
-| [0015](0015-object-storage-backend-deferred.md) | Object-storage backend | Deferred |
+| [0015](0015-object-storage-backend-deferred.md) | Object-storage backend | Superseded by ADR-0031 |
 | [0016](0016-component-channel-filtering.md) | Component/channel filtering | Accepted |
 | [0017](0017-mirror-one-way-sync.md) | `arx mirror` — one-way upstream sync (not mirroring-as-platform) | Accepted |
 | [0018](0018-directory-entries-for-package-manifests.md) | Directory entries for package manifests | Accepted |
@@ -84,3 +84,4 @@ How we'd make this better later, and what would trigger that.
 | [0028](0028-release-tag-publication-boundary.md) | Release tags publish only the newest version | Accepted |
 | [0029](0029-reject-control-chars-in-control-fields.md) | Reject control characters in Debian control fields | Accepted |
 | [0030](0030-nix-guix-packaging-outputs.md) | Nix and Guix packaging outputs from `arx pack` | Accepted |
+| [0031](0031-object-storage-blob-backend.md) | Object-storage blob backend — upload + presigned redirect | Accepted |

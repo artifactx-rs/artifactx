@@ -49,6 +49,15 @@ yum_flat_live = "/srv/repo"
 # staging_dir = "/srv/.arx-cutovers"
 # keep_cutovers = 2
 
+# [storage]
+# backend = "s3"
+# endpoint = "https://s3.example.com"
+# region = "us-east-1"
+# bucket = "my-packages"
+# prefix = "prod"
+# path_style = true
+# presign_ttl_secs = 300
+
 [[hooks.pre_publish]]
 command = "sh"
 args = ["-c", "test -f READY"]
@@ -117,6 +126,28 @@ Passphrases are supplied by `--passphrase-file` or `ARX_KEY_PASSPHRASE`.
 The default is `127.0.0.1:8080`. Keep that for localhost or reverse-proxy
 setups. Use `--addr` to override at runtime. Private upstream access is denied
 by default, including through redirects.
+
+## `[storage]`
+
+Optional object-storage serving backend. The filesystem remains the default and
+the source of truth for `add`, `import`, `publish`, and `gc`; when
+`backend = "s3"`, `arx storage push` uploads package blobs and `arx serve`
+answers blob reads with a presigned `302`. Metadata stays local. See
+[Serve package blobs from object storage](../how-to/serve-from-object-storage.md).
+
+| Key | Meaning |
+| --- | --- |
+| `backend` | `filesystem` (default) or `s3`. |
+| `endpoint` | S3-compatible endpoint, e.g. `https://s3.us-east-1.amazonaws.com` or `http://127.0.0.1:9000`. Must not include a path. |
+| `region` | SigV4 region. Default `us-east-1`. |
+| `bucket` | Bucket name. |
+| `prefix` | Optional key prefix, e.g. `repos/prod`. |
+| `path_style` | Use `endpoint/bucket/key` addressing. Default `true`; set `false` for virtual-host style. |
+| `presign_ttl_secs` | Presigned URL lifetime in seconds, 1–604800. Default `300`. |
+
+Credentials are environment-only: `ARX_S3_ACCESS_KEY_ID`,
+`ARX_S3_SECRET_ACCESS_KEY`, and the optional `ARX_S3_SESSION_TOKEN`. They are
+never read from `arx.toml` and never logged.
 
 ## `[apt]`
 

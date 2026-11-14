@@ -1,6 +1,6 @@
 # ADR-0015: Object-storage backend — deferred with architecture notes
 
-- Status: **Deferred**
+- Status: **Superseded by [ADR-0031](0031-object-storage-blob-backend.md)** (originally Deferred)
 - Date: 2026-06-17
 
 ## Context

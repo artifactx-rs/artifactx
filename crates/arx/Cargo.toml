@@ -61,6 +61,7 @@ toml.workspace = true
 walkdir.workspace = true
 sha2.workspace = true
 hex.workspace = true
+hmac = "0.12"
 chrono.workspace = true
 xz2.workspace = true
 
