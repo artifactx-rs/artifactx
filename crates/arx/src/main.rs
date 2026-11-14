@@ -1677,7 +1677,11 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
         manifest.arch = arch.clone();
     }
 
-    // Default (no flags): build all package formats.
+    // Default (no flags): build the four archive formats only. Nix/Guix
+    // definitions are opt-in because their `$out` mapping rejects manifests the
+    // archives accept (e.g. `/usr/bin/tool` + `/bin/tool`) and Guix has no
+    // s390x system, so adding them to the default set would break existing
+    // `arx pack` invocations (ADR-0030).
     let all = !args.deb && !args.rpm && !args.apk && !args.arch_pkg;
     let do_deb = args.deb || all;
     let do_rpm = args.rpm || all;
@@ -1696,6 +1700,12 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
     if do_arch_pkg {
         built
             .push(arx_pack::build_arch_pkg(&manifest, &args.out).context("building .pkg.tar.zst")?);
+    }
+    if args.nix {
+        built.push(arx_pack::build_nix(&manifest, &args.out).context("building .nix")?);
+    }
+    if args.guix {
+        built.push(arx_pack::build_guix(&manifest, &args.out).context("building .scm")?);
     }
     for p in &built {
         println!("Built {}", p.display());
@@ -1727,6 +1737,12 @@ fn cmd_pack(args: &cli::PackArgs) -> Result<()> {
                 Some("apk") => {
                     println!(
                         "Skipped {} (.apk repositories are not supported by arx add)",
+                        p.display()
+                    );
+                }
+                Some("nix" | "scm") => {
+                    println!(
+                        "Skipped {} (Nix/Guix definitions are not repository packages)",
                         p.display()
                     );
                 }

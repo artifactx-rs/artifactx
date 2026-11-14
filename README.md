@@ -88,10 +88,12 @@ Three things enter, one thing leaves:
 - **Import** reads apt `Packages.gz` / `Packages` or yum `repodata/repomd.xml` and copies
   matching package payloads into the local pool.
 - **Add** takes `.deb` / `.rpm` files or directories containing them.
-- **Pack** builds `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` from an ArtifactX
-  manifest or a Rust `Cargo.toml`. It packages binaries you have already built —
-  it does not run `cargo build` for you. Only `.deb` and `.rpm` feed the apt/yum
-  index; the other two are artifacts for downstream channels.
+- **Pack** builds `.deb`, `.rpm`, `.apk`, and Arch `.pkg.tar.zst` by default,
+  and `--nix` / `--guix` also render Nix and Guix package definitions, from an
+  ArtifactX manifest or a Rust `Cargo.toml`.
+  It packages binaries you have already built — it does not run `cargo build`
+  for you. Only `.deb` and `.rpm` feed the apt/yum index; the others are
+  artifacts for downstream channels.
 
 `publish` then regenerates apt and yum metadata, signs it, and flips the live state
 atomically. Clients verify the signature, not the host — so the same output works from
@@ -104,7 +106,7 @@ GitHub Pages, S3, nginx, or `arx serve`.
 | An apt repo you already publish | `arx import --apt` | Migrate a slice, verify clients, cut over |
 | A yum/dnf repo | `arx import --yum` | Same, for `repodata` |
 | `.deb` / `.rpm` files on disk | `arx add` | Index what your build already produced |
-| A Cargo crate or package manifest | `arx pack` | Produce all four package formats |
+| A Cargo crate or package manifest | `arx pack` | Build packages from a manifest |
 | A CI drop directory | `arx publish-dir` | Discovery, per-dist no-op detection, publish, cutover |
 
 Imports are bounded on purpose: `--match-name`, `--arch`, and `--limit` keep the first

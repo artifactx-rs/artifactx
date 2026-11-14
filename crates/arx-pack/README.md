@@ -169,6 +169,8 @@ let deb = arx_pack::build_deb(&manifest, Path::new("dist"))?; // dist/hello_1.2.
 let rpm = arx_pack::build_rpm(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1.x86_64.rpm
 let apk = arx_pack::build_apk(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-r0.x86_64.apk
 let arch = arx_pack::build_arch_pkg(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-1-x86_64.pkg.tar.zst
+let nix = arx_pack::build_nix(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-x86_64-linux.nix
+let guix = arx_pack::build_guix(&manifest, Path::new("dist"))?; // dist/hello-1.2.3-x86_64-linux.scm
 
 // Or via the backend abstraction:
 let backend = Backend::Native;
@@ -186,9 +188,11 @@ let deb = backend.build(&manifest, Format::Deb, Path::new("dist"))?;
 | `arx_pack::build_rpm(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.rpm`, return its path. |
 | `arx_pack::build_apk(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build a `.apk`, return its path. |
 | `arx_pack::build_arch_pkg(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Build an Arch `.pkg.tar.zst`, return its path. |
+| `arx_pack::build_nix(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Render a nixpkgs-style package expression, return its path. |
+| `arx_pack::build_guix(&Manifest, out_dir: &Path) -> Result<PathBuf>` | Render a Guix package definition, return its path. |
 | `Backend::{Native, Docker { image }}` | Build backend. `Native` is the default; `Docker` shells out to a configured container image when requested. |
 | `Backend::build(&Manifest, Format, out_dir) -> Result<PathBuf>` | Dispatch a build through a backend. |
-| `Format::{Deb, Rpm, Apk, Arch}` | Output format selector. |
+| `Format::{Deb, Rpm, Apk, Arch}` | Archive output selector. Nix/Guix definitions are rendered by `build_nix`/`build_guix`. |
 
 Errors are `anyhow::Result`. Directory entries are expanded once through the
 shared manifest path, sorted deterministically, and reject symlinks, special

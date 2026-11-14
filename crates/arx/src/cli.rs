@@ -38,7 +38,8 @@ pub enum Command {
     Rollback(RollbackArgs),
     /// List retained published states (all targets, or one).
     History(HistoryArgs),
-    /// Build a `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst` from a manifest (the Package pillar).
+    /// Build `.deb`/`.rpm`/`.apk`/`.pkg.tar.zst` packages or Nix/Guix package
+    /// definitions from a manifest (the Package pillar).
     Pack(PackArgs),
     /// Push a package to a running `arx serve` (uploads + publishes remotely).
     Push(PushArgs),
@@ -253,18 +254,24 @@ pub struct PackArgs {
     /// Reproducible build timestamp epoch; overrides SOURCE_DATE_EPOCH.
     #[arg(long)]
     pub source_date: Option<u32>,
-    /// Build only the `.deb` (default: build all formats).
+    /// Build only the `.deb` (default: all four archive formats).
     #[arg(long)]
     pub deb: bool,
-    /// Build only the `.rpm` (default: build all formats).
+    /// Build only the `.rpm` (default: all four archive formats).
     #[arg(long)]
     pub rpm: bool,
-    /// Build only the Alpine Linux `.apk` package (default: build all formats).
+    /// Build only the Alpine Linux `.apk` package (default: all four archive formats).
     #[arg(long)]
     pub apk: bool,
-    /// Build only the Arch Linux `.pkg.tar.zst` package (default: build all formats).
+    /// Build only the Arch Linux `.pkg.tar.zst` package (default: all four archive formats).
     #[arg(long)]
     pub arch_pkg: bool,
+    /// Also build the Nix package expression (opt-in; not part of the default set).
+    #[arg(long)]
+    pub nix: bool,
+    /// Also build the Guix package definition (opt-in; not part of the default set).
+    #[arg(long)]
+    pub guix: bool,
     /// Also add the built packages into the repository pool.
     #[arg(long)]
     pub add: bool,

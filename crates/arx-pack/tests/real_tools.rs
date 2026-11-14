@@ -308,3 +308,262 @@ fn rpm_validates_single_file_package() {
         "rpm -qlp missing the file:\n{f}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Nix / Guix definition validation (ADR-0030)
+// ---------------------------------------------------------------------------
+
+fn has_command(name: &str, version_flag: &str) -> bool {
+    Command::new(name)
+        .arg(version_flag)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Parsing a definition needs only the Nix parser: no store writes, no nixpkgs.
+#[test]
+fn nix_instantiate_parses_generated_expression() {
+    if !has_command("nix-instantiate", "--version") {
+        eprintln!("skipping — nix-instantiate not on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = multi_file_manifest(dir.path());
+    let out = dir.path().join("def");
+    std::fs::create_dir(&out).unwrap();
+    let expression = arx_pack::build_nix(&manifest, &out).unwrap();
+
+    let parsed = Command::new("nix-instantiate")
+        .arg("--parse")
+        .arg(&expression)
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success(),
+        "nix-instantiate --parse rejected the generated expression:\n{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+
+    // A destination containing the two sequences that mean something inside a
+    // Nix indented string must survive as literal shell text.
+    let quoted = Manifest::from_toml_str(&format!(
+        "name = \"quoted\"\nversion = \"1\"\narch = \"amd64\"\n\
+         maintainer = \"T <t@localhost>\"\ndescription = \"quoted path\"\n\
+         license = \"MIT\"\n[[files]]\nsource = \"{}\"\n\
+         dest = \"/usr/share/it''s/${{x}}\"\nmode = \"0644\"\n",
+        dir.path().join("app").display()
+    ))
+    .unwrap();
+    let quoted_expression = arx_pack::build_nix(&quoted, &out).unwrap();
+    let parsed = Command::new("nix-instantiate")
+        .arg("--parse")
+        .arg(&quoted_expression)
+        .output()
+        .unwrap();
+    assert!(
+        parsed.status.success(),
+        "nix-instantiate --parse rejected a quoted destination:\n{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+}
+
+/// Full Nix build: evaluates the expression against nixpkgs and checks that the
+/// declared payload lands in `$out` byte for byte. `dontFixup` is what keeps the
+/// bytes exact; without it stdenv rewrites shebangs and moves `sbin` into `bin`.
+/// Opt-in because it writes to the Nix store and needs a usable `<nixpkgs>`; run
+/// it in a disposable container.
+#[test]
+fn nix_build_installs_the_manifest_payload() {
+    if std::env::var("PACK_NIX_BUILD_E2E").is_err() {
+        eprintln!("skipping — set PACK_NIX_BUILD_E2E=1 (requires nix + nixpkgs)");
+        return;
+    }
+    assert!(
+        has_command("nix-build", "--version"),
+        "PACK_NIX_BUILD_E2E is set but nix-build is not on PATH"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let hello = dir.path().join("hello");
+    std::fs::write(&hello, b"#!/bin/sh\necho hello\n").unwrap();
+    let daemon = dir.path().join("daemon");
+    std::fs::write(&daemon, b"#!/bin/sh\necho daemon\n").unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir(&assets).unwrap();
+    std::fs::write(assets.join("tool"), b"#!/bin/sh\necho tool\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = 'hello'\nversion = '1.0'\narch = 'amd64'\n\
+         maintainer = 'T <t@localhost>'\ndescription = 'A friendly greeter'\n\
+         license = 'MIT'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/bin/hello'\nmode = '0755'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/sbin/daemon'\nmode = '0755'\n\
+         [[dirs]]\nsource = '{}'\ndest = '/usr/libexec'\nfile_mode = '0755'\ndir_mode = '0555'\n",
+        hello.display(),
+        daemon.display(),
+        assets.display()
+    ))
+    .unwrap();
+    let out = dir.path().join("def");
+    std::fs::create_dir(&out).unwrap();
+    let expression = arx_pack::build_nix(&manifest, &out).unwrap();
+
+    let wrapper = dir.path().join("default.nix");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "let pkgs = import <nixpkgs> {{}}; in import {} {{ inherit (pkgs) lib stdenv; }}\n",
+            expression.display()
+        ),
+    )
+    .unwrap();
+
+    let build = Command::new("nix-build")
+        .args(["--no-out-link"])
+        .arg(&wrapper)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "nix-build rejected the generated expression:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let store_path = String::from_utf8_lossy(&build.stdout).trim().to_string();
+    let installed = Path::new(&store_path).join("bin/hello");
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        b"#!/bin/sh\necho hello\n",
+        "installed payload differs for {store_path}"
+    );
+    let daemon_path = Path::new(&store_path).join("sbin/daemon");
+    assert_eq!(
+        std::fs::read(&daemon_path).unwrap(),
+        b"#!/bin/sh\necho daemon\n",
+        "sbin payload differs for {store_path}"
+    );
+    assert!(
+        !Path::new(&store_path).join("bin/daemon").exists(),
+        "sbin must not be moved into bin"
+    );
+    let tool_path = Path::new(&store_path).join("libexec/tool");
+    assert_eq!(
+        std::fs::read(&tool_path).unwrap(),
+        b"#!/bin/sh\necho tool\n",
+        "a read-only directory mode must be applied after the payload is installed"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    assert_ne!(
+        std::fs::metadata(&installed).unwrap().permissions().mode() & 0o111,
+        0,
+        "manifest executable mode did not survive the install"
+    );
+}
+
+/// Guix evaluation of the generated definition; a dry run lowers it to
+/// derivations without building anything.
+#[test]
+fn guix_build_dry_run_accepts_generated_definition() {
+    if !has_command("guix", "--version") {
+        eprintln!("skipping — guix not on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = simple_manifest(dir.path());
+    let out = dir.path().join("def");
+    std::fs::create_dir(&out).unwrap();
+    let definition = arx_pack::build_guix(&manifest, &out).unwrap();
+
+    let dry = Command::new("guix")
+        .args(["build", "--dry-run", "-f"])
+        .arg(&definition)
+        .output()
+        .unwrap();
+    assert!(
+        dry.status.success(),
+        "guix build --dry-run rejected the generated definition:\n{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+}
+
+/// Full Guix build: checks that the declared payload lands in the store output
+/// byte for byte and keeps its paths. Opt-in because it needs a Guix store with
+/// substitutes (authorized signing keys) or all inputs pre-built.
+#[test]
+fn guix_build_installs_the_manifest_payload() {
+    if std::env::var("PACK_GUIX_BUILD_E2E").is_err() {
+        eprintln!("skipping — set PACK_GUIX_BUILD_E2E=1 (requires guix + substitutes)");
+        return;
+    }
+    assert!(
+        has_command("guix", "--version"),
+        "PACK_GUIX_BUILD_E2E is set but guix is not on PATH"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let hello = dir.path().join("hello");
+    std::fs::write(&hello, b"#!/bin/sh\necho hello\n").unwrap();
+    let daemon = dir.path().join("daemon");
+    std::fs::write(&daemon, b"#!/bin/sh\necho daemon\n").unwrap();
+    let assets = dir.path().join("assets");
+    std::fs::create_dir(&assets).unwrap();
+    std::fs::write(assets.join("tool"), b"#!/bin/sh\necho tool\n").unwrap();
+    let manifest = Manifest::from_toml_str(&format!(
+        "name = 'hello'\nversion = '1.0'\narch = 'amd64'\n\
+         maintainer = 'T <t@localhost>'\ndescription = 'A friendly greeter'\n\
+         license = 'MIT'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/bin/hello'\nmode = '0755'\n\
+         [[files]]\nsource = '{}'\ndest = '/usr/sbin/daemon'\nmode = '0755'\n\
+         [[dirs]]\nsource = '{}'\ndest = '/usr/libexec'\nfile_mode = '0755'\ndir_mode = '0555'\n",
+        hello.display(),
+        daemon.display(),
+        assets.display()
+    ))
+    .unwrap();
+    let out = dir.path().join("def");
+    std::fs::create_dir(&out).unwrap();
+    let definition = arx_pack::build_guix(&manifest, &out).unwrap();
+
+    let build = Command::new("guix")
+        .args(["build", "--no-grafts", "--quiet", "-f"])
+        .arg(&definition)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "guix build rejected the generated definition:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let store_path = String::from_utf8_lossy(&build.stdout).trim().to_string();
+    let installed = Path::new(&store_path).join("bin/hello");
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        b"#!/bin/sh\necho hello\n",
+        "installed payload differs for {store_path}"
+    );
+    let daemon_path = Path::new(&store_path).join("sbin/daemon");
+    assert_eq!(
+        std::fs::read(&daemon_path).unwrap(),
+        b"#!/bin/sh\necho daemon\n",
+        "sbin payload differs for {store_path}"
+    );
+    assert!(
+        !Path::new(&store_path).join("bin/daemon").exists(),
+        "sbin must not be moved into bin"
+    );
+    let tool_path = Path::new(&store_path).join("libexec/tool");
+    assert_eq!(
+        std::fs::read(&tool_path).unwrap(),
+        b"#!/bin/sh\necho tool\n",
+        "a read-only directory mode must be applied after the payload is installed"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    assert_ne!(
+        std::fs::metadata(&installed).unwrap().permissions().mode() & 0o111,
+        0,
+        "manifest executable mode did not survive the install"
+    );
+}
