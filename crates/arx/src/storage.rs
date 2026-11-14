@@ -195,6 +195,10 @@ impl S3Settings {
     pub fn put_file(&self, key: &str, path: &Path) -> Result<()> {
         let mut file =
             std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let len = file
+            .metadata()
+            .with_context(|| format!("reading metadata for {}", path.display()))?
+            .len();
         let payload_hash =
             sha256_reader(&mut file).with_context(|| format!("hashing {}", path.display()))?;
         file.seek(SeekFrom::Start(0))
@@ -202,7 +206,7 @@ impl S3Settings {
         self.put_signed(
             key,
             &payload_hash,
-            reqwest::blocking::Body::new(file),
+            reqwest::blocking::Body::sized(file, len),
             Utc::now(),
         )
     }
@@ -465,6 +469,7 @@ pub fn is_yum_blob(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
     use std::sync::Mutex;
 
     /// Credentials are process-global; serialize tests that mutate them.
@@ -596,6 +601,64 @@ mod tests {
         assert!(get.contains("X-Amz-Signature="));
         assert!(head.contains("X-Amz-Signature="));
         assert_ne!(get, head, "HEAD must be signed as HEAD, not GET");
+    }
+
+    #[test]
+    fn put_file_sends_content_length() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("ARX_S3_ACCESS_KEY_ID", "S3RVER");
+        std::env::set_var("ARX_S3_SECRET_ACCESS_KEY", "S3RVER");
+        std::env::remove_var("ARX_S3_SESSION_TOKEN");
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("pkg.deb");
+        std::fs::write(&path, b"hello").unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let capture = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0, "connection closed before headers");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+            let length: usize = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse().ok())
+                .expect("Content-Length header");
+            while request.len() < header_end + length {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0, "connection closed before body");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            assert_eq!(&request[header_end..header_end + length], b"hello");
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+            headers
+        });
+
+        let settings = S3Settings::new(
+            &format!("http://{addr}"),
+            "us-east-1",
+            "packages",
+            "",
+            true,
+            300,
+        )
+        .unwrap();
+        settings.put_file("apt/pool/pkg.deb", &path).unwrap();
+        let headers = capture.join().unwrap();
+        assert!(headers.contains("content-length: 5\r\n"), "{headers}");
+        assert!(!headers.contains("transfer-encoding: chunked"), "{headers}");
     }
 
     #[test]
