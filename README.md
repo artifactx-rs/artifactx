@@ -256,7 +256,17 @@ Using ArtifactX directly in your project? A short PR to add it here is welcome.
 
 ## Project links
 
-[Documentation](docs/README.md) · [CLI reference](docs/reference/cli.md) · [HTTP API](docs/reference/http-api.md) · [Configuration](docs/reference/config.md) · [Roadmap](ROADMAP.md) · [Competitive analysis](COMPETITORS.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [AI contributor rules](AI_RULES.md) · [Governance](GOVERNANCE.md) · [ADR index](docs/adr/README.md)
+- [Documentation](docs/README.md)
+- [CLI reference](docs/reference/cli.md)
+- [HTTP API](docs/reference/http-api.md)
+- [Configuration](docs/reference/config.md)
+- [Roadmap](ROADMAP.md)
+- [Competitive analysis](COMPETITORS.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [AI contributor rules](AI_RULES.md)
+- [Governance](GOVERNANCE.md)
+- [ADR index](docs/adr/README.md)
 
 ## License
 
