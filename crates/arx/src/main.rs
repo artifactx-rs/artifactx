@@ -16,6 +16,7 @@ mod pool;
 mod scope;
 mod server;
 mod signing;
+mod storage;
 mod yum;
 
 use std::path::{Path, PathBuf};
@@ -84,6 +85,9 @@ async fn main() -> Result<()> {
         }
         Command::Search(args) => cmd_search(&args),
         Command::Mirror(args) => cmd_mirror(args).await,
+        Command::Storage(args) => tokio::task::spawn_blocking(move || cmd_storage(&args))
+            .await
+            .context("storage task panicked")?,
         Command::Import(args) => cmd_import(args).await,
         Command::Promote(args) => cmd_promote(&args),
         Command::Gc(args) => {
@@ -1475,6 +1479,70 @@ fn load_pack_manifest(
     } else {
         arx_pack::Manifest::from_toml_str(&text)
     }
+}
+
+fn cmd_storage(args: &cli::StorageArgs) -> Result<()> {
+    match &args.action {
+        cli::StorageAction::Push(push) => cmd_storage_push(push),
+    }
+}
+
+fn cmd_storage_push(args: &cli::StoragePushArgs) -> Result<()> {
+    let cfg = Config::load(&args.root).with_context(|| {
+        format!(
+            "loading {}",
+            args.root.join(crate::config::CONFIG_FILE).display()
+        )
+    })?;
+    let settings = cfg
+        .storage
+        .checked_s3()?
+        .context("[storage] backend = \"s3\" is required for `arx storage push`")?;
+    let layout = storage::BlobLayout::new(&cfg.apt.base_dir, &cfg.apt.pool_dir, &cfg.yum.base_dir);
+    if !args.dry_run {
+        storage::Credentials::from_env()?;
+    }
+    let mut uploaded = 0usize;
+    let mut bytes = 0u64;
+    let apt_root = cfg.checked_apt_pool_root(&args.root)?;
+    let yum_root = cfg.checked_yum_base(&args.root)?;
+    for dir in [apt_root, yum_root] {
+        if !dir.is_dir() {
+            continue;
+        }
+        for entry in walkdir::WalkDir::new(&dir).follow_links(false) {
+            let entry = entry.with_context(|| format!("walking {}", dir.display()))?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(&args.root)
+                .unwrap_or(entry.path());
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let Some(key) = layout.key_for_path(&relative) else {
+                continue;
+            };
+            let object = settings.object_key(&key);
+            if args.dry_run {
+                println!("{object}");
+                continue;
+            }
+            let body_len = entry
+                .metadata()
+                .with_context(|| format!("reading metadata for {}", entry.path().display()))?
+                .len();
+            settings
+                .put_file(&object, entry.path())
+                .with_context(|| format!("uploading {key}"))?;
+            uploaded += 1;
+            bytes += body_len;
+        }
+    }
+    if !args.dry_run {
+        println!("uploaded {uploaded} blobs ({bytes} bytes)");
+    }
+    Ok(())
 }
 
 async fn cmd_mirror(args: cli::MirrorArgs) -> Result<()> {

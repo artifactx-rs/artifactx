@@ -61,6 +61,8 @@ pub enum Command {
     Daemonize(DaemonizeArgs),
     /// Mirror an upstream apt/yum repository (sync + keep up-to-date).
     Mirror(MirrorArgs),
+    /// Upload repository blobs to the configured object-storage backend.
+    Storage(StorageArgs),
     /// Watch a directory for new packages (auto-add + publish).
     Watch(WatchArgs),
     /// Generate docker-compose.yml + Dockerfile.
@@ -399,6 +401,28 @@ pub struct PublishDirArgs {
     /// `ARX_KEY_PASSPHRASE`.
     #[arg(long)]
     pub passphrase_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct StorageArgs {
+    #[command(subcommand)]
+    pub action: StorageAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StorageAction {
+    /// Upload apt pool files and yum RPMs to the configured S3 bucket.
+    Push(StoragePushArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct StoragePushArgs {
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    pub root: PathBuf,
+    /// List object keys without uploading.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args)]

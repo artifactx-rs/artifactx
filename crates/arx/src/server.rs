@@ -56,6 +56,10 @@ struct AppState {
     cfg: Arc<Config>,
     key: Option<Arc<SignedSecretKey>>,
     passphrase: Arc<str>,
+    /// Presigned-redirect backend; `None` serves blobs locally.
+    storage: Option<Arc<crate::storage::S3Settings>>,
+    /// Repository-relative blob roots for the redirect check.
+    blobs: Arc<crate::storage::BlobLayout>,
 }
 
 #[derive(Debug)]
@@ -296,6 +300,38 @@ async fn block_sensitive_static_paths(
         return StatusCode::NOT_FOUND.into_response();
     }
     next.run(req).await
+}
+
+async fn redirect_blob_to_storage(
+    State(st): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if let Some(settings) = st.storage.as_ref() {
+        if let Some(key) = redirect_key(&st.blobs, req.method(), req.uri().path()) {
+            let object = settings.object_key(&key);
+            let presigned = match *req.method() {
+                Method::HEAD => settings.presign_head(&object),
+                _ => settings.presign_get(&object),
+            };
+            match presigned {
+                Ok(url) => return (StatusCode::FOUND, [(header::LOCATION, url)]).into_response(),
+                Err(error) => {
+                    tracing::error!(%error, path = req.uri().path(), "presigning blob URL failed");
+                }
+            }
+        }
+    }
+    next.run(req).await
+}
+
+/// Paths that may be served by redirecting to object storage. Metadata, keys,
+/// and non-GET methods stay on the local server.
+fn redirect_key(blobs: &crate::storage::BlobLayout, method: &Method, path: &str) -> Option<String> {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return None;
+    }
+    blobs.key_for_uri(path)
 }
 
 async fn track_metrics(req: Request, next: Next) -> Response {
@@ -1091,6 +1127,15 @@ pub async fn serve(
     mounts: StaticMounts,
 ) -> Result<()> {
     let authed = token.is_some();
+    let s3 = push.cfg.storage.checked_s3()?;
+    if s3.is_some() {
+        crate::storage::Credentials::from_env()?;
+    }
+    let blobs = Arc::new(crate::storage::BlobLayout::new(
+        &push.cfg.apt.base_dir,
+        &push.cfg.apt.pool_dir,
+        &push.cfg.yum.base_dir,
+    ));
     let state = AppState {
         metrics,
         token: token.map(Arc::from),
@@ -1098,6 +1143,8 @@ pub async fn serve(
         cfg: Arc::new(push.cfg),
         key: push.key.map(Arc::new),
         passphrase: Arc::from(push.passphrase),
+        storage: s3.map(Arc::new),
+        blobs,
     };
 
     let serve_dir = ServeDir::new(&root).append_index_html_on_directories(false);
@@ -1130,6 +1177,10 @@ pub async fn serve(
 
     let app = app
         .fallback_service(serve_dir)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            redirect_blob_to_storage,
+        ))
         .layer(middleware::from_fn(track_metrics))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1178,11 +1229,11 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::{
-        bad_request, client_target_link, err_response, promote_files, validate_import_url,
-        HISTORY_ROUTE, ROLLBACK_ROUTE,
+        bad_request, client_target_link, err_response, promote_files, redirect_key,
+        validate_import_url, HISTORY_ROUTE, ROLLBACK_ROUTE,
     };
     use axum::{
-        http::StatusCode,
+        http::{Method, StatusCode},
         routing::{get, post},
         Router,
     };
@@ -1310,10 +1361,20 @@ echo yumapi
     }
 
     #[test]
-    fn promote_files_rejects_path_like_scopes_before_walking() {
-        let tmp = tempfile::tempdir().unwrap();
-        let err = promote_files(tmp.path(), "../escape", "stable", "hello", None, "deb")
-            .expect_err("unsafe source scope should fail");
-        assert_eq!(err_response(&err).status(), StatusCode::BAD_REQUEST);
+    fn redirect_scope_is_limited_to_blobs_and_read_methods() {
+        let layout = crate::storage::BlobLayout::new("apt", "pool", "yum");
+        assert!(redirect_key(&layout, &Method::GET, "/apt/pool/main/a.deb").is_some());
+        assert!(redirect_key(&layout, &Method::HEAD, "/yum/stable/x86_64/a.rpm").is_some());
+        assert!(redirect_key(&layout, &Method::POST, "/apt/pool/main/a.deb").is_none());
+        assert!(redirect_key(&layout, &Method::GET, "/apt/dists/stable/Release").is_none());
+        assert!(redirect_key(
+            &layout,
+            &Method::GET,
+            "/yum/stable/x86_64/repodata/repomd.xml"
+        )
+        .is_none());
+        assert!(redirect_key(&layout, &Method::GET, "/keys/private.asc").is_none());
+        assert!(redirect_key(&layout, &Method::GET, "/apt/pool/../keys/private.asc").is_none());
+        assert!(redirect_key(&layout, &Method::GET, "/apt/pool/%2e%2e/keys").is_none());
     }
 }

@@ -37,6 +37,76 @@ pub struct Config {
     /// Live cutover defaults shared by `publish`, `cutover`, and `publish-dir`.
     #[serde(default, skip_serializing_if = "Publish::is_empty")]
     pub publish: Publish,
+    /// Optional object-storage serving backend. Filesystem is the default.
+    #[serde(default, skip_serializing_if = "Storage::is_default")]
+    pub storage: Storage,
+}
+
+/// Where package blobs are served from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageBackend {
+    /// Serve blobs from the local repository tree (default).
+    #[default]
+    Filesystem,
+    /// Serve blobs from an S3-compatible bucket via presigned redirects.
+    S3,
+}
+
+/// `[storage]` settings. Credentials are environment-only and never stored here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Storage {
+    #[serde(default)]
+    pub backend: StorageBackend,
+    /// S3-compatible endpoint, e.g. `https://s3.example.com` or MinIO.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    /// SigV4 region. Defaults to `us-east-1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// Bucket holding package blobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<String>,
+    /// Key prefix inside the bucket, e.g. `repos/prod`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    /// Path-style addressing (`endpoint/bucket/key`). Defaults to `true`, which
+    /// works for MinIO and AWS S3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_style: Option<bool>,
+    /// Presigned URL lifetime in seconds. Defaults to 300; maximum 604800.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presign_ttl_secs: Option<u64>,
+}
+
+impl Storage {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// Validate `[storage]` and return S3 settings when `backend = "s3"`.
+    pub fn checked_s3(&self) -> Result<Option<crate::storage::S3Settings>> {
+        if self.backend == StorageBackend::Filesystem {
+            return Ok(None);
+        }
+        let endpoint = self
+            .endpoint
+            .as_deref()
+            .context("[storage] backend = \"s3\" requires endpoint")?;
+        let bucket = self
+            .bucket
+            .as_deref()
+            .context("[storage] backend = \"s3\" requires bucket")?;
+        crate::storage::S3Settings::new(
+            endpoint,
+            self.region.as_deref().unwrap_or("us-east-1"),
+            bucket,
+            self.prefix.as_deref().unwrap_or(""),
+            self.path_style.unwrap_or(true),
+            self.presign_ttl_secs.unwrap_or(300),
+        )
+        .map(Some)
+    }
 }
 
 /// OIDC configuration for keyless push authentication. (ADR-0014.)
@@ -416,6 +486,36 @@ addr = "127.0.0.1:9000"
         assert_eq!(cfg.server.addr, "127.0.0.1:9000");
         assert_eq!(cfg.apt.component, "main");
         assert!(cfg.signing.enabled);
+    }
+
+    #[test]
+    fn storage_is_filesystem_by_default_and_skipped_in_toml() {
+        let cfg = Config::default();
+        assert_eq!(cfg.storage.backend, StorageBackend::Filesystem);
+        assert!(cfg.storage.checked_s3().unwrap().is_none());
+        let text = toml::to_string_pretty(&cfg).unwrap();
+        assert!(!text.contains("[storage]"));
+    }
+
+    #[test]
+    fn storage_s3_requires_endpoint_and_bucket() {
+        let text = r#"
+[storage]
+backend = "s3"
+"#;
+        let cfg: Config = toml::from_str(text).unwrap();
+        assert!(cfg.storage.checked_s3().is_err());
+
+        let text = r#"
+[storage]
+backend = "s3"
+endpoint = "http://127.0.0.1:9000"
+bucket = "packages"
+prefix = "prod"
+"#;
+        let cfg: Config = toml::from_str(text).unwrap();
+        let s3 = cfg.storage.checked_s3().unwrap().unwrap();
+        assert_eq!(s3.object_key("apt/pool/a.deb"), "prod/apt/pool/a.deb");
     }
 
     #[test]

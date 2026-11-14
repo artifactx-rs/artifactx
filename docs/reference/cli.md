@@ -32,9 +32,27 @@ for the authoritative option list in your installed version.
 | `arx serve` | Serve the repository tree and API over HTTP. |
 | `arx daemonize` | Install/update a systemd `arx serve` unit and generate a write token. |
 | `arx mirror <URL>` | Mirror an upstream apt/yum repository. |
+| `arx storage push` | Upload apt pool files and yum RPMs to the configured S3 bucket. |
 | `arx watch [DIR]` | Watch a directory for new packages and auto-publish. |
 | `arx compose` | Generate `docker-compose.yml` and `Dockerfile`. |
 | `arx export` | Export published repos into legacy-compatible public layouts. |
+
+## Object storage
+
+With `[storage] backend = "s3"`, `arx storage push` uploads apt pool files and
+yum RPMs (never `repodata/`) under their repository-relative keys:
+
+```sh
+export ARX_S3_ACCESS_KEY_ID=...
+export ARX_S3_SECRET_ACCESS_KEY=...
+arx storage push --root ./repo --dry-run   # list object keys
+arx storage push --root ./repo             # upload
+```
+
+Uploads are idempotent; rerun after `arx publish` to refresh the bucket. The
+filesystem pool remains the publish input. `arx serve` answers those blob paths
+with a presigned `302` when the same `[storage]` block is configured. See
+[Serve package blobs from object storage](../how-to/serve-from-object-storage.md).
 
 ## Common command chains
 

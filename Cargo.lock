@@ -181,6 +181,7 @@ dependencies = [
  "flate2",
  "glob",
  "hex",
+ "hmac",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
