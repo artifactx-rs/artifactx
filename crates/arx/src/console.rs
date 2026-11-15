@@ -123,7 +123,7 @@ fn state(root: &Path, cfg: &Config, entries: &[pool::Entry]) -> (Value, Value, V
     let activity = json!([
         {
             "title": if last_publish.is_some() { "Metadata present" } else { "No publish yet" },
-            "detail": if last_publish.is_some() { "apt + yum indexes are available" } else { "Run arx publish to create indexes" },
+            "detail": if last_publish.is_some() { "Repository indexes are available" } else { "Run arx publish to create indexes" },
             "time": last_label.clone(),
         }
     ]);
@@ -140,6 +140,9 @@ fn latest_publish(root: &Path, cfg: &Config) -> Option<SystemTime> {
     if let Ok(dists) = cfg.checked_apt_dists(root) {
         if let Ok(entries) = std::fs::read_dir(dists) {
             for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
                 latest = latest
                     .into_iter()
                     .chain(modified(entry.path().join("InRelease")))
