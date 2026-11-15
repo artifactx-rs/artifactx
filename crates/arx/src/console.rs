@@ -5,7 +5,7 @@
 //! repository from the browser and never performs a write.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -135,42 +135,42 @@ fn repo_name(cfg: &Config) -> String {
 }
 
 fn latest_publish(root: &Path, cfg: &Config) -> Option<SystemTime> {
-    [
-        cfg.checked_apt_dists(root).ok(),
-        cfg.checked_yum_base(root).ok(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(|dir| latest_metadata(&dir))
-    .max()
-}
-
-fn latest_metadata(dir: &Path) -> Option<SystemTime> {
     let mut latest = None;
-    for entry in walkdir::WalkDir::new(dir)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if entry
-            .path()
-            .components()
-            .any(|part| part.as_os_str() == ".states")
-        {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy();
-        if name != "InRelease" && name != "repomd.xml" {
-            continue;
-        }
-        if let Some(modified) = entry.metadata().ok().and_then(|meta| meta.modified().ok()) {
-            latest = Some(latest.map_or(modified, |current: SystemTime| current.max(modified)));
+
+    if let Ok(dists) = cfg.checked_apt_dists(root) {
+        if let Ok(entries) = std::fs::read_dir(dists) {
+            for entry in entries.flatten() {
+                latest = latest
+                    .into_iter()
+                    .chain(modified(entry.path().join("InRelease")))
+                    .chain(modified(entry.path().join("Release")))
+                    .max();
+            }
         }
     }
+
+    if let Ok(yum) = cfg.checked_yum_base(root) {
+        if let Ok(repos) = std::fs::read_dir(yum) {
+            for repo in repos.flatten() {
+                if let Ok(arches) = std::fs::read_dir(repo.path()) {
+                    for arch in arches.flatten() {
+                        latest = latest
+                            .into_iter()
+                            .chain(modified(arch.path().join("repodata/repomd.xml")))
+                            .max();
+                    }
+                }
+            }
+        }
+    }
+
     latest
+}
+
+fn modified(path: PathBuf) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
 }
 
 fn relative_time(time: SystemTime) -> String {
@@ -293,5 +293,19 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["updateDataModel"]["path"], "/query");
         assert_eq!(messages[1]["updateDataModel"]["path"], "/packages");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn latest_publish_follows_live_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("apt/.states/one");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("Release"), "Origin: test\n").unwrap();
+        let dists = temp.path().join("apt/dists");
+        std::fs::create_dir_all(&dists).unwrap();
+        std::os::unix::fs::symlink("../.states/one", dists.join("stable")).unwrap();
+
+        assert!(latest_publish(temp.path(), &Config::default()).is_some());
     }
 }

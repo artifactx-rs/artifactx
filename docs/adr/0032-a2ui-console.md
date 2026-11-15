@@ -11,7 +11,10 @@ the console search moved from `POST` to a safe `GET` so token/OIDC
 deployments can use it, and sensitive static-path checks now normalize
 percent-decoded path components (`//`, `/./`, `%2e`, case-insensitive) before
 comparison. The review's status-label, search-metric, asset-header, and
-OpenAPI concerns were also addressed.
+OpenAPI concerns were also addressed. A follow-up review caught that live apt/yum
+metadata sits behind `.states` symlinks (and unsigned apt publishes emit
+`Release`, not `InRelease`); the overview now resolves the live links and accepts
+both forms.
 
 ## Context
 
@@ -43,8 +46,8 @@ a supported MCP client/seat is available.
 - Add two same-origin endpoints:
   - `GET /api/v1/ui/overview` returns A2UI messages for the repository summary
     and the first package page.
-  - `POST /api/v1/ui/action` handles `search_packages` and returns a replacement
-    surface for the matching packages.
+  - `GET /api/v1/ui/search?q=…` handles the search action and returns
+    `/query` and `/packages` data-model updates.
 - The surface is data-only and read-only. It shows repository identity, package
   count, apt component/yum repo counts, last publish time, and a searchable
   package list. No upload, delete, publish, cutover, or rollback action is

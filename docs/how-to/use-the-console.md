@@ -10,8 +10,8 @@ arx serve --root ./repo
 The page is generated from A2UI v1.0 messages by the Rust server and rendered
 with `@a2ui/react`. It shows repository counts, the latest publish time, and a
 searchable package list. Search is an A2UI action: the client sends
-`search_packages` to `/api/v1/ui/action`, and the server responds with data-model
-updates.
+`GET /api/v1/ui/search?q=…`, and the server responds with `/query` and
+`/packages` data-model updates. Repository-wide metrics stay unchanged.
 
 The console is read-only in this slice. Upload, delete, publish, cutover, and
 rollback actions remain CLI/API operations. The embedded bundle is built from
