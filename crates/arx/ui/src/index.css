@@ -10,6 +10,14 @@
   --dim: #6b7b93;
   --cyan: #22d3ee;
   --lime: #a3e635;
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--panel);
+  --card-foreground: var(--text);
+  --primary: var(--cyan);
+  --primary-foreground: #041014;
+  --border: var(--line);
+  --radius: 14px;
 
   --a2ui-color-background: var(--bg);
   --a2ui-color-on-background: var(--text);
@@ -197,3 +205,16 @@ a2ui-row { min-width: 0; }
 .mono,
 code,
 pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Custom A2UI catalog: shadcn-style primitives with the console tokens. */
+.a2ui-row, .a2ui-column { display: flex; min-width: 0; gap: 12px; }
+.a2ui-row { flex-direction: row; }
+.a2ui-column { flex-direction: column; }
+.a2ui-card { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.a2ui-list { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.a2ui-list.horizontal { flex-direction: row; flex-wrap: wrap; }
+.a2ui-text { color: var(--foreground); }
+.a2ui-caption { color: var(--muted); font-size: 12px; }
+.a2ui-button { padding: 8px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 6px); background: var(--panel-soft); color: var(--foreground); cursor: pointer; }
+.a2ui-button.primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); font-weight: 700; }
+.a2ui-button:disabled { cursor: not-allowed; opacity: .55; }

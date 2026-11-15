@@ -41,8 +41,11 @@ a supported MCP client/seat is available.
 
 ### First slice: read-only overview and package search
 
-- Add a `crates/arx/ui/` Vite + React app that uses `@a2ui/react` and the A2UI v1.0 Basic
-  Catalog. The app is served by `arx serve` at `/ui`.
+- Add a `crates/arx/ui/` Vite + React app that uses `@a2ui/react` with a custom
+  React catalog built from the A2UI v1.0 Basic Catalog schemas. Text, Row,
+  Column, Card, List, and Button are React primitives styled with shadcn-style
+  CSS tokens; components without an override fall back to the Basic Catalog.
+  The app is served by `arx serve` at `/ui`.
 - Add two same-origin endpoints:
   - `GET /api/v1/ui/overview` returns A2UI messages for the repository summary
     and the first package page.
@@ -67,7 +70,6 @@ a supported MCP client/seat is available.
 
 - Publish/cutover/rollback actions with explicit confirmation and preflight.
 - Authentication for write actions; this slice is read-only and same-origin.
-- A custom A2UI catalog if the Basic Catalog cannot express the final design.
 
 ## Consequences
 

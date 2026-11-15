@@ -7,7 +7,7 @@ import {
 } from '@a2ui/react';
 import {MessageProcessor} from '@a2ui/web_core';
 import type {ActionPayload, SurfaceModel} from '@a2ui/web_core/state';
-import {basicCatalog} from '@a2ui/web_core/catalogs/basic/v1';
+import {catalog} from './catalog';
 
 function PlainMarkdown({markdown}: MarkdownComponentProps) {
   return <span>{markdown}</span>;
@@ -19,7 +19,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [processor] = useState(() => {
     const p = new MessageProcessor<ReactCatalogComponent>(
-      [basicCatalog],
+      [catalog],
       async (action: ActionPayload) => {
         const query = typeof action.context?.query === 'string' ? action.context.query : '';
         try {

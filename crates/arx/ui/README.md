@@ -26,6 +26,13 @@ npm run dev --prefix crates/arx/ui
 Vite serves the app at `/ui/`; start `arx serve` separately and proxy the API if
 needed. The production build uses `base: "/ui/"`, matching the embedded route.
 
+## Catalog
+
+`src/catalog.tsx` builds a custom React catalog from the A2UI v1.0 Basic
+Catalog schemas. Text, Row, Column, Card, List, and Button are React primitives
+styled with shadcn-style CSS tokens; components without an override use the
+Basic Catalog implementation.
+
 ## Scope
 
 The first slice is read-only: overview metrics, package search, and publish
