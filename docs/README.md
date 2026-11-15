@@ -14,6 +14,7 @@ front of you.
 | Operate a repeated package drop directory | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
 | Install packages from an ArtifactX repo | [Install clients](how-to/install-clients.md) |
 | Serve package blobs from S3-compatible object storage | [Serve package blobs from object storage](how-to/serve-from-object-storage.md) |
+| Inspect a repository in the browser | [Use the A2UI console](how-to/use-the-console.md) |
 | Publish a serverless public repo on GitHub Pages | [Publish with GitHub Pages](how-to/publish-with-github-pages.md) |
 | Keep legacy sync or mirror automation during migration | [Integrate downstream sync safely](how-to/integrate-downstream-sync.md) |
 | Prune old package versions safely | [Prune old packages with GC](how-to/prune-and-gc.md) |

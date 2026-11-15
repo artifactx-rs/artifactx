@@ -32,12 +32,15 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use include_dir::{include_dir, Dir};
 use metrics_exporter_prometheus::PrometheusHandle;
 use pgp::composed::SignedSecretKey;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+
+static CONSOLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui/dist");
 
 const ROLLBACK_ROUTE: &str = "/api/v1/rollback/*target";
 const HISTORY_ROUTE: &str = "/api/v1/history/*target";
@@ -229,9 +232,18 @@ async fn require_auth(State(st): State<AppState>, req: Request, next: Next) -> R
 }
 
 fn normalize_repo_relative_path(path: &str) -> String {
-    path.trim_start_matches('/')
-        .trim_start_matches("./")
-        .replace('\\', "/")
+    let path = path.replace('\\', "/");
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/").to_ascii_lowercase()
 }
 
 fn percent_decode_path_lossy(path: &str) -> String {
@@ -357,6 +369,69 @@ async fn health_handler() -> Json<Health> {
         name: "arx",
         version: crate::VERSION,
     })
+}
+
+async fn console_index() -> Response {
+    console_asset("index.html")
+}
+
+async fn console_asset_handler(AxPath(path): AxPath<String>) -> Response {
+    console_asset(&path)
+}
+
+fn console_asset(path: &str) -> Response {
+    let path = path.trim_start_matches('/');
+    let Some(file) = CONSOLE.get_file(path) else {
+        return (StatusCode::NOT_FOUND, "console asset not found\n").into_response();
+    };
+    let content_type = match path.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    };
+    let cache = if path == "index.html" {
+        "no-cache"
+    } else {
+        "public, max-age=31536000, immutable"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, cache),
+            (
+                header::HeaderName::from_static("x-content-type-options"),
+                "nosniff",
+            ),
+        ],
+        axum::body::Body::from(file.contents()),
+    )
+        .into_response()
+}
+
+async fn console_overview_handler(State(st): State<AppState>) -> Response {
+    let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
+    run_blocking(move || crate::console::overview(&root, &cfg)).await
+}
+
+#[derive(Deserialize)]
+struct ConsoleSearchQuery {
+    q: Option<String>,
+}
+
+async fn console_search_handler(
+    State(st): State<AppState>,
+    Query(q): Query<ConsoleSearchQuery>,
+) -> Response {
+    let query = q.q.unwrap_or_default();
+    let root = st.root.clone();
+    let cfg = Arc::clone(&st.cfg);
+    run_blocking(move || crate::console::search(&root, &cfg, &query)).await
 }
 
 #[derive(Deserialize)]
@@ -1153,6 +1228,11 @@ pub async fn serve(
         .route("/api/docs", get(api_docs_handler))
         .route("/api/openapi.yaml", get(openapi_handler))
         .route("/api/v1/health", get(health_handler))
+        .route("/api/v1/ui/overview", get(console_overview_handler))
+        .route("/api/v1/ui/search", get(console_search_handler))
+        .route("/ui", get(console_index))
+        .route("/ui/", get(console_index))
+        .route("/ui/*path", get(console_asset_handler))
         .route("/api/v1/packages", get(list_handler).post(upload_handler))
         .route("/api/v1/packages/:name", delete(delete_handler))
         .route("/api/v1/gc", post(gc_handler))
@@ -1366,6 +1446,23 @@ echo yumapi
         let err = promote_files(tmp.path(), "../escape", "stable", "hello", None, "deb")
             .expect_err("unsafe source scope should fail");
         assert_eq!(err_response(&err).status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn sensitive_key_paths_reject_normalized_variants() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = crate::config::Config::default();
+        for path in [
+            "/keys//private.asc",
+            "/keys/./private.asc",
+            "/keys/%2e/private.asc",
+            "/KEYS/PRIVATE.ASC",
+        ] {
+            assert!(
+                super::is_sensitive_static_path(path, tmp.path(), &cfg),
+                "{path}"
+            );
+        }
     }
 
     #[test]
