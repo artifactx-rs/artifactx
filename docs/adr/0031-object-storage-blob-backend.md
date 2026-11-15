@@ -12,8 +12,8 @@ acceptance: SigV4 path canonicalization now percent-encodes reserved
 characters, and `[storage]` rejects endpoint userinfo. Accepted residual risks:
 the redirect predicate is unit-tested but has no automated Axum middleware
 regression test (the route was exercised manually), and streaming uploads were
-verified against an S3-compatible local server and a botocore signature vector,
-not against every provider.
+verified against s3rver (transport) and rclone (SigV4 positive/negative), not
+against real AWS.
 
 ## Context
 
@@ -91,9 +91,12 @@ semantics.
 ## Acceptance
 
 - Unit vectors for SigV4 presigning (AWS published example) and key mapping.
-- MinIO end-to-end: `arx storage push` → `arx serve` returns `302` → following
-  the redirect yields byte-identical package files; without `[storage]`, the
-  same request is streamed locally.
+- SigV4-validating S3-compatible end-to-end (MinIO or rclone): a valid
+  credential upload succeeds; a wrong secret returns `403
+  SignatureDoesNotMatch`; `arx serve` returns `302` and the presigned GET/HEAD
+  is accepted; following it yields byte-identical package files; tampering the
+  signature returns `403`. Without `[storage]`, the same request is streamed
+  locally.
 - A path outside the blob roots, a `repodata/` path, or a `..` segment is never
   redirected.
 - `cargo fmt`, `cargo clippy --workspace --all-targets --all-features -D warnings`,
