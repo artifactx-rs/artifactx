@@ -2596,9 +2596,9 @@ dependencies = [
 
 [[package]]
 name = "rpm-version"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61e5905b7c264d3aec4c631f6a90f0b68bec5bcf9dc0be2bb793c4cf797eae7d"
+checksum = "986fe31ac10f996887f6d41df5ab1a952537eb8b170808a02cd9690f8f9f1393"
 
 [[package]]
 name = "rsa"
