@@ -1,0 +1,220 @@
+:root {
+  color-scheme: dark;
+  --bg: #070b12;
+  --panel: #0d1522;
+  --panel-soft: #0a1220;
+  --line: #1c2739;
+  --line-soft: #16202f;
+  --text: #eef4ff;
+  --muted: #93a3ba;
+  --dim: #6b7b93;
+  --cyan: #22d3ee;
+  --lime: #a3e635;
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--panel);
+  --card-foreground: var(--text);
+  --primary: var(--cyan);
+  --primary-foreground: #041014;
+  --border: var(--line);
+  --radius: 14px;
+
+  --a2ui-color-background: var(--bg);
+  --a2ui-color-on-background: var(--text);
+  --a2ui-color-surface: var(--panel);
+  --a2ui-color-on-surface: var(--text);
+  --a2ui-color-primary: var(--cyan);
+  --a2ui-color-on-primary: #041014;
+  --a2ui-color-secondary: var(--panel-soft);
+  --a2ui-color-on-secondary: var(--text);
+  --a2ui-color-border: var(--line);
+  --a2ui-color-input: #0a1220;
+  --a2ui-color-on-input: var(--text);
+  --a2ui-border-radius: 14px;
+  --a2ui-border-width: 1px;
+  --a2ui-spacing-m: 12px;
+  --a2ui-spacing-s: 8px;
+  --a2ui-spacing-l: 20px;
+  --a2ui-font-family-title: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --a2ui-font-family-monospace: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(720px 420px at 8% -8%, rgba(34, 211, 238, .10), transparent 68%),
+    radial-gradient(640px 380px at 96% 0%, rgba(37, 99, 235, .10), transparent 70%),
+    var(--bg);
+  color: var(--text);
+  font: 400 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; }
+
+.app-shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  width: 224px;
+  min-height: 100vh;
+  padding: 22px 14px 18px;
+  border-right: 1px solid var(--line-soft);
+  background: rgba(7, 11, 18, .72);
+  backdrop-filter: blur(14px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 26px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.brand-mark { color: var(--cyan); font-size: 22px; line-height: 1; }
+
+.nav { display: flex; flex-direction: column; gap: 4px; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: default;
+}
+
+.nav-item.active {
+  border-color: rgba(34, 211, 238, .26);
+  background: rgba(34, 211, 238, .09);
+  color: var(--text);
+}
+
+.nav-item:disabled { cursor: default; opacity: .58; }
+
+.nav-index {
+  color: var(--dim);
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .06em;
+}
+
+.nav-item.active .nav-index { color: var(--cyan); }
+
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 14px 10px 0;
+  border-top: 1px solid var(--line-soft);
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.main { flex: 1; min-width: 0; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(7, 11, 18, .55);
+}
+
+.crumbs { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.crumbs .mono { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.slash { color: var(--dim); }
+
+.topbar-right { display: flex; align-items: center; gap: 14px; }
+
+.pill {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--lime);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 4px rgba(163, 230, 53, .12);
+}
+
+.surface {
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 26px 28px 40px;
+}
+
+.surface > * + * { margin-top: 16px; }
+
+.state {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.state.error { border-color: rgba(239, 68, 68, .42); color: #fecaca; }
+
+/* A2UI hosts: light-DOM custom elements, themed through the variables above. */
+a2ui-react-card,
+a2ui-card {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+a2ui-react-text,
+a2ui-text { color: var(--text); }
+
+a2ui-react-row,
+a2ui-row { min-width: 0; }
+
+.mono,
+code,
+pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Custom A2UI catalog: shadcn-style primitives with the console tokens. */
+.a2ui-row, .a2ui-column { display: flex; min-width: 0; gap: 12px; }
+.a2ui-row { flex-direction: row; }
+.a2ui-column { flex-direction: column; }
+.a2ui-card { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.a2ui-list { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.a2ui-list.horizontal { flex-direction: row; flex-wrap: wrap; }
+.a2ui-text { color: var(--foreground); }
+.a2ui-caption { color: var(--muted); font-size: 12px; }
+.a2ui-button { padding: 8px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 6px); background: var(--panel-soft); color: var(--foreground); cursor: pointer; }
+.a2ui-button.primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); font-weight: 700; }
+.a2ui-button:disabled { cursor: not-allowed; opacity: .55; }

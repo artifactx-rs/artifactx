@@ -9,3 +9,7 @@
 .DS_Store
 # Local agent/code graph cache
 .codebase-memory/
+
+# Console dependencies; the built bundle is checked in so `cargo install`
+# can embed it without requiring Node on the user's machine.
+/crates/arx/ui/node_modules/

@@ -10,6 +10,7 @@ servers:
 security: []
 tags:
   - name: health
+  - name: ui
   - name: packages
   - name: publish
   - name: rollback
@@ -29,6 +30,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+  /api/v1/ui/overview:
+    get:
+      tags: [ui]
+      summary: Get the A2UI console overview surface
+      operationId: getUiOverview
+      responses:
+        '200':
+          description: A2UI v1.0 messages for the read-only repository console.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /api/v1/ui/search:
+    get:
+      tags: [ui]
+      summary: Search packages for the A2UI console
+      operationId: searchUiPackages
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Package name substring.
+      responses:
+        '200':
+          description: A2UI data-model updates for the package list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
   /api/v1/packages:
     get:
       tags: [packages]

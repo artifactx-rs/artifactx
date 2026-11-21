@@ -28,6 +28,18 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
     watch_git_head(&workspace_root);
+    watch_console_assets(&manifest_dir);
+}
+
+fn watch_console_assets(manifest_dir: &Path) {
+    let dist = manifest_dir.join("ui/dist");
+    let index = dist.join("index.html");
+    if !index.is_file() {
+        panic!(
+            "crates/arx/ui/dist/index.html is missing; run `npm --prefix crates/arx/ui ci && npm --prefix crates/arx/ui run build` before cargo build"
+        );
+    }
+    println!("cargo:rerun-if-changed={}", dist.display());
 }
 
 fn git_sha(workspace_root: &Path) -> String {

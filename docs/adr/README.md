@@ -85,3 +85,4 @@ How we'd make this better later, and what would trigger that.
 | [0029](0029-reject-control-chars-in-control-fields.md) | Reject control characters in Debian control fields | Accepted |
 | [0030](0030-nix-guix-packaging-outputs.md) | Nix and Guix packaging outputs from `arx pack` | Accepted |
 | [0031](0031-object-storage-blob-backend.md) | Object-storage blob backend — upload + presigned redirect | Accepted |
+| [0032](0032-a2ui-console.md) | A2UI console for repository operations | Accepted |
