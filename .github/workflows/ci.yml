@@ -27,6 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/arx/ui/package-lock.json
+      - name: Build console
+        run: npm ci --prefix crates/arx/ui && npm run build --prefix crates/arx/ui
+      - name: Verify committed console bundle
+        run: git diff --exit-code -- crates/arx/ui/dist
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

@@ -4,6 +4,7 @@ mod cache;
 mod cli;
 mod compose;
 mod config;
+mod console;
 mod createrepo_rs;
 mod cutover;
 mod export;

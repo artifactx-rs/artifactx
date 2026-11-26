@@ -107,6 +107,16 @@ jobs:
           echo "$PWD/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
           cargo install cargo-zigbuild
 
+      - uses: actions/setup-node@v4
+        if: steps.meta.outputs.run_release == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/arx/ui/package-lock.json
+      - name: Build console
+        if: steps.meta.outputs.run_release == 'true'
+        run: npm ci --prefix crates/arx/ui && npm run build --prefix crates/arx/ui
+
       - name: Build static binaries (amd64 + arm64)
         if: steps.meta.outputs.run_release == 'true'
         run: |
